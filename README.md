@@ -154,7 +154,6 @@ Google Apps Script Web App을 활용하여 별도의 프로그램 설치 없이 
 
 업무 처리 순서는 다음과 같습니다.
 
-```text
 조사정보 입력
     ↓
 Excel 파일 선택
@@ -172,18 +171,17 @@ Gemini AI 분석
 결과 확인
     ↓
 Excel 보고서 저장
-```text
 
 
 각 단계의 완료 상태에 따라 다음 기능 버튼이 순차적으로 활성화되도록 구성했습니다.
-
+---
 ### 10. Excel 결과보고서 다운로드
 
 최종 생성된 결과보고서를 Excel(.xlsx) 파일로 변환하여 저장할 수 있습니다.
 
 내부 관리용 설정 및 문항 매핑 시트는 제외하고 실제 결과보고서 시트만 내보냅니다.
-
-🛠 기술 스택
+---
+### 🛠 기술 스택
 Backend
 Google Apps Script
 JavaScript
@@ -198,7 +196,8 @@ Data & Report
 Google Spreadsheet
 Excel (.xlsx)
 Google Drive
-🏗 시스템 구조
+---
+### 🏗 시스템 구조
 Excel 설문 응답
         │
         ▼
@@ -227,7 +226,8 @@ Excel 설문 응답
                │
                ▼
        Excel 결과보고서
-🔒 개인정보 및 보안
+       ---
+### 🔒 개인정보 및 보안
 
 본 저장소에는 다음 정보를 포함하지 않습니다.
 
@@ -243,7 +243,9 @@ const apiKey =
   PropertiesService
     .getScriptProperties()
     .getProperty("GEMINI_API_KEY");
-📂 프로젝트 구조
+    ---
+    
+### 📂 프로젝트 구조
 Library-Survey-Automation-System/
 │
 ├── README.md
@@ -267,24 +269,26 @@ Library-Survey-Automation-System/
 │   └── screenshots/
 │
 └── sample/
-🎯 프로젝트 개발 목적
+---
+### 🎯 프로젝트 개발 목적
 
 도서관 인턴 업무 중 만족도 조사 결과를 정리하고 보고서를 작성하는 과정에서 반복적인 데이터 처리 업무를 자동화하기 위해 개발했습니다.
-
 초기에는 특정 만족도 조사 양식을 처리하는 시스템으로 개발했으나, 설문마다 문항 구조가 다르다는 문제를 해결하기 위해 문항 자동 분석과 사용자 매핑 기능을 추가하여 범용 시스템으로 확장했습니다.
-
 또한 단순 통계 자동화를 넘어 Gemini API를 활용한 주관식 의견 분석, 결과 총평 및 향후계획 작성 기능을 구현했습니다.
+---
 
-🚀 향후 개선 계획
+### 🚀 향후 개선 계획
 다양한 설문 양식에 대한 문항 유형 자동 추천 정확도 개선
 AI 분석 결과 담당자 수정 기능
 보고서 디자인 및 차트 시각화 개선
 대용량 설문 데이터 처리 성능 개선
 분석 이력 관리 기능
 PDF 결과보고서 생성 기능
-👨‍💻 Developer
+---
+### 👨‍💻 Developer
 
 Limsungrae
 
 Information & Communications
 Backend / Data / AI Automation
+---
