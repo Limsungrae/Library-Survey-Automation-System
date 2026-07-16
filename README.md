@@ -57,7 +57,7 @@
 
 사용자가 순서대로 업무를 진행할 수 있도록 단계별 Workflow를 제공합니다.
 
-![Main](images/main.png)
+![Main](images/main.jpg)
 
 ---
 
@@ -67,7 +67,7 @@
 
 담당자는 필요 시 직접 수정하여 다양한 설문 양식에 대응할 수 있습니다.
 
-![Mapping](images/mapping.png)
+![Mapping](images/mapping.jpg)
 
 ---
 
@@ -75,7 +75,7 @@
 
 응답자 수, 만족도 평균, 긍정률 등을 시각적으로 확인할 수 있습니다.
 
-![Dashboard](images/dashboard.png)
+![Dashboard](images/dashboard.jpg)
 
 ---
 
@@ -83,7 +83,7 @@
 
 조사정보 입력부터 AI 분석, 결과보고서 생성까지 하나의 업무 흐름으로 제공합니다.
 
-![Workflow](images/workflow.png)
+![Workflow](images/workflow.jpg)
 
 ---
 
@@ -91,7 +91,7 @@
 
 담당자 인증 후 시스템을 사용할 수 있도록 간단한 인증 기능을 제공합니다.
 
-![Login](images/login.png)
+![Login](images/login.jpg)
 
 ---
 
