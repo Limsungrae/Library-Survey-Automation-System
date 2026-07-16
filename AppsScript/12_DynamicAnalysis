@@ -1,0 +1,1400 @@
+/**
+ * ==========================================================================
+ * 범용 만족도 조사 동적 분석
+ * ==========================================================================
+ *
+ * 현재 단계:
+ * - 10_문항매핑과 09_범용원자료를 읽습니다.
+ * - 문항명과 컬럼 순서가 서로 일치하는지 확인합니다.
+ *
+ * 아직 통계 시트나 보고서는 생성하지 않습니다.
+ */
+
+
+/**
+ * 범용 설문 분석에 필요한 원자료와 문항 매핑을 불러옵니다.
+ *
+ * @return {Object}
+ */
+function getDynamicSurveySource_() {
+  const spreadsheet =
+    SpreadsheetApp.getActiveSpreadsheet();
+
+  const mappingSheet =
+    spreadsheet.getSheetByName(
+      "10_문항매핑"
+    );
+
+  const rawSheet =
+    spreadsheet.getSheetByName(
+      "09_범용원자료"
+    );
+
+
+  if (
+    !mappingSheet
+    || mappingSheet.getLastRow() < 2
+  ) {
+    throw new Error(
+      "10_문항매핑 시트에 저장된 문항 정보가 없습니다."
+    );
+  }
+
+
+  if (
+    !rawSheet
+    || rawSheet.getLastRow() < 2
+  ) {
+    throw new Error(
+      "09_범용원자료 시트에 응답 데이터가 없습니다."
+    );
+  }
+
+
+  const mappingValues =
+    mappingSheet
+      .getRange(
+        2,
+        1,
+        mappingSheet.getLastRow() - 1,
+        9
+      )
+      .getDisplayValues();
+
+
+  const rawValues =
+    rawSheet
+      .getDataRange()
+      .getDisplayValues();
+
+
+  const rawHeaders =
+    rawValues[0]
+      .map(function(value) {
+        return cleanText_(value);
+      });
+
+
+  const mappings =
+    mappingValues.map(function(row) {
+      return {
+        order:
+          Number(row[0] || 0),
+
+        columnNumber:
+          Number(row[1] || 0),
+
+        originalHeader:
+          cleanText_(row[2]),
+
+        sampleValue:
+          cleanText_(row[3]),
+
+        suggestedType:
+          cleanText_(row[4]),
+
+        selectedType:
+          cleanText_(
+            row[5] || row[4]
+          ).toUpperCase()
+      };
+    });
+
+
+  const errors = [];
+
+
+  mappings.forEach(function(mapping) {
+    const rawHeader =
+      rawHeaders[
+        mapping.columnNumber - 1
+      ] || "";
+
+    if (
+      normalizeHeader_(rawHeader)
+      !== normalizeHeader_(
+        mapping.originalHeader
+      )
+    ) {
+      errors.push(
+        mapping.columnNumber
+        + "번 컬럼 불일치: "
+        + mapping.originalHeader
+        + " / "
+        + rawHeader
+      );
+    }
+  });
+
+
+  if (errors.length > 0) {
+    throw new Error(
+      "문항 매핑과 범용 원자료가 일치하지 않습니다.\n- "
+      + errors.join("\n- ")
+    );
+  }
+
+
+  return {
+    headers:
+      rawHeaders,
+
+    rows:
+      rawValues.slice(1),
+
+    mappings:
+      mappings,
+
+    respondentCount:
+      rawValues.length - 1,
+
+    questionCount:
+      mappings.length
+  };
+}
+
+
+/**
+ * 편집기에서 범용 원자료 연결 상태를 검사합니다.
+ */
+function testDynamicSurveySource() {
+  const result =
+    getDynamicSurveySource_();
+
+  console.log(
+    "범용 설문 연결 정상"
+  );
+
+  console.log(
+    "응답 건수: "
+    + result.respondentCount
+  );
+
+  console.log(
+    "문항 수: "
+    + result.questionCount
+  );
+
+  console.log(
+    result.mappings
+  );
+}
+/**
+ * ==========================================================================
+ * 범용 만족도 조사 통계 분석
+ * ==========================================================================
+ *
+ * 분석 대상:
+ * - RESPONDENT: 응답자 특성
+ * - SINGLE: 단일응답
+ * - MULTIPLE: 복수응답
+ * - SCALE: 만족도 척도
+ * - RECOMMENDATION: 재이용·추천
+ * - TEXT: 주관식
+ *
+ * 제외 대상:
+ * - EXCLUDE
+ * - PERSONAL_INFO
+ */
+
+
+/**
+ * 범용 설문의 전체 통계 분석을 실행합니다.
+ *
+ * @return {Object} 전체 분석 결과
+ */
+function calculateDynamicSurveyAnalysis_() {
+  const source =
+    getDynamicSurveySource_();
+
+  const analysis = {
+    respondentCount:
+      source.respondentCount,
+
+    questionCount:
+      source.questionCount,
+
+    respondent:
+      analyzeDynamicSingleQuestions_(
+        source,
+        "RESPONDENT"
+      ),
+
+    single:
+      analyzeDynamicSingleQuestions_(
+        source,
+        "SINGLE"
+      ),
+
+    multiple:
+      analyzeDynamicMultipleQuestions_(
+        source
+      ),
+
+    scale:
+      analyzeDynamicScaleQuestions_(
+        source
+      ),
+
+    recommendation:
+      analyzeDynamicRecommendationQuestions_(
+        source
+      ),
+
+    text:
+      analyzeDynamicTextQuestions_(
+        source
+      )
+  };
+
+
+  // 전체 만족도 요약값을 계산합니다.
+  analysis.scaleSummary =
+    buildDynamicScaleSummary_(
+      analysis.scale
+    );
+
+
+  return analysis;
+}
+
+
+/**
+ * 응답자 특성 또는 단일응답 문항을 분석합니다.
+ *
+ * @param {Object} source getDynamicSurveySource_() 결과
+ * @param {string} targetType RESPONDENT 또는 SINGLE
+ * @return {Array<Object>}
+ */
+function analyzeDynamicSingleQuestions_(
+  source,
+  targetType
+) {
+  return source.mappings
+    .filter(function(mapping) {
+      return (
+        mapping.selectedType
+        === targetType
+      );
+    })
+    .map(function(mapping) {
+      const columnIndex =
+        mapping.columnNumber - 1;
+
+      const counts = {};
+      let validCount = 0;
+
+
+      source.rows.forEach(function(row) {
+        const value =
+          cleanText_(
+            row[columnIndex]
+          );
+
+        if (!value) {
+          return;
+        }
+
+        validCount++;
+
+        counts[value] =
+          (counts[value] || 0)
+          + 1;
+      });
+
+
+      const items =
+        Object.keys(counts)
+          .map(function(label) {
+            const count =
+              counts[label];
+
+            return {
+              label:
+                label,
+
+              count:
+                count,
+
+              rate:
+                validCount > 0
+                  ? round_(
+                      count
+                      / validCount
+                      * 100,
+                      1
+                    )
+                  : 0
+            };
+          })
+          .sort(function(a, b) {
+            return (
+              b.count
+              - a.count
+            );
+          });
+
+
+      return {
+        columnNumber:
+          mapping.columnNumber,
+
+        question:
+          mapping.originalHeader,
+
+        type:
+          targetType,
+
+        validCount:
+          validCount,
+
+        items:
+          items
+      };
+    });
+}
+
+
+/**
+ * 복수응답 문항을 분석합니다.
+ *
+ * 분석 지표:
+ * 1. 선택건수 비율
+ * 2. 전체 응답자 선택률
+ *
+ * @param {Object} source getDynamicSurveySource_() 결과
+ * @return {Array<Object>}
+ */
+function analyzeDynamicMultipleQuestions_(
+  source
+) {
+  return source.mappings
+    .filter(function(mapping) {
+      return (
+        mapping.selectedType
+        === "MULTIPLE"
+      );
+    })
+    .map(function(mapping) {
+      const columnIndex =
+        mapping.columnNumber - 1;
+
+      const counts = {};
+
+      let validRespondentCount = 0;
+      let totalSelectionCount = 0;
+
+
+      source.rows.forEach(function(row) {
+        const rawValue =
+          cleanText_(
+            row[columnIndex]
+          );
+
+        if (!rawValue) {
+          return;
+        }
+
+        const selections =
+          splitDynamicMultipleValue_(
+            rawValue
+          );
+
+        if (
+          selections.length === 0
+        ) {
+          return;
+        }
+
+        validRespondentCount++;
+
+
+        // 동일 응답자가 같은 항목을 중복 선택한 경우
+        // 한 번만 집계하도록 중복을 제거합니다.
+        const uniqueSelections =
+          Array.from(
+            new Set(selections)
+          );
+
+
+        uniqueSelections.forEach(function(
+          selection
+        ) {
+          counts[selection] =
+            (counts[selection] || 0)
+            + 1;
+
+          totalSelectionCount++;
+        });
+      });
+
+
+      const items =
+        Object.keys(counts)
+          .map(function(label) {
+            const count =
+              counts[label];
+
+            return {
+              label:
+                label,
+
+              count:
+                count,
+
+              selectionRate:
+                totalSelectionCount > 0
+                  ? round_(
+                      count
+                      / totalSelectionCount
+                      * 100,
+                      1
+                    )
+                  : 0,
+
+              respondentRate:
+                source.respondentCount > 0
+                  ? round_(
+                      count
+                      / source.respondentCount
+                      * 100,
+                      1
+                    )
+                  : 0
+            };
+          })
+          .sort(function(a, b) {
+            return (
+              b.count
+              - a.count
+            );
+          });
+
+
+      return {
+        columnNumber:
+          mapping.columnNumber,
+
+        question:
+          mapping.originalHeader,
+
+        type:
+          "MULTIPLE",
+
+        totalRespondentCount:
+          source.respondentCount,
+
+        validRespondentCount:
+          validRespondentCount,
+
+        totalSelectionCount:
+          totalSelectionCount,
+
+        items:
+          items
+      };
+    });
+}
+
+
+/**
+ * 만족도 척도 문항을 분석합니다.
+ *
+ * 분석 지표:
+ * - 응답 분포
+ * - 평균
+ * - 100점 환산
+ * - 긍정률
+ * - 중립률
+ * - 부정률
+ *
+ * @param {Object} source getDynamicSurveySource_() 결과
+ * @return {Array<Object>}
+ */
+function analyzeDynamicScaleQuestions_(
+  source
+) {
+  const results =
+    source.mappings
+      .filter(function(mapping) {
+        return (
+          mapping.selectedType
+          === "SCALE"
+        );
+      })
+      .map(function(mapping) {
+        const columnIndex =
+          mapping.columnNumber - 1;
+
+        const distribution = {
+          1: 0,
+          2: 0,
+          3: 0,
+          4: 0,
+          5: 0
+        };
+
+        const scores = [];
+
+
+        source.rows.forEach(function(row) {
+          const score =
+            dynamicScoreFromText_(
+              row[columnIndex]
+            );
+
+          if (
+            score < 1
+            || score > 5
+          ) {
+            return;
+          }
+
+          scores.push(
+            score
+          );
+
+          distribution[score]++;
+        });
+
+
+        const validCount =
+          scores.length;
+
+        const average =
+          validCount > 0
+            ? round_(
+                scores.reduce(function(
+                  sum,
+                  score
+                ) {
+                  return sum + score;
+                }, 0)
+                / validCount,
+                2
+              )
+            : 0;
+
+
+        const positiveCount =
+          distribution[4]
+          + distribution[5];
+
+        const neutralCount =
+          distribution[3];
+
+        const negativeCount =
+          distribution[1]
+          + distribution[2];
+
+
+        return {
+          columnNumber:
+            mapping.columnNumber,
+
+          question:
+            mapping.originalHeader,
+
+          type:
+            "SCALE",
+
+          validCount:
+            validCount,
+
+          average:
+            average,
+
+          converted100:
+            round_(
+              average
+              / 5
+              * 100,
+              1
+            ),
+
+          positiveRate:
+            validCount > 0
+              ? round_(
+                  positiveCount
+                  / validCount
+                  * 100,
+                  1
+                )
+              : 0,
+
+          neutralRate:
+            validCount > 0
+              ? round_(
+                  neutralCount
+                  / validCount
+                  * 100,
+                  1
+                )
+              : 0,
+
+          negativeRate:
+            validCount > 0
+              ? round_(
+                  negativeCount
+                  / validCount
+                  * 100,
+                  1
+                )
+              : 0,
+
+          distribution:
+            [
+              {
+                score: 5,
+                label: "5점",
+                count: distribution[5]
+              },
+              {
+                score: 4,
+                label: "4점",
+                count: distribution[4]
+              },
+              {
+                score: 3,
+                label: "3점",
+                count: distribution[3]
+              },
+              {
+                score: 2,
+                label: "2점",
+                count: distribution[2]
+              },
+              {
+                score: 1,
+                label: "1점",
+                count: distribution[1]
+              }
+            ]
+        };
+      });
+
+
+  // 평균을 기준으로 높은 순서대로 순위를 지정합니다.
+  const ranked =
+    results
+      .slice()
+      .sort(function(a, b) {
+        return (
+          b.average
+          - a.average
+        );
+      });
+
+
+  ranked.forEach(function(
+    item,
+    index
+  ) {
+    item.rank =
+      index + 1;
+  });
+
+
+  const overallAverage =
+    results.length > 0
+      ? round_(
+          results.reduce(function(
+            sum,
+            item
+          ) {
+            return (
+              sum
+              + item.average
+            );
+          }, 0)
+          / results.length,
+          2
+        )
+      : 0;
+
+
+  results.forEach(function(item) {
+    const rankedItem =
+      ranked.find(function(rankItem) {
+        return (
+          rankItem.columnNumber
+          === item.columnNumber
+        );
+      });
+
+    item.rank =
+      rankedItem
+        ? rankedItem.rank
+        : "";
+
+    item.deviation =
+      round_(
+        item.average
+        - overallAverage,
+        2
+      );
+  });
+
+
+  return results;
+}
+
+
+/**
+ * 재이용·추천 문항을 분석합니다.
+ *
+ * SCALE과 동일한 5점 척도 방식으로 계산합니다.
+ *
+ * @param {Object} source getDynamicSurveySource_() 결과
+ * @return {Array<Object>}
+ */
+function analyzeDynamicRecommendationQuestions_(
+  source
+) {
+  return source.mappings
+    .filter(function(mapping) {
+      return (
+        mapping.selectedType
+        === "RECOMMENDATION"
+      );
+    })
+    .map(function(mapping) {
+      const columnIndex =
+        mapping.columnNumber - 1;
+
+      const distribution = {
+        1: 0,
+        2: 0,
+        3: 0,
+        4: 0,
+        5: 0
+      };
+
+      const scores = [];
+
+
+      source.rows.forEach(function(row) {
+        const score =
+          dynamicRecommendationScoreFromText_(
+            row[columnIndex]
+          );
+
+        if (
+          score < 1
+          || score > 5
+        ) {
+          return;
+        }
+
+        scores.push(
+          score
+        );
+
+        distribution[score]++;
+      });
+
+
+      const validCount =
+        scores.length;
+
+      const average =
+        validCount > 0
+          ? round_(
+              scores.reduce(function(
+                sum,
+                score
+              ) {
+                return sum + score;
+              }, 0)
+              / validCount,
+              2
+            )
+          : 0;
+
+
+      const positiveCount =
+        distribution[4]
+        + distribution[5];
+
+      const neutralCount =
+        distribution[3];
+
+      const negativeCount =
+        distribution[1]
+        + distribution[2];
+
+
+      return {
+        columnNumber:
+          mapping.columnNumber,
+
+        question:
+          mapping.originalHeader,
+
+        type:
+          "RECOMMENDATION",
+
+        validCount:
+          validCount,
+
+        average:
+          average,
+
+        converted100:
+          round_(
+            average
+            / 5
+            * 100,
+            1
+          ),
+
+        positiveRate:
+          validCount > 0
+            ? round_(
+                positiveCount
+                / validCount
+                * 100,
+                1
+              )
+            : 0,
+
+        neutralRate:
+          validCount > 0
+            ? round_(
+                neutralCount
+                / validCount
+                * 100,
+                1
+              )
+            : 0,
+
+        negativeRate:
+          validCount > 0
+            ? round_(
+                negativeCount
+                / validCount
+                * 100,
+                1
+              )
+            : 0,
+
+        distribution:
+          [
+            {
+              score: 5,
+              count: distribution[5]
+            },
+            {
+              score: 4,
+              count: distribution[4]
+            },
+            {
+              score: 3,
+              count: distribution[3]
+            },
+            {
+              score: 2,
+              count: distribution[2]
+            },
+            {
+              score: 1,
+              count: distribution[1]
+            }
+          ]
+      };
+    });
+}
+
+
+/**
+ * 주관식 문항의 유효 의견을 추출합니다.
+ *
+ * "없음", "없습니다", "-", "무응답" 등은 제외합니다.
+ *
+ * @param {Object} source getDynamicSurveySource_() 결과
+ * @return {Array<Object>}
+ */
+function analyzeDynamicTextQuestions_(
+  source
+) {
+  return source.mappings
+    .filter(function(mapping) {
+      return (
+        mapping.selectedType
+        === "TEXT"
+      );
+    })
+    .map(function(mapping) {
+      const columnIndex =
+        mapping.columnNumber - 1;
+
+      const opinions = [];
+
+
+      source.rows.forEach(function(
+        row,
+        rowIndex
+      ) {
+        const opinion =
+          cleanText_(
+            row[columnIndex]
+          );
+
+        if (
+          !isValidDynamicOpinion_(
+            opinion
+          )
+        ) {
+          return;
+        }
+
+        opinions.push({
+          responseNumber:
+            rowIndex + 1,
+
+          text:
+            opinion
+        });
+      });
+
+
+      return {
+        columnNumber:
+          mapping.columnNumber,
+
+        question:
+          mapping.originalHeader,
+
+        type:
+          "TEXT",
+
+        validCount:
+          opinions.length,
+
+        opinions:
+          opinions
+      };
+    });
+}
+
+
+/**
+ * 만족도 척도 전체 요약을 생성합니다.
+ *
+ * @param {Array<Object>} scaleResults 척도 분석 결과
+ * @return {Object}
+ */
+function buildDynamicScaleSummary_(
+  scaleResults
+) {
+  if (
+    !Array.isArray(scaleResults)
+    || scaleResults.length === 0
+  ) {
+    return {
+      questionCount: 0,
+      overallAverage: 0,
+      overallConverted100: 0,
+      overallPositiveRate: 0,
+      highest: null,
+      lowest: null
+    };
+  }
+
+
+  const overallAverage =
+    round_(
+      scaleResults.reduce(function(
+        sum,
+        item
+      ) {
+        return (
+          sum
+          + Number(
+              item.average
+              || 0
+            )
+        );
+      }, 0)
+      / scaleResults.length,
+      2
+    );
+
+
+  const overallPositiveRate =
+    round_(
+      scaleResults.reduce(function(
+        sum,
+        item
+      ) {
+        return (
+          sum
+          + Number(
+              item.positiveRate
+              || 0
+            )
+        );
+      }, 0)
+      / scaleResults.length,
+      1
+    );
+
+
+  const sorted =
+    scaleResults
+      .slice()
+      .sort(function(a, b) {
+        return (
+          b.average
+          - a.average
+        );
+      });
+
+
+  return {
+    questionCount:
+      scaleResults.length,
+
+    overallAverage:
+      overallAverage,
+
+    overallConverted100:
+      round_(
+        overallAverage
+        / 5
+        * 100,
+        1
+      ),
+
+    overallPositiveRate:
+      overallPositiveRate,
+
+    highest:
+      sorted[0],
+
+    lowest:
+      sorted[
+        sorted.length - 1
+      ]
+  };
+}
+
+
+/**
+ * 복수응답 문자열을 배열로 변환합니다.
+ *
+ * 지원 구분자:
+ * - |
+ * - ;
+ * - 줄바꿈
+ * - 쉼표
+ *
+ * @param {string} value 원본 복수응답
+ * @return {Array<string>}
+ */
+function splitDynamicMultipleValue_(
+  value
+) {
+  const text =
+    cleanText_(
+      value
+    );
+
+  if (!text) {
+    return [];
+  }
+
+  return text
+    .split(
+      /\s*\|\s*|\s*;\s*|\r?\n|,\s*/
+    )
+    .map(function(item) {
+      return cleanText_(item);
+    })
+    .filter(function(item) {
+      return Boolean(item);
+    });
+}
+
+
+/**
+ * 만족도 문구를 1~5점으로 변환합니다.
+ *
+ * @param {*} value 원본 응답
+ * @return {number}
+ */
+function dynamicScoreFromText_(
+  value
+) {
+  const text =
+    normalizeHeader_(
+      cleanText_(
+        value
+      )
+    );
+
+  if (!text) {
+    return 0;
+  }
+
+
+  const numeric =
+    Number(text);
+
+  if (
+    !isNaN(numeric)
+    && numeric >= 1
+    && numeric <= 5
+  ) {
+    return numeric;
+  }
+
+
+  if (
+    text.includes("매우만족")
+    || text.includes("매우그렇다")
+    || text.includes("매우도움")
+    || text.includes("매우적절")
+  ) {
+    return 5;
+  }
+
+
+  if (
+    text === "만족"
+    || text === "그렇다"
+    || text.includes("도움됨")
+    || text === "도움"
+    || text === "적절"
+  ) {
+    return 4;
+  }
+
+
+  if (
+    text.includes("보통")
+    || text.includes("중립")
+  ) {
+    return 3;
+  }
+
+
+  if (
+    text.includes("매우불만족")
+    || text.includes("전혀그렇지않다")
+    || text.includes("전혀도움되지않")
+  ) {
+    return 1;
+  }
+
+
+  if (
+    text.includes("불만족")
+    || text.includes("그렇지않다")
+    || text.includes("도움되지않")
+    || text.includes("부적절")
+  ) {
+    return 2;
+  }
+
+
+  return 0;
+}
+
+
+/**
+ * 재이용·추천 문구를 1~5점으로 변환합니다.
+ *
+ * @param {*} value 원본 응답
+ * @return {number}
+ */
+function dynamicRecommendationScoreFromText_(
+  value
+) {
+  const text =
+    normalizeHeader_(
+      cleanText_(
+        value
+      )
+    );
+
+  if (!text) {
+    return 0;
+  }
+
+
+  const numeric =
+    Number(text);
+
+  if (
+    !isNaN(numeric)
+    && numeric >= 1
+    && numeric <= 5
+  ) {
+    return numeric;
+  }
+
+
+  if (
+    text.includes("매우있다")
+    || text.includes("매우그렇다")
+    || text.includes("적극추천")
+    || text.includes("반드시")
+  ) {
+    return 5;
+  }
+
+
+  if (
+    text === "있다"
+    || text === "그렇다"
+    || text.includes("추천한다")
+    || text.includes("이용할의향이있")
+  ) {
+    return 4;
+  }
+
+
+  if (
+    text.includes("보통")
+    || text.includes("잘모르")
+  ) {
+    return 3;
+  }
+
+
+  if (
+    text.includes("전혀없다")
+    || text.includes("전혀그렇지않")
+    || text.includes("추천하지않")
+  ) {
+    return 1;
+  }
+
+
+  if (
+    text === "없다"
+    || text.includes("그렇지않")
+    || text.includes("별로없")
+  ) {
+    return 2;
+  }
+
+
+  // 기존 만족도 점수 변환 규칙도 보조적으로 사용합니다.
+  return dynamicScoreFromText_(
+    value
+  );
+}
+
+
+/**
+ * 유효한 주관식 의견인지 확인합니다.
+ *
+ * @param {string} value 원본 의견
+ * @return {boolean}
+ */
+/**
+ * 유효한 주관식 의견인지 확인합니다.
+ *
+ * 마침표·공백 등 표현 차이를 정리한 뒤
+ * "없음", "없습니다", 오타성 없음 응답 등을 제외합니다.
+ *
+ * @param {string} value 원본 의견
+ * @return {boolean}
+ */
+function isValidDynamicOpinion_(value) {
+  const original =
+    cleanText_(value);
+
+  if (!original) {
+    return false;
+  }
+
+  // 비교용 문자열:
+  // 공백과 일반 문장부호를 제거하고 소문자로 통일합니다.
+  const normalized =
+    original
+      .toLowerCase()
+      .replace(/[\s.,!?~ㆍ·…'"“”‘’()[\]{}]/g, "");
+
+  if (!normalized) {
+    return false;
+  }
+
+  const invalidValues = [
+    "-",
+    "없음",
+    "없습니다",
+    "없어요",
+    "없다",
+    "없슴",
+    "없슴니다",
+    "없응",
+    "해당없음",
+    "해당사항없음",
+    "무응답",
+    "모름",
+    "잘모름",
+    "특이사항없음",
+    "의견없음",
+    "건의사항없음",
+    "개선사항없음",
+    "없습니다감사합니다"
+  ];
+
+  return !invalidValues.includes(
+    normalized
+  );
+}
+
+
+/**
+ * ==========================================================================
+ * 범용 통계 분석 테스트
+ * ==========================================================================
+ *
+ * Apps Script 편집기에서 직접 실행합니다.
+ */
+function testDynamicSurveyAnalysis() {
+  const analysis =
+    calculateDynamicSurveyAnalysis_();
+
+
+  console.log(
+    "범용 분석 완료"
+  );
+
+  console.log(
+    "전체 응답자: "
+    + analysis.respondentCount
+  );
+
+  console.log(
+    "척도 문항 수: "
+    + analysis.scale.length
+  );
+
+  console.log(
+    "복수응답 문항 수: "
+    + analysis.multiple.length
+  );
+
+  console.log(
+    "주관식 문항 수: "
+    + analysis.text.length
+  );
+
+  console.log(
+    "척도 전체 평균: "
+    + analysis.scaleSummary.overallAverage
+  );
+
+  console.log(
+    JSON.stringify(
+      analysis,
+      null,
+      2
+    )
+  );
+}
