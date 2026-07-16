@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>성남시중원도서관 AI 홍보 비서</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+  <style>
+    body { background-color:#f5f6fa; font-family:"Malgun Gothic","맑은 고딕",sans-serif; min-height:100vh; padding:20px; }
+    .main-container { max-width:1300px; margin:0 auto; }
+    .top-banner { background-color:#1b365d; color:#fff; border-radius:12px; }
+    .top-banner .title { color:#fff; margin-bottom:.5rem; }
+    .top-banner .subtitle { color:#e2e8f0; line-height:1.6; }
+    .card { border-radius:10px; box-shadow:0 4px 6px rgba(0,0,0,.05); margin-bottom:20px; overflow:hidden; }
+    .card-header-title { background-color:#4a6fa5; color:#fff !important; }
+    .label { color:#4a5568; }
+    .file-upload-zone { border:2px dashed #4a6fa5; background:#edf2f7; padding:18px; border-radius:6px; text-align:center; cursor:pointer; margin-bottom:15px; transition:background-color .2s ease,border-color .2s ease; }
+    .file-upload-zone:hover { background:#e2e8f0; border-color:#1b365d; }
+    .file-upload-zone.is-selected { background:#e8f5e9; border-color:#48c78e; }
+    .result-box { background:#fff; border:1px solid #dcdde1; border-radius:6px; padding:15px; min-height:200px; max-height:400px; overflow-y:auto; white-space:pre-wrap; word-break:break-word; font-size:14px; line-height:1.7; }
+    .result-box.is-empty { color:#7a7a7a; }
+    .loading-overlay { display:none; position:fixed; inset:0; width:100%; height:100%; background:rgba(255,255,255,.9); z-index:1000; justify-content:center; align-items:center; flex-direction:column; padding:20px; }
+    .loading-overlay.is-active { display:flex; }
+    .spinner { width:50px; height:50px; border:4px solid rgba(0,0,0,.1); border-left-color:#4a6fa5; border-radius:50%; animation:spin 1s linear infinite; }
+    .status-message { display:none; margin-bottom:20px; }
+    .status-message.is-active { display:block; }
+    @keyframes spin { from { transform:rotate(0deg); } to { transform:rotate(360deg); } }
+    @media screen and (max-width:768px) {
+      body { padding:10px; }
+      .top-banner .column.is-narrow { width:100%; text-align:left !important; }
+      .top-banner .button { width:100%; }
+      .result-box { max-height:none; }
+    }
+  </style>
+</head>
+<body>
+  <div id="loading" class="loading-overlay" aria-live="polite">
+    <div class="spinner" aria-hidden="true"></div>
+    <p class="mt-4 is-size-5 has-text-weight-bold has-text-centered">사서님, AI 비서가 홍보 자료를 분석하여<br>채널별 홍보문을 작성하고 있습니다.</p>
+    <p class="mt-2 has-text-grey has-text-centered">이미지 크기와 서버 상황에 따라 잠시 시간이 걸릴 수 있습니다.</p>
+  </div>
+
+  <main class="main-container">
+    <section class="notification top-banner">
+      <div class="columns is-vcentered">
+        <div class="column">
+          <h1 class="title is-3">🤖 성남시중원도서관 AI 홍보 비서 시스템</h1>
+          <p class="subtitle is-6">포스터 이미지를 업로드하거나 텍스트 정보를 입력하면 홈페이지·인스타그램·포스터용 홍보 원고를 자동으로 생성합니다.</p>
+        </div>
+        <div class="column is-narrow has-text-right-tablet">
+<a
+  href="<?= webAppUrl ?>?page=survey"
+  target="_top"
+  class="button is-light has-text-weight-bold"
+  style="color: #1b365d; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15);"
+>
+  📊 만족도 보고서 안내 →
+</a>        </div>
+      </div>
+    </section>
+
+    <div id="statusMessage" class="notification status-message" role="alert"></div>
+
+    <div class="columns is-variable is-5">
+      <div class="column is-5">
+        <section class="card">
+          <header class="card-header">
+            <p class="card-header-title">📋 홍보 소스 업로드 및 입력</p>
+          </header>
+          <div class="card-content">
+            <div class="field">
+              <label class="label" for="posterFile">🎨 포스터·리플렛 이미지 분석 <span class="has-text-grey is-size-7">(선택)</span></label>
+              <div id="fileUploadZone" class="file-upload-zone" role="button" tabindex="0" onclick="document.getElementById('posterFile').click()" onkeydown="handleUploadZoneKeydown(event)">
+                <p id="uploadStatus" class="has-text-weight-bold has-text-link">📂 홍보 이미지 파일(PNG·JPG·WEBP)을 첨부해 주세요.</p>
+                <p class="is-size-7 has-text-grey mt-1">※ 이미지를 등록하면 AI가 이미지 속 정보를 읽어 홍보문 작성에 활용합니다.</p>
+                <input type="file" id="posterFile" accept="image/png,image/jpeg,image/webp" style="display:none;" onchange="handleFileSelect(this)">
+              </div>
+              <div id="imagePreviewWrapper" class="has-text-centered mb-4" style="display:none;">
+                <img id="imagePreview" alt="업로드 이미지 미리보기" style="max-height:220px; max-width:100%; border-radius:8px; border:1px solid #dcdde1;">
+                <div class="mt-2">
+                  <button type="button" class="button is-small is-light" onclick="removeSelectedImage()">이미지 선택 해제</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="field">
+              <label class="label" for="promoType">💡 홍보 유형 선택</label>
+              <div class="control">
+                <div class="select is-fullwidth">
+                  <select id="promoType">
+                    <option value="강좌">강좌 (일반 교육·모집)</option>
+                    <option value="행사">행사 (문화 행사·주민 참여)</option>
+                    <option value="전시">전시 (원화 전시·갤러리·가상미술관)</option>
+                    <option value="독서문화">독서문화 (독서 캠페인·도서관 주간)</option>
+                    <option value="방학특강">방학특강 (학부모 대상·선착순 모집)</option>
+                    <option value="공지">공지 (정중하고 단정한 일반 안내문)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <hr style="margin:15px 0; background-color:#dbdbdb;">
+            <p class="is-size-7 has-text-weight-bold has-text-danger mb-3">※ 이미지에 없는 정보나 반드시 반영해야 할 수정사항이 있을 때 아래 항목을 입력해 주세요.</p>
+
+            <div class="field">
+              <label class="label" for="title">강좌·행사명</label>
+              <div class="control"><input class="input" type="text" id="title" placeholder="예: 상반기 어린이 독서교실"></div>
+            </div>
+
+            <div class="columns">
+              <div class="column">
+                <div class="field">
+                  <label class="label" for="eduDate">교육·운영 기간</label>
+                  <div class="control"><input class="input" type="text" id="eduDate" placeholder="예: 2026. 8. 1. ~ 8. 20."></div>
+                </div>
+              </div>
+              <div class="column">
+                <div class="field">
+                  <label class="label" for="regDate">접수 기간</label>
+                  <div class="control"><input class="input" type="text" id="regDate" placeholder="예: 2026. 7. 13. 10:00 ~ 7. 31. 22:59"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="columns">
+              <div class="column">
+                <div class="field">
+                  <label class="label" for="target">대상 및 정원</label>
+                  <div class="control"><input class="input" type="text" id="target" placeholder="예: 성남시 초등 3~4학년 15명"></div>
+                </div>
+              </div>
+              <div class="column">
+                <div class="field">
+                  <label class="label" for="place">운영 장소</label>
+                  <div class="control"><input class="input" type="text" id="place" placeholder="예: 제1문화교실"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="field">
+              <label class="label" for="cost">수강료 및 재료비</label>
+              <div class="control"><input class="input" type="text" id="cost" placeholder="예: 수강료 무료, 재료비 10,000원"></div>
+            </div>
+
+            <div class="field">
+              <label class="label" for="content">주요 내용</label>
+              <div class="control"><textarea class="textarea" id="content" rows="3" placeholder="프로그램 내용, 신청 조건, 준비물 등 반드시 반영할 사항을 입력해 주세요."></textarea></div>
+            </div>
+
+            <div class="field">
+              <label class="label" for="contact">문의처</label>
+              <div class="control"><input class="input" type="text" id="contact" value="성남시중원도서관 ()"></div>
+            </div>
+
+            <button id="generateButton" type="button" class="button is-link is-fullwidth has-text-weight-bold is-medium mt-4" style="background-color:#4a6fa5;" onclick="generateAIContents()">🚀 맞춤 홍보문 세트 동시 제작하기</button>
+          </div>
+        </section>
+      </div>
+
+      <div class="column is-7">
+        <section class="card">
+          <div class="card-content">
+            <div class="is-flex is-justify-content-space-between is-align-items-center mb-2">
+              <h2 class="title is-5 mb-0">🖥️ ① 홈페이지용 공지문</h2>
+              <button type="button" class="button is-small is-light" onclick="copyText('homepage_out')">📋 본문 복사</button>
+            </div>
+            <div class="result-box is-empty" id="homepage_out">생성된 홈페이지 공지문이 출력됩니다.</div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-content">
+            <div class="is-flex is-justify-content-space-between is-align-items-center mb-2">
+              <h2 class="title is-5 mb-0">📸 ② 인스타그램 홍보문</h2>
+              <button type="button" class="button is-small is-light" onclick="copyText('instagram_out')">📋 본문 복사</button>
+            </div>
+            <div class="result-box is-empty" id="instagram_out">생성된 인스타그램 피드 원고가 출력됩니다.</div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-content">
+            <div class="is-flex is-justify-content-space-between is-align-items-center mb-2">
+              <h2 class="title is-5 mb-0">🎨 ③ 홍보 포스터 원고</h2>
+              <button type="button" class="button is-small is-light" onclick="copyText('poster_out')">📋 본문 복사</button>
+            </div>
+            <div class="result-box is-empty" id="poster_out">생성된 포스터 디자인용 원고가 출력됩니다.</div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    "use strict";
+
+    let globalImageData = null;
+    const MAX_IMAGE_SIZE_BYTES = 8 * 1024 * 1024;
+
+    function handleUploadZoneKeydown(event) {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        document.getElementById("posterFile").click();
+      }
+    }
+
+    function handleFileSelect(input) {
+      const file = input.files && input.files[0];
+      if (!file) {
+        removeSelectedImage();
+        return;
+      }
+
+      const allowedTypes = ["image/png", "image/jpeg", "image/webp"];
+      if (!allowedTypes.includes(file.type)) {
+        showStatus("PNG, JPG, JPEG 또는 WEBP 형식의 이미지만 등록할 수 있습니다.", "danger");
+        removeSelectedImage();
+        return;
+      }
+
+      if (file.size > MAX_IMAGE_SIZE_BYTES) {
+        showStatus("이미지 용량은 8MB 이하로 등록해 주세요.", "danger");
+        removeSelectedImage();
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        const dataUrl = String(event.target.result || "");
+        const commaIndex = dataUrl.indexOf(",");
+        if (commaIndex === -1) {
+          showStatus("이미지 파일을 읽지 못했습니다.", "danger");
+          removeSelectedImage();
+          return;
+        }
+
+        globalImageData = {
+          mimeType: file.type,
+          base64Data: dataUrl.substring(commaIndex + 1),
+          fileName: file.name
+        };
+
+        document.getElementById("uploadStatus").textContent = "✅ " + file.name + " 파일이 선택되었습니다.";
+        document.getElementById("fileUploadZone").classList.add("is-selected");
+        document.getElementById("imagePreview").src = dataUrl;
+        document.getElementById("imagePreviewWrapper").style.display = "block";
+        showStatus("이미지가 정상적으로 등록되었습니다.", "success");
+      };
+
+      reader.onerror = function() {
+        showStatus("이미지 파일을 읽는 중 오류가 발생했습니다.", "danger");
+        removeSelectedImage();
+      };
+
+      reader.readAsDataURL(file);
+    }
+
+    function removeSelectedImage() {
+      globalImageData = null;
+      document.getElementById("posterFile").value = "";
+      document.getElementById("uploadStatus").textContent = "📂 홍보 이미지 파일(PNG·JPG·WEBP)을 첨부해 주세요.";
+      document.getElementById("fileUploadZone").classList.remove("is-selected");
+      document.getElementById("imagePreview").removeAttribute("src");
+      document.getElementById("imagePreviewWrapper").style.display = "none";
+    }
+
+    function generateAIContents() {
+      hideStatus();
+
+      const formData = {
+        promoType: getInputValue("promoType"),
+        title: getInputValue("title"),
+        eduDate: getInputValue("eduDate"),
+        regDate: getInputValue("regDate"),
+        target: getInputValue("target"),
+        place: getInputValue("place"),
+        cost: getInputValue("cost"),
+        content: getInputValue("content"),
+        contact: getInputValue("contact"),
+        imageObj: globalImageData
+      };
+
+      if (!globalImageData && !formData.title) {
+        showStatus("포스터 이미지를 등록하거나 강좌·행사명을 입력해 주세요.", "warning");
+        document.getElementById("title").focus();
+        return;
+      }
+
+      setLoading(true);
+
+      google.script.run
+        .withSuccessHandler(handleGenerationSuccess)
+        .withFailureHandler(handleGenerationFailure)
+        .processWebPromoRequest(formData);
+    }
+
+    function handleGenerationSuccess(response) {
+      setLoading(false);
+
+      if (!response || response.success !== true) {
+        showStatus(response && response.error ? response.error : "홍보문 생성에 실패했습니다.", "danger");
+        return;
+      }
+
+      if (!response.data) {
+        showStatus("서버에서 생성 결과를 받지 못했습니다.", "danger");
+        return;
+      }
+
+      setResultText("homepage_out", response.data.homepage || "");
+      setResultText("instagram_out", response.data.instagram || "");
+      setResultText("poster_out", response.data.poster || "");
+      showStatus("홈페이지·인스타그램·포스터용 홍보문 생성이 완료되었습니다.", "success");
+
+      document.getElementById("homepage_out").scrollIntoView({ behavior:"smooth", block:"start" });
+    }
+
+    function handleGenerationFailure(error) {
+      setLoading(false);
+      const message = error && error.message ? error.message : String(error || "알 수 없는 오류가 발생했습니다.");
+      showStatus("서버 처리 중 오류가 발생했습니다: " + message, "danger");
+    }
+
+    function setResultText(elementId, text) {
+      const element = document.getElementById(elementId);
+      const value = String(text || "").trim();
+      element.textContent = value || "생성 결과가 없습니다.";
+      element.classList.toggle("is-empty", !value);
+    }
+
+    async function copyText(elementId) {
+      const element = document.getElementById(elementId);
+      const text = element.innerText.trim();
+
+      if (!text || text.startsWith("생성된 ") || text === "생성 결과가 없습니다.") {
+        showStatus("먼저 홍보문을 생성해 주세요.", "warning");
+        return;
+      }
+
+      try {
+        await navigator.clipboard.writeText(text);
+        showStatus("본문이 클립보드에 복사되었습니다.", "success");
+      } catch (error) {
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.setAttribute("readonly", "");
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        const copied = document.execCommand("copy");
+        document.body.removeChild(textarea);
+        showStatus(copied ? "본문이 클립보드에 복사되었습니다." : "복사하지 못했습니다. 본문을 직접 선택하여 복사해 주세요.", copied ? "success" : "danger");
+      }
+    }
+
+    function getInputValue(elementId) {
+      const element = document.getElementById(elementId);
+      return element ? String(element.value || "").trim() : "";
+    }
+
+    function setLoading(isLoading) {
+      document.getElementById("loading").classList.toggle("is-active", Boolean(isLoading));
+      const button = document.getElementById("generateButton");
+      button.disabled = Boolean(isLoading);
+      button.classList.toggle("is-loading", Boolean(isLoading));
+    }
+
+    function showStatus(message, type) {
+      const element = document.getElementById("statusMessage");
+      element.className = "notification status-message is-active is-" + (type || "info");
+      element.textContent = String(message || "");
+    }
+
+    function hideStatus() {
+      const element = document.getElementById("statusMessage");
+      element.className = "notification status-message";
+      element.textContent = "";
+    }
+  </script>
+</body>
+</html>
