@@ -1,0 +1,961 @@
+/**
+ * ==========================================================================
+ * 성남시중원도서관 만족도 조사 자동화 시스템
+ * 범용 설문 문항 매핑 서비스
+ * ==========================================================================
+ *
+ * 담당 기능
+ * 1. 네이버폼 Excel 원본 문항 분석
+ * 2. 문항별 분석 유형 자동 추천
+ * 3. 웹페이지 표시용 문항 매핑 데이터 생성
+ * 4. 담당자가 선택한 문항 매핑 구조 검사
+ *
+ * 현재 단계의 역할
+ * - 실제 통계 분석은 아직 수행하지 않습니다.
+ * - 09_원자료 시트를 생성하거나 변경하지 않습니다.
+ * - 문항을 어떤 방식으로 분석할지 추천하는 역할만 담당합니다.
+ *
+ * 기존 파일과의 관계
+ * - Excel 업로드 및 변환: 04_SurveyImport.gs
+ * - 기존 고정형 통계 분석: 05_SurveyAnalysis.gs
+ * - 보고서 생성: 07_SurveyReport.gs
+ * - 웹 서비스: 10_WebService.gs
+ *
+ * 주의
+ * - 기존 함수명과 중복되지 않도록 모든 신규 함수명을 구분했습니다.
+ * - 전역 const를 선언하지 않아 기존 상수와 충돌하지 않습니다.
+ */
+
+
+/**
+ * ==========================================================================
+ * 문항 분석 유형 목록
+ * ==========================================================================
+ *
+ * 웹페이지의 드롭다운과 서버 검증에서 공통으로 사용할
+ * 문항 분석 유형 목록을 반환합니다.
+ *
+ * 전역 상수로 선언하지 않고 함수 반환값으로 관리하여
+ * 다른 파일의 전역 변수와 충돌하지 않도록 합니다.
+ *
+ * @return {Array<Object>}
+ */
+function getSurveyQuestionTypeOptions_() {
+  return [
+    {
+      value: "EXCLUDE",
+      label: "분석 제외"
+    },
+    {
+      value: "PERSONAL_INFO",
+      label: "개인정보"
+    },
+    {
+      value: "RESPONDENT",
+      label: "응답자 특성"
+    },
+    {
+      value: "SINGLE",
+      label: "단일응답"
+    },
+    {
+      value: "MULTIPLE",
+      label: "복수응답"
+    },
+    {
+      value: "SCALE",
+      label: "만족도 척도"
+    },
+    {
+      value: "RECOMMENDATION",
+      label: "재이용·추천"
+    },
+    {
+      value: "TEXT",
+      label: "주관식"
+    }
+  ];
+}
+
+
+/**
+ * 문항 유형 코드가 시스템에서 지원하는 값인지 확인합니다.
+ *
+ * @param {string} type 문항 유형 코드
+ * @return {boolean}
+ */
+function isSupportedSurveyQuestionType_(type) {
+  const normalizedType =
+    cleanText_(type).toUpperCase();
+
+  return getSurveyQuestionTypeOptions_()
+    .some(function(option) {
+      return option.value === normalizedType;
+    });
+}
+
+
+/**
+ * 문항 유형 코드에 해당하는 한글 표시명을 반환합니다.
+ *
+ * @param {string} type 문항 유형 코드
+ * @return {string}
+ */
+function getSurveyQuestionTypeLabel_(type) {
+  const normalizedType =
+    cleanText_(type).toUpperCase();
+
+  const matched =
+    getSurveyQuestionTypeOptions_()
+      .find(function(option) {
+        return option.value === normalizedType;
+      });
+
+  return matched
+    ? matched.label
+    : "미분류";
+}
+
+
+/**
+ * ==========================================================================
+ * 문항 유형 자동 추천
+ * ==========================================================================
+ *
+ * 원본 문항명과 예시 응답을 기준으로 문항 유형을 추천합니다.
+ *
+ * 주의:
+ * - 이 결과는 확정값이 아닙니다.
+ * - 실제 문항 의도와 다를 수 있으므로 담당자가 웹페이지에서 확인합니다.
+ * - 특정 설문만을 위한 고정 컬럼 매핑은 하지 않습니다.
+ *
+ * @param {string} header 원본 문항명
+ * @param {string} sampleValue 예시 응답
+ * @return {string} 추천 문항 유형 코드
+ */
+function suggestSurveyQuestionType_(
+  header,
+  sampleValue
+) {
+  const originalHeader =
+    cleanText_(header);
+
+  const normalizedHeader =
+    normalizeHeader_(
+      originalHeader
+    );
+
+  const sample =
+    cleanText_(
+      sampleValue
+    );
+
+  const normalizedSample =
+    normalizeHeader_(
+      sample
+    );
+
+
+  // ------------------------------------------------------------------------
+  // 1. 응답일시 등 시스템 자동 생성 정보
+  // ------------------------------------------------------------------------
+
+  if (
+    normalizedHeader.includes("응답일시")
+    || normalizedHeader === "참여자"
+    || normalizedHeader.includes("참여자번호")
+    || normalizedHeader.includes("응답자번호")
+    || normalizedHeader.includes("제출일시")
+    || normalizedHeader.includes("제출시간")
+    || normalizedHeader.includes("응답시간")
+    || normalizedHeader.includes("타임스탬프")
+    || normalizedHeader.includes("timestamp")
+  ) {
+    return "EXCLUDE";
+  }
+
+
+  // ------------------------------------------------------------------------
+  // 2. 개인정보 수집 동의 문항
+  // ------------------------------------------------------------------------
+
+  if (
+    normalizedHeader.includes("개인정보수집")
+    || normalizedHeader.includes("개인정보이용")
+    || normalizedHeader.includes("개인정보동의")
+    || normalizedHeader.includes("개인정보수집및이용")
+  ) {
+    return "PERSONAL_INFO";
+  }
+
+
+  // ------------------------------------------------------------------------
+  // 3. 직접 식별 가능한 개인정보
+  // ------------------------------------------------------------------------
+
+  if (
+    normalizedHeader.includes("연락처")
+    || normalizedHeader.includes("전화번호")
+    || normalizedHeader.includes("휴대전화")
+    || normalizedHeader.includes("핸드폰")
+    || normalizedHeader.includes("이메일")
+    || normalizedHeader.includes("email")
+    || normalizedHeader.includes("담당자이름")
+    || normalizedHeader.includes("성명")
+    || normalizedHeader === "이름"
+    || normalizedHeader.includes("주소")
+  ) {
+    return "PERSONAL_INFO";
+  }
+
+
+  // ------------------------------------------------------------------------
+  // 4. 재이용·추천·재참여 의향
+  // ------------------------------------------------------------------------
+
+  if (
+    normalizedHeader.includes("재이용")
+    || normalizedHeader.includes("재참여")
+    || normalizedHeader.includes("추천의향")
+    || normalizedHeader.includes("추천할의향")
+    || normalizedHeader.includes("계속이용")
+    || normalizedHeader.includes("계속이용할의향")
+    || normalizedHeader.includes("이용의향")
+    || normalizedHeader.includes("참여의향")
+    || normalizedHeader.includes("내년에도")
+    || normalizedHeader.includes("다시이용")
+  ) {
+    return "RECOMMENDATION";
+  }
+
+
+  // ------------------------------------------------------------------------
+  // 5. 주관식 의견 문항
+  // ------------------------------------------------------------------------
+
+  if (
+    normalizedHeader.includes("자유의견")
+    || normalizedHeader.includes("기타의견")
+    || normalizedHeader.includes("건의사항")
+    || normalizedHeader.includes("개선의견")
+    || normalizedHeader.includes("개선이필요")
+    || normalizedHeader.includes("개선할점")
+    || normalizedHeader.includes("아쉬운점")
+    || normalizedHeader.includes("의견을작성")
+    || normalizedHeader.includes("내용을작성")
+    || normalizedHeader.includes("직접작성")
+    || normalizedHeader.includes("서술")
+  ) {
+    return "TEXT";
+  }
+
+  // ------------------------------------------------------------------------
+  // 6. 만족도 척도
+  // ------------------------------------------------------------------------
+
+  if (
+    normalizedHeader.includes("만족")
+    || normalizedHeader.includes("적절")
+    || normalizedHeader.includes("편리")
+    || normalizedHeader.includes("도움이되")
+    || normalizedHeader.includes("도움되")
+    || normalizedHeader.includes("유익")
+    || normalizedHeader.includes("이해하기쉽")
+    || normalizedHeader.includes("효과적")
+    || normalizedHeader.includes("충분")
+  ) {
+    return "SCALE";
+  }
+  // ------------------------------------------------------------------------
+  // 7. 응답자 특성
+  //
+  // 기관명, 연령대, 이용자 유형 등은 개인정보가 아닌 범위에서
+  // 응답자 집단을 분류하는 항목으로 처리합니다.
+  // ------------------------------------------------------------------------
+
+  if (
+    normalizedHeader.includes("기관명")
+    || normalizedHeader.includes("기관유형")
+    || normalizedHeader.includes("소속기관")
+    || normalizedHeader.includes("이용자유형")
+    || normalizedHeader.includes("연령대")
+    || normalizedHeader.includes("연령")
+    || normalizedHeader.includes("거주지역")
+    || normalizedHeader.includes("성별")
+    || normalizedHeader.includes("학년")
+    || normalizedHeader.includes("직업")
+    || normalizedHeader.includes("참여자구분")
+    || normalizedHeader.includes("응답자유형")
+  ) {
+    return "RESPONDENT";
+  }
+
+
+  // ------------------------------------------------------------------------
+  // 8. 복수응답
+  //
+  // 문항명에 복수 선택 안내가 있거나 예시 응답에 구분자가 있으면
+  // 복수응답으로 추천합니다.
+  // ------------------------------------------------------------------------
+
+  if (
+    normalizedHeader.includes("복수응답")
+    || normalizedHeader.includes("복수선택")
+    || normalizedHeader.includes("모두선택")
+    || normalizedHeader.includes("해당하는것을모두")
+    || normalizedHeader.includes("중복선택")
+    || sample.includes("|")
+    || sample.includes(";")
+  ) {
+    return "MULTIPLE";
+  }
+
+
+
+
+
+  // ------------------------------------------------------------------------
+  // 9. 예시 응답이 1~5 숫자인 경우 척도로 추천
+  // ------------------------------------------------------------------------
+
+  const numericValue =
+    Number(sample);
+
+  if (
+    sample !== ""
+    && !isNaN(numericValue)
+    && numericValue >= 1
+    && numericValue <= 5
+  ) {
+    return "SCALE";
+  }
+
+
+  // ------------------------------------------------------------------------
+  // 10. 만족도 표현이 예시 응답에 포함된 경우
+  // ------------------------------------------------------------------------
+
+  if (
+    normalizedSample === "매우만족"
+    || normalizedSample === "만족"
+    || normalizedSample === "보통"
+    || normalizedSample === "불만족"
+    || normalizedSample === "매우불만족"
+    || normalizedSample === "매우그렇다"
+    || normalizedSample === "그렇다"
+    || normalizedSample === "그렇지않다"
+    || normalizedSample === "전혀그렇지않다"
+  ) {
+    return "SCALE";
+  }
+
+
+  // ------------------------------------------------------------------------
+  // 11. 기본값은 단일응답
+  // ------------------------------------------------------------------------
+
+  return "SINGLE";
+}
+
+
+/**
+ * ==========================================================================
+ * 웹페이지 표시용 문항 매핑 정보 생성
+ * ==========================================================================
+ *
+ * Excel 헤더와 첫 번째 응답 예시를 받아 문항별 매핑 정보를 만듭니다.
+ *
+ * @param {Array<string>} headers 원본 Excel 헤더 목록
+ * @param {Array<string>} sampleRow 첫 번째 응답 예시
+ * @return {Array<Object>} 문항 매핑 목록
+ */
+function buildSurveyQuestionMappings_(
+  headers,
+  sampleRow
+) {
+  if (!Array.isArray(headers)) {
+    return [];
+  }
+
+  const safeSampleRow =
+    Array.isArray(sampleRow)
+      ? sampleRow
+      : [];
+
+  return headers
+    .map(function(
+      header,
+      index
+    ) {
+      const cleanHeader =
+        cleanText_(
+          header
+        );
+
+      // 빈 헤더는 분석 대상에서 제외합니다.
+      if (!cleanHeader) {
+        return null;
+      }
+
+      const sampleValue =
+        safeSampleRow.length > index
+          ? cleanText_(
+              safeSampleRow[index]
+            )
+          : "";
+
+      const suggestedType =
+        suggestSurveyQuestionType_(
+          cleanHeader,
+          sampleValue
+        );
+
+      return {
+        // 배열 기준 인덱스입니다.
+        columnIndex:
+          index,
+
+        // Excel 화면에서 표시되는 컬럼 번호입니다.
+        columnNumber:
+          index + 1,
+
+        // 원본 Excel의 문항명입니다.
+        originalHeader:
+          cleanHeader,
+
+        // 비교와 검색에 사용할 정규화 문항명입니다.
+        normalizedHeader:
+          normalizeHeader_(
+            cleanHeader
+          ),
+
+        // 첫 번째 응답 예시입니다.
+        sampleValue:
+          sampleValue,
+
+        // 시스템이 추천한 분석 유형입니다.
+        suggestedType:
+          suggestedType,
+
+        // 웹페이지에서 표시할 한글 유형명입니다.
+        suggestedTypeLabel:
+          getSurveyQuestionTypeLabel_(
+            suggestedType
+          ),
+
+        // 담당자가 아직 수정하지 않았으므로 추천값과 동일하게 시작합니다.
+        selectedType:
+          suggestedType
+      };
+    })
+    .filter(function(item) {
+      return item !== null;
+    });
+}
+
+
+/**
+ * ==========================================================================
+ * 문항 매핑 구조 검사
+ * ==========================================================================
+ *
+ * 문항 매핑 결과가 통계 분석 단계로 넘어갈 수 있는 기본 구조인지
+ * 확인합니다.
+ *
+ * 현재 단계에서는 엄격한 통계 조건을 강제하지 않습니다.
+ * 향후 동적 분석 기능을 연결할 때 검사 조건을 확장할 수 있습니다.
+ *
+ * @param {Array<Object>} mappings 문항 매핑 목록
+ * @return {Object} 검사 결과
+ */
+function validateSurveyMappings_(
+  mappings
+) {
+  if (
+    !Array.isArray(mappings)
+    || mappings.length === 0
+  ) {
+    return {
+      valid: false,
+      message: "분석할 설문 문항이 없습니다.",
+      errors: [
+        "문항 목록이 비어 있습니다."
+      ],
+      warnings: []
+    };
+  }
+
+  const errors = [];
+  const warnings = [];
+
+  const normalizedMappings =
+    mappings.map(function(
+      mapping,
+      index
+    ) {
+      const type =
+        cleanText_(
+          mapping.selectedType
+          || mapping.suggestedType
+        ).toUpperCase();
+
+      const originalHeader =
+        cleanText_(
+          mapping.originalHeader
+        );
+
+      if (!originalHeader) {
+        errors.push(
+          (index + 1)
+          + "번째 문항의 문항명이 비어 있습니다."
+        );
+      }
+
+      if (
+        !isSupportedSurveyQuestionType_(
+          type
+        )
+      ) {
+        errors.push(
+          (index + 1)
+          + "번째 문항의 분석 유형이 올바르지 않습니다: "
+          + type
+        );
+      }
+
+      return {
+        originalHeader:
+          originalHeader,
+
+        selectedType:
+          type
+      };
+    });
+
+
+  // ------------------------------------------------------------------------
+  // 유형별 문항 수 계산
+  // ------------------------------------------------------------------------
+
+  const countByType = {};
+
+  getSurveyQuestionTypeOptions_()
+    .forEach(function(option) {
+      countByType[option.value] = 0;
+    });
+
+  normalizedMappings
+    .forEach(function(mapping) {
+      if (
+        Object.prototype.hasOwnProperty.call(
+          countByType,
+          mapping.selectedType
+        )
+      ) {
+        countByType[mapping.selectedType]++;
+      }
+    });
+
+
+  // ------------------------------------------------------------------------
+  // 주의사항 생성
+  // ------------------------------------------------------------------------
+
+  if (
+    countByType.SCALE === 0
+  ) {
+    warnings.push(
+      "만족도 척도로 지정된 문항이 없습니다."
+    );
+  }
+
+  if (
+    countByType.TEXT === 0
+  ) {
+    warnings.push(
+      "주관식으로 지정된 문항이 없습니다."
+    );
+  }
+
+  if (
+    countByType.RECOMMENDATION === 0
+  ) {
+    warnings.push(
+      "재이용·추천 문항이 없습니다."
+    );
+  }
+
+  const analysisTargetCount =
+    mappings.length
+    - countByType.EXCLUDE
+    - countByType.PERSONAL_INFO;
+
+  if (
+    analysisTargetCount <= 0
+  ) {
+    errors.push(
+      "분석에 사용할 수 있는 문항이 없습니다."
+    );
+  }
+
+
+  return {
+    valid:
+      errors.length === 0,
+
+    questionCount:
+      mappings.length,
+
+    analysisTargetCount:
+      Math.max(
+        analysisTargetCount,
+        0
+      ),
+
+    countByType:
+      countByType,
+
+    errors:
+      errors,
+
+    warnings:
+      warnings,
+
+    message:
+      errors.length === 0
+        ? (
+          "총 "
+          + mappings.length
+          + "개 문항의 기본 구조를 확인했습니다."
+        )
+        : (
+          "문항 매핑에서 "
+          + errors.length
+          + "개의 오류를 확인했습니다."
+        )
+  };
+}
+
+
+/**
+ * 웹페이지에 전달할 문항 유형 선택 목록을 반환합니다.
+ *
+ * 향후 survey-dashboard.html에서 드롭다운 항목을 직접 하드코딩하지 않고
+ * 서버의 유형 목록을 사용할 때 활용할 수 있습니다.
+ *
+ * @return {Object}
+ */
+function getSurveyQuestionTypesForWeb() {
+  try {
+    return {
+      success: true,
+      questionTypes:
+        getSurveyQuestionTypeOptions_()
+    };
+
+  } catch (error) {
+    return {
+      success: false,
+      error:
+        error && error.message
+          ? error.message
+          : String(error)
+    };
+  }
+}
+/**
+ * 웹페이지에서 전달받은 문항 매핑 결과를 저장합니다.
+ *
+ * 저장 위치:
+ * - 현재 프로젝트 스프레드시트의 00_문항매핑 시트
+ *
+ * 주의:
+ * - 09_원자료는 수정하지 않습니다.
+ * - 기존 보고서 시트에도 영향을 주지 않습니다.
+ *
+ * @param {Object} payload 웹페이지에서 전달한 매핑 정보
+ * @return {Object} 저장 결과
+ */
+function saveSurveyMappingsFromWeb(payload) {
+  try {
+    if (
+      !payload
+      || !Array.isArray(payload.mappings)
+      || payload.mappings.length === 0
+    ) {
+      throw new Error(
+        "저장할 문항 매핑 정보가 없습니다."
+      );
+    }
+
+    const validation =
+      validateSurveyMappings_(
+        payload.mappings
+      );
+
+    if (!validation.valid) {
+      throw new Error(
+        validation.errors.join("\n")
+      );
+    }
+
+    const spreadsheet =
+      SpreadsheetApp.getActiveSpreadsheet();
+
+    const sheetName =
+      "10_문항매핑";
+
+    let sheet =
+      spreadsheet.getSheetByName(sheetName);
+
+    if (!sheet) {
+      sheet =
+        spreadsheet.insertSheet(sheetName);
+    }
+
+
+
+    // 기존 병합 셀을 안전하게 해제합니다.
+
+    sheet
+
+      .getRange(
+
+        1,
+
+        1,
+
+        sheet.getMaxRows(),
+
+        sheet.getMaxColumns()
+
+      )
+
+      .breakApart();
+
+
+
+    sheet.clear();
+
+
+
+    const headers = [
+      "순번",
+      "원본 컬럼번호",
+      "원본 문항",
+      "예시 응답",
+      "자동 추천 유형",
+      "최종 선택 유형",
+      "파일명",
+      "원본 시트명",
+      "저장일시"
+    ];
+
+    const savedAt =
+      Utilities.formatDate(
+        new Date(),
+        Session.getScriptTimeZone(),
+        "yyyy-MM-dd HH:mm:ss"
+      );
+
+    const rows =
+      payload.mappings.map(function(
+        mapping,
+        index
+      ) {
+        return [
+          index + 1,
+          Number(
+            mapping.columnNumber
+            || index + 1
+          ),
+          cleanText_(
+            mapping.originalHeader
+          ),
+          cleanText_(
+            mapping.sampleValue
+          ),
+          cleanText_(
+            mapping.suggestedType
+          ),
+          cleanText_(
+            mapping.selectedType
+            || mapping.suggestedType
+          ),
+          cleanText_(
+            payload.fileName
+          ),
+          cleanText_(
+            payload.sheetName
+          ),
+          savedAt
+        ];
+      });
+
+    sheet
+      .getRange(
+        1,
+        1,
+        1,
+        headers.length
+      )
+      .setValues([
+        headers
+      ]);
+
+    sheet
+      .getRange(
+        2,
+        1,
+        rows.length,
+        headers.length
+      )
+      .setValues(
+        rows
+      );
+
+    sheet.setFrozenRows(1);
+
+    sheet
+      .getRange(
+        1,
+        1,
+        1,
+        headers.length
+      )
+      .setFontWeight("bold")
+      .setBackground("#1b365d")
+      .setFontColor("#ffffff")
+      .setHorizontalAlignment("center");
+
+    sheet
+      .getDataRange()
+      .setVerticalAlignment("top")
+      .setWrap(true);
+
+    sheet.autoResizeColumns(
+      1,
+      headers.length
+    );
+
+    sheet.setColumnWidth(
+      3,
+      420
+    );
+
+    sheet.setColumnWidth(
+      4,
+      260
+    );
+
+    return {
+      success: true,
+      savedCount: rows.length,
+      sheetName: sheetName,
+      validation: validation,
+      message:
+        "문항 매핑 "
+        + rows.length
+        + "개를 저장했습니다."
+    };
+
+  } catch (error) {
+    return {
+      success: false,
+      error:
+        error && error.message
+          ? error.message
+          : String(error)
+    };
+  }
+}
+
+
+/**
+ * 저장된 문항 매핑 정보를 웹페이지로 반환합니다.
+ *
+ * @return {Object} 저장된 매핑 목록
+ */
+function getSavedSurveyMappingsFromWeb() {
+  try {
+    const spreadsheet =
+      SpreadsheetApp.getActiveSpreadsheet();
+
+    const sheet =
+      spreadsheet.getSheetByName(
+        "10_문항매핑"
+      );
+
+    if (
+      !sheet
+      || sheet.getLastRow() < 2
+    ) {
+      return {
+        success: true,
+        exists: false,
+        mappings: [],
+        message:
+          "저장된 문항 매핑이 없습니다."
+      };
+    }
+
+    const values =
+      sheet
+        .getRange(
+          2,
+          1,
+          sheet.getLastRow() - 1,
+          9
+        )
+        .getDisplayValues();
+
+    const mappings =
+      values.map(function(row) {
+        return {
+          columnNumber:
+            Number(row[1] || 0),
+
+          originalHeader:
+            row[2] || "",
+
+          sampleValue:
+            row[3] || "",
+
+          suggestedType:
+            row[4] || "",
+
+          selectedType:
+            row[5] || ""
+        };
+      });
+
+    return {
+      success: true,
+      exists: true,
+      fileName:
+        values[0][6] || "",
+
+      sheetName:
+        values[0][7] || "",
+
+      savedAt:
+        values[0][8] || "",
+
+      mappings: mappings,
+
+      message:
+        "저장된 문항 매핑 "
+        + mappings.length
+        + "개를 불러왔습니다."
+    };
+
+  } catch (error) {
+    return {
+      success: false,
+      error:
+        error && error.message
+          ? error.message
+          : String(error)
+    };
+  }
+}
