@@ -39,6 +39,11 @@ function secureInspectSurveyExcelForMappingFromWeb(fileData, accessToken) {
   return inspectSurveyExcelForMappingFromWeb(fileData);
 }
 
+function secureInspectSurveyExcelByRuleFromWeb(fileData, accessToken) {
+  requireWebAccessToken_(accessToken);
+  return inspectSurveyExcelForMappingFromWeb(fileData, {ruleOnly: true});
+}
+
 /**
  * 문항 매핑 저장
  */
@@ -47,12 +52,47 @@ function secureSaveSurveyMappingsFromWeb(payload, accessToken) {
   return saveSurveyMappingsFromWeb(payload);
 }
 
+function secureGetSavedSurveyMappingsFromWeb(accessToken) {
+  requireWebAccessToken_(accessToken);
+  return getSavedSurveyMappingsFromWeb();
+}
+
+function secureDeleteSavedSurveyMappingsFromWeb(accessToken) {
+  requireWebAccessToken_(accessToken);
+  return deleteSavedSurveyMappingsFromWeb();
+}
+
 /**
  * 범용 원자료 생성
  */
 function secureCreateGenericRawSheetFromWeb(fileData, accessToken) {
   requireWebAccessToken_(accessToken);
   return createGenericRawSheetFromWeb(fileData);
+}
+
+function secureUploadSurveyExcelFromWeb(fileData, accessToken) {
+  requireWebAccessToken_(accessToken);
+  return uploadSurveyExcelFromWeb(fileData);
+}
+
+function secureValidateRawSheetFromWeb(accessToken) {
+  requireWebAccessToken_(accessToken);
+  return validateRawSheetFromWeb();
+}
+
+function secureGenerateStatisticalSheetsFromWeb(accessToken) {
+  requireWebAccessToken_(accessToken);
+  return generateStatisticalSheetsFromWeb();
+}
+
+function secureGenerateAIReportSheetsFromWeb(accessToken) {
+  requireWebAccessToken_(accessToken);
+  return generateAIReportSheetsFromWeb();
+}
+
+function secureGenerateFullSurveyReportFromWeb(accessToken) {
+  requireWebAccessToken_(accessToken);
+  return generateFullSurveyReportFromWeb();
 }
 
 /**

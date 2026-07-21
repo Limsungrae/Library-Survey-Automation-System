@@ -51,15 +51,9 @@ function getDynamicSurveySource_() {
   }
 
 
-  const mappingValues =
-    mappingSheet
-      .getRange(
-        2,
-        1,
-        mappingSheet.getLastRow() - 1,
-        9
-      )
-      .getDisplayValues();
+  const mappingTable = mappingSheet.getDataRange().getDisplayValues();
+  const mappingHeaders = mappingTable[0];
+  const mappingValues = mappingTable.slice(1);
 
 
   const rawValues =
@@ -75,28 +69,42 @@ function getDynamicSurveySource_() {
       });
 
 
+  function mappingValue_(row, name, legacyIndex) {
+    const index = mappingHeaders.indexOf(name);
+    return row[index >= 0 ? index : legacyIndex] || "";
+  }
+
   const mappings =
     mappingValues.map(function(row) {
+      const selectedType = cleanText_(mappingValue_(row, "최종 선택 유형", 5)
+        || mappingValue_(row, "자동 추천 유형", 4)).toUpperCase();
       return {
         order:
-          Number(row[0] || 0),
+          Number(mappingValue_(row, "순번", 0) || 0),
 
         columnNumber:
-          Number(row[1] || 0),
+          Number(mappingValue_(row, "원본 컬럼번호", 1) || 0),
 
         originalHeader:
-          cleanText_(row[2]),
+          cleanText_(mappingValue_(row, "원본 문항", 2)),
 
         sampleValue:
-          cleanText_(row[3]),
+          cleanText_(mappingValue_(row, "예시 응답", 3)),
 
         suggestedType:
-          cleanText_(row[4]),
+          cleanText_(mappingValue_(row, "자동 추천 유형", 4)),
 
         selectedType:
-          cleanText_(
-            row[5] || row[4]
-          ).toUpperCase()
+          selectedType,
+
+        analysisTarget: mappingHeaders.indexOf("분석대상") >= 0
+          ? String(mappingValue_(row, "분석대상", 10)).toUpperCase() === "TRUE"
+          : selectedType !== "EXCLUDE" && selectedType !== "PERSONAL_INFO",
+
+        groupId: cleanText_(mappingValue_(row, "그룹 ID", 11)),
+        matrixId: cleanText_(mappingValue_(row, "행렬 ID", 12)),
+        scaleKind: cleanText_(mappingValue_(row, "척도 유형", 13)),
+        scoreMap: parseSurveyMappingScoreMap_(mappingValue_(row, "점수 매핑 JSON", 14))
       };
     });
 
@@ -254,6 +262,10 @@ function calculateDynamicSurveyAnalysis_() {
       analysis.scale
     );
 
+  analysis.groups = buildDynamicGroupSummaries_(analysis, source.mappings);
+  analysis.matrix = buildDynamicMatrixSummaries_(analysis.scale, source.mappings);
+  analysis.summary = buildDynamicAnalysisSummary_(analysis);
+
 
   return analysis;
 }
@@ -324,7 +336,11 @@ function analyzeDynamicSingleQuestions_(
                       * 100,
                       1
                     )
-                  : 0
+                  : 0,
+              totalRespondentRate: source.respondentCount > 0
+                ? round_(count / source.respondentCount * 100, 1) : 0,
+              validResponseRate: validCount > 0
+                ? round_(count / validCount * 100, 1) : 0
             };
           })
           .sort(function(a, b) {
@@ -347,6 +363,11 @@ function analyzeDynamicSingleQuestions_(
 
         validCount:
           validCount,
+
+        totalRespondents: source.respondentCount,
+        validResponses: validCount,
+        missingResponses: Math.max(source.respondentCount - validCount, 0),
+        totalCount: validCount,
 
         items:
           items
@@ -460,7 +481,9 @@ function analyzeDynamicMultipleQuestions_(
                       * 100,
                       1
                     )
-                  : 0
+                  : 0,
+              validRespondentRate: validRespondentCount > 0
+                ? round_(count / validRespondentCount * 100, 1) : 0
             };
           })
           .sort(function(a, b) {
@@ -489,6 +512,12 @@ function analyzeDynamicMultipleQuestions_(
 
         totalSelectionCount:
           totalSelectionCount,
+
+        totalRespondents: source.respondentCount,
+        validResponses: validRespondentCount,
+        missingResponses: Math.max(source.respondentCount - validRespondentCount, 0),
+        averageSelections: validRespondentCount > 0
+          ? round_(totalSelectionCount / validRespondentCount, 2) : 0,
 
         items:
           items
@@ -538,10 +567,7 @@ function analyzeDynamicScaleQuestions_(
 
 
         source.rows.forEach(function(row) {
-          const score =
-            dynamicScoreFromText_(
-              row[columnIndex]
-            );
+          const score = dynamicMappedScore_(row[columnIndex], mapping, false);
 
           if (
             score < 1
@@ -600,6 +626,21 @@ function analyzeDynamicScaleQuestions_(
 
           validCount:
             validCount,
+
+          totalRespondents: source.respondentCount,
+          validResponses: validCount,
+          missingResponses: Math.max(source.respondentCount - validCount, 0),
+          unmappedCount: Math.max(source.respondentCount - validCount, 0),
+          median: dynamicMedian_(scores),
+          standardDeviation: dynamicStandardDeviation_(scores),
+          minimum: scores.length ? Math.min.apply(null, scores) : 0,
+          maximum: scores.length ? Math.max.apply(null, scores) : 0,
+          positiveCount: positiveCount,
+          neutralCount: neutralCount,
+          negativeCount: negativeCount,
+          topBoxRate: validCount > 0 ? round_(distribution[5] / validCount * 100, 1) : 0,
+          topTwoBoxRate: validCount > 0 ? round_(positiveCount / validCount * 100, 1) : 0,
+          bottomTwoBoxRate: validCount > 0 ? round_(negativeCount / validCount * 100, 1) : 0,
 
           average:
             average,
@@ -748,163 +789,62 @@ function analyzeDynamicScaleQuestions_(
  * @param {Object} source getDynamicSurveySource_() 결과
  * @return {Array<Object>}
  */
-function analyzeDynamicRecommendationQuestions_(
-  source
-) {
-  return source.mappings
-    .filter(function(mapping) {
-      return (
-        mapping.selectedType
-        === "RECOMMENDATION"
-      );
-    })
-    .map(function(mapping) {
-      const columnIndex =
-        mapping.columnNumber - 1;
-
-      const distribution = {
-        1: 0,
-        2: 0,
-        3: 0,
-        4: 0,
-        5: 0
-      };
-
-      const scores = [];
-
-
-      source.rows.forEach(function(row) {
-        const score =
-          dynamicRecommendationScoreFromText_(
-            row[columnIndex]
-          );
-
-        if (
-          score < 1
-          || score > 5
-        ) {
-          return;
-        }
-
-        scores.push(
-          score
-        );
-
-        distribution[score]++;
-      });
-
-
-      const validCount =
-        scores.length;
-
-      const average =
-        validCount > 0
-          ? round_(
-              scores.reduce(function(
-                sum,
-                score
-              ) {
-                return sum + score;
-              }, 0)
-              / validCount,
-              2
-            )
-          : 0;
-
-
-      const positiveCount =
-        distribution[4]
-        + distribution[5];
-
-      const neutralCount =
-        distribution[3];
-
-      const negativeCount =
-        distribution[1]
-        + distribution[2];
-
-
-      return {
-        columnNumber:
-          mapping.columnNumber,
-
-        question:
-          mapping.originalHeader,
-
-        type:
-          "RECOMMENDATION",
-
-        validCount:
-          validCount,
-
-        average:
-          average,
-
-        converted100:
-          round_(
-            average
-            / 5
-            * 100,
-            1
-          ),
-
-        positiveRate:
-          validCount > 0
-            ? round_(
-                positiveCount
-                / validCount
-                * 100,
-                1
-              )
-            : 0,
-
-        neutralRate:
-          validCount > 0
-            ? round_(
-                neutralCount
-                / validCount
-                * 100,
-                1
-              )
-            : 0,
-
-        negativeRate:
-          validCount > 0
-            ? round_(
-                negativeCount
-                / validCount
-                * 100,
-                1
-              )
-            : 0,
-
-        distribution:
-          [
-            {
-              score: 5,
-              count: distribution[5]
-            },
-            {
-              score: 4,
-              count: distribution[4]
-            },
-            {
-              score: 3,
-              count: distribution[3]
-            },
-            {
-              score: 2,
-              count: distribution[2]
-            },
-            {
-              score: 1,
-              count: distribution[1]
-            }
-          ]
-      };
+function analyzeDynamicRecommendationQuestions_(source) {
+  return source.mappings.filter(function(mapping) {
+    return mapping.selectedType === "RECOMMENDATION";
+  }).map(function(mapping) {
+    const values = source.rows.map(function(row) {
+      return cleanText_(row[mapping.columnNumber - 1]);
+    }).filter(function(value) { return value !== ""; });
+    const numeric = values.map(Number).filter(function(value) {
+      return !isNaN(value) && value >= 0 && value <= 10;
     });
+    const isNps = numeric.length > 0 && numeric.length === values.length
+      && numeric.some(function(value) { return value === 0 || value > 5; });
+    if (isNps) {
+      const promoters = numeric.filter(function(value) { return value >= 9; }).length;
+      const passives = numeric.filter(function(value) { return value >= 7 && value <= 8; }).length;
+      const detractors = numeric.filter(function(value) { return value <= 6; }).length;
+      const validCount = numeric.length;
+      return {
+        columnNumber: mapping.columnNumber, question: mapping.originalHeader, type: "RECOMMENDATION",
+        scaleMode: "NPS_0_10", totalRespondents: source.respondentCount, validCount: validCount,
+        validResponses: validCount, missingResponses: Math.max(source.respondentCount - validCount, 0),
+        average: validCount ? round_(numeric.reduce(function(a, b) { return a + b; }, 0) / validCount, 2) : 0,
+        promoterCount: promoters, passiveCount: passives, detractorCount: detractors,
+        promoterRate: validCount ? round_(promoters / validCount * 100, 1) : 0,
+        passiveRate: validCount ? round_(passives / validCount * 100, 1) : 0,
+        detractorRate: validCount ? round_(detractors / validCount * 100, 1) : 0,
+        nps: validCount ? round_((promoters - detractors) / validCount * 100, 1) : 0,
+        distribution: [
+          {label: "추천자", count: promoters}, {label: "중립자", count: passives},
+          {label: "비추천자", count: detractors}
+        ]
+      };
+    }
+    const distribution = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0};
+    const scores = values.map(function(value) {
+      return dynamicMappedScore_(value, mapping, true);
+    }).filter(function(score) { return score >= 1 && score <= 5; });
+    scores.forEach(function(score) { distribution[score]++; });
+    const validCount = scores.length;
+    const positiveCount = distribution[4] + distribution[5];
+    const neutralCount = distribution[3];
+    const negativeCount = distribution[1] + distribution[2];
+    const average = validCount ? round_(scores.reduce(function(a, b) { return a + b; }, 0) / validCount, 2) : 0;
+    return {
+      columnNumber: mapping.columnNumber, question: mapping.originalHeader, type: "RECOMMENDATION",
+      scaleMode: "SCALE_1_5", totalRespondents: source.respondentCount, validCount: validCount,
+      validResponses: validCount, missingResponses: Math.max(source.respondentCount - validCount, 0),
+      average: average, converted100: round_(average / 5 * 100, 1),
+      positiveCount: positiveCount, neutralCount: neutralCount, negativeCount: negativeCount,
+      positiveRate: validCount ? round_(positiveCount / validCount * 100, 1) : 0,
+      neutralRate: validCount ? round_(neutralCount / validCount * 100, 1) : 0,
+      negativeRate: validCount ? round_(negativeCount / validCount * 100, 1) : 0,
+      distribution: [5,4,3,2,1].map(function(score) { return {score: score, count: distribution[score]}; })
+    };
+  });
 }
-
 
 /**
  * 주관식 문항의 유효 의견을 추출합니다.
@@ -953,7 +893,10 @@ function analyzeDynamicTextQuestions_(
             rowIndex + 1,
 
           text:
-            opinion
+            opinion,
+
+          responseId: String(mapping.columnNumber) + "-" + String(rowIndex + 1),
+          maskedText: maskDynamicPersonalInfo_(opinion)
         });
       });
 
@@ -970,6 +913,10 @@ function analyzeDynamicTextQuestions_(
 
         validCount:
           opinions.length,
+
+        totalRespondents: source.respondentCount,
+        validResponses: opinions.length,
+        missingResponses: Math.max(source.respondentCount - opinions.length, 0),
 
         opinions:
           opinions
@@ -1348,6 +1295,81 @@ function isValidDynamicOpinion_(value) {
   );
 }
 
+function dynamicMappedScore_(value, mapping, recommendation) {
+  const text = cleanText_(value);
+  const scoreMap = mapping && mapping.scoreMap && typeof mapping.scoreMap === "object"
+    ? mapping.scoreMap : {};
+  if (Object.prototype.hasOwnProperty.call(scoreMap, text)) {
+    const mapped = Number(scoreMap[text]);
+    return isNaN(mapped) ? 0 : mapped;
+  }
+  return recommendation
+    ? dynamicRecommendationScoreFromText_(value)
+    : dynamicScoreFromText_(value);
+}
+
+function dynamicMedian_(values) {
+  if (!values || values.length === 0) return 0;
+  const sorted = values.slice().sort(function(a, b) { return a - b; });
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : round_((sorted[middle - 1] + sorted[middle]) / 2, 2);
+}
+
+function dynamicStandardDeviation_(values) {
+  if (!values || values.length === 0) return 0;
+  const average = values.reduce(function(sum, value) { return sum + value; }, 0) / values.length;
+  const variance = values.reduce(function(sum, value) {
+    return sum + Math.pow(value - average, 2);
+  }, 0) / values.length;
+  return round_(Math.sqrt(variance), 2);
+}
+
+function buildDynamicGroupSummaries_(analysis, mappings) {
+  const groups = {};
+  (mappings || []).forEach(function(mapping) {
+    if (!mapping.groupId) return;
+    if (!groups[mapping.groupId]) groups[mapping.groupId] = [];
+    groups[mapping.groupId].push(mapping.columnNumber);
+  });
+  return Object.keys(groups).map(function(groupId) {
+    const scaleItems = (analysis.scale || []).filter(function(item) {
+      return groups[groupId].indexOf(item.columnNumber) !== -1;
+    });
+    const validItems = scaleItems.filter(function(item) { return item.validCount > 0; });
+    return {groupId: groupId, columnNumbers: groups[groupId], questionCount: groups[groupId].length,
+      validResponseCount: validItems.reduce(function(sum, item) { return sum + item.validCount; }, 0),
+      average: validItems.length ? round_(validItems.reduce(function(sum, item) { return sum + item.average; }, 0) / validItems.length, 2) : 0};
+  });
+}
+
+function buildDynamicMatrixSummaries_(scaleResults, mappings) {
+  const matrix = {};
+  (mappings || []).forEach(function(mapping) {
+    if (!mapping.matrixId) return;
+    if (!matrix[mapping.matrixId]) matrix[mapping.matrixId] = [];
+    matrix[mapping.matrixId].push(mapping.columnNumber);
+  });
+  return Object.keys(matrix).map(function(matrixId) {
+    const items = (scaleResults || []).filter(function(item) {
+      return matrix[matrixId].indexOf(item.columnNumber) !== -1;
+    });
+    return {matrixId: matrixId, items: items.map(function(item) {
+      return {columnNumber: item.columnNumber, question: item.question, average: item.average, validResponses: item.validCount};
+    })};
+  });
+}
+
+function buildDynamicAnalysisSummary_(analysis) {
+  const allQuestions = [].concat(analysis.respondent || [], analysis.single || [], analysis.multiple || [],
+    analysis.scale || [], analysis.recommendation || [], analysis.text || []);
+  const missing = allQuestions.reduce(function(sum, item) { return sum + Number(item.missingResponses || 0); }, 0);
+  const possible = Number(analysis.respondentCount || 0) * allQuestions.length;
+  return {totalRespondents: analysis.respondentCount, analyzedQuestionCount: allQuestions.length,
+    opinionCount: (analysis.text || []).reduce(function(sum, item) { return sum + item.validCount; }, 0),
+    missingResponses: missing, missingRate: possible > 0 ? round_(missing / possible * 100, 1) : 0,
+    denominator: "문항별 유효응답; 복수응답 선택률은 전체/유효 응답자를 별도 제공"};
+}
+
 
 /**
  * ==========================================================================
@@ -1397,4 +1419,30 @@ function testDynamicSurveyAnalysis() {
       2
     )
   );
+}
+
+function testDynamicSurveyPureCalculations() {
+  const source = {
+    respondentCount: 4,
+    rows: [["A", "x|y", "5", "10", "좋아요"], ["B", "x", "4", "9", "없음"],
+      ["", "", "3", "6", "test@example.com 개선"], ["A", "y", "", "", ""]],
+    mappings: [
+      {columnNumber: 1, originalHeader: "유형", selectedType: "SINGLE"},
+      {columnNumber: 2, originalHeader: "복수", selectedType: "MULTIPLE"},
+      {columnNumber: 3, originalHeader: "만족", selectedType: "SCALE", scoreMap: {}},
+      {columnNumber: 4, originalHeader: "추천", selectedType: "RECOMMENDATION", scoreMap: {}},
+      {columnNumber: 5, originalHeader: "의견", selectedType: "TEXT"}
+    ]
+  };
+  const single = analyzeDynamicSingleQuestions_(source, "SINGLE")[0];
+  const multiple = analyzeDynamicMultipleQuestions_(source)[0];
+  const scale = analyzeDynamicScaleQuestions_(source)[0];
+  const recommendation = analyzeDynamicRecommendationQuestions_(source)[0];
+  const text = analyzeDynamicTextQuestions_(source)[0];
+  if (single.validResponses !== 3 || single.missingResponses !== 1) throw new Error("SINGLE 분모 테스트 실패");
+  if (multiple.totalSelectionCount !== 4 || multiple.validResponses !== 3) throw new Error("MULTIPLE 합계 테스트 실패");
+  if (scale.average !== 4 || scale.median !== 4 || scale.positiveCount !== 2) throw new Error("SCALE 통계 테스트 실패");
+  if (recommendation.nps !== 33.3 || recommendation.promoterCount !== 2) throw new Error("NPS 테스트 실패");
+  if (text.validCount !== 2 || text.opinions[1].maskedText.indexOf("test@example.com") !== -1) throw new Error("TEXT 테스트 실패");
+  return {success: true, testCount: 5};
 }

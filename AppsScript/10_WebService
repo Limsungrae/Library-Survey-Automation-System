@@ -179,14 +179,16 @@ function getDynamicSurveySystemStatusFromWeb() {
       "01_조사개요",
       "02_대시보드",
       "03_응답자특성",
-      "04_복수응답분석",
-      "05_만족도분석",
-      "06_주관식분석"
+      "04_단일응답분석",
+      "05_복수응답분석",
+      "06_척도분석",
+      "07_추천지수분석",
+      "08_주관식분석"
     ];
 
     const aiSheetNames = [
-      "07_AI총평",
-      "08_향후계획"
+      "09_AI총평",
+      "10_향후계획"
     ];
 
     const statisticalSheetCount =
@@ -863,7 +865,13 @@ function getDynamicSurveyDashboardDataFromWeb() {
         recommendationPositiveRate:
           recommendation
             ? recommendation.positiveRate
-            : 0
+            : 0,
+
+        analyzedQuestionCount: analysis.summary.analyzedQuestionCount,
+        opinionCount: analysis.summary.opinionCount,
+        missingRate: analysis.summary.missingRate,
+        nps: recommendation && recommendation.scaleMode === "NPS_0_10"
+          ? recommendation.nps : 0
       },
 
       satisfaction:
@@ -915,6 +923,15 @@ function getDynamicSurveyDashboardDataFromWeb() {
                 })
           };
         }),
+
+      respondent: (analysis.respondent || []).map(function(question) {
+        return {question: question.question, items: (question.items || []).slice(0, 10)};
+      }),
+
+      composition: (analysis.scale || []).map(function(item) {
+        return {label: item.question, positiveRate: item.positiveRate,
+          neutralRate: item.neutralRate, negativeRate: item.negativeRate};
+      }),
 
       message:
         "범용 대시보드 데이터를 불러왔습니다."
