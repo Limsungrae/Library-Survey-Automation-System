@@ -939,12 +939,24 @@
             ① 문항 구조 확인
           </button>
 
+          <button type="button" class="button action-button button-soft" onclick="inspectSurveyQuestionsByRule()">
+            규칙으로 다시 분석
+          </button>
+
           <button
             type="button"
             class="button action-button button-success"
             onclick="saveSurveyMappings()"
           >
             ② 분석 유형 저장
+          </button>
+
+          <button type="button" class="button action-button button-soft" onclick="loadSavedSurveyMappings()">
+            저장 매핑 불러오기
+          </button>
+
+          <button type="button" class="button action-button button-soft" onclick="resetSavedSurveyMappings()">
+            매핑 초기화
           </button>
 
           <button
@@ -967,6 +979,9 @@
                   <th>원본 문항</th>
                   <th>예시 응답</th>
                   <th style="width:205px;">분석 유형</th>
+                  <th style="width:100px;">신뢰도</th>
+                  <th>판단 근거</th>
+                  <th style="width:100px;">출처</th>
                 </tr>
               </thead>
               <tbody id="mappingTableBody"></tbody>
@@ -1518,8 +1533,9 @@ window.addEventListener(
           loadSystemStatus();
         })
         .withFailureHandler(handleFailure)
-        .uploadSurveyExcelFromWeb(
-          selectedExcelData
+        .secureUploadSurveyExcelFromWeb(
+          selectedExcelData,
+          getWebAccessToken_()
         );
     }
 
@@ -1556,7 +1572,7 @@ window.addEventListener(
           loadSystemStatus();
         })
         .withFailureHandler(handleFailure)
-        .validateRawSheetFromWeb();
+        .secureValidateRawSheetFromWeb(getWebAccessToken_());
     }
 
 /**
@@ -1661,7 +1677,7 @@ function generateDynamicStatistics() {
           handleGenerationResult
         )
         .withFailureHandler(handleFailure)
-        .generateStatisticalSheetsFromWeb();
+        .secureGenerateStatisticalSheetsFromWeb(getWebAccessToken_());
     }
 
 
@@ -1676,7 +1692,7 @@ function generateDynamicStatistics() {
           handleGenerationResult
         )
         .withFailureHandler(handleFailure)
-        .generateAIReportSheetsFromWeb();
+        .secureGenerateAIReportSheetsFromWeb(getWebAccessToken_());
     }
 
 
@@ -1691,7 +1707,7 @@ function generateDynamicStatistics() {
           handleGenerationResult
         )
         .withFailureHandler(handleFailure)
-        .generateFullSurveyReportFromWeb();
+        .secureGenerateFullSurveyReportFromWeb(getWebAccessToken_());
     }
 
 
@@ -2340,6 +2356,24 @@ function renderSystemStatus(result) {
         );
     }
 
+    function inspectSurveyQuestionsByRule() {
+      if (!selectedExcelData) {
+        showStatus("먼저 Excel 파일을 선택해 주세요.", "warning");
+        return;
+      }
+      setLoading(true, "규칙 엔진으로 문항 구조를 다시 분석하고 있습니다.");
+      google.script.run.withSuccessHandler(function(result) {
+        setLoading(false);
+        if (!result || !result.success) {
+          showStatus(result && result.error ? result.error : "규칙 기반 분석에 실패했습니다.", "danger");
+          return;
+        }
+        renderSurveyMappings(result);
+        showStatus(result.message, "success");
+      }).withFailureHandler(handleFailure)
+        .secureInspectSurveyExcelByRuleFromWeb(selectedExcelData, getWebAccessToken_());
+    }
+
 
     /**
      * Apps Script에서 전달받은 문항 매핑 정보를 화면에 표시합니다.
@@ -2390,7 +2424,9 @@ function renderSystemStatus(result) {
           result.questionCount
           || 0
         )
-        + "개";
+        + "개"
+        + "\n매핑 출처: "
+        + (result.mappingSource || "저장/규칙");
 
 
       const mappings =
@@ -2595,6 +2631,19 @@ function renderSystemStatus(result) {
           typeCell
         );
 
+        const confidenceCell = document.createElement("td");
+        confidenceCell.textContent = mapping.confidence !== undefined
+          ? Math.round(Number(mapping.confidence || 0) * 100) + "%" : "-";
+        row.appendChild(confidenceCell);
+
+        const reasonCell = document.createElement("td");
+        reasonCell.textContent = mapping.reason || "규칙 기반 추천";
+        row.appendChild(reasonCell);
+
+        const sourceCell = document.createElement("td");
+        sourceCell.textContent = mapping.mappingSource || result.mappingSource || "RULE";
+        row.appendChild(sourceCell);
+
 
         mappingTableBody.appendChild(
           row
@@ -2637,7 +2686,7 @@ function saveSurveyMappings() {
         const select =
           selects[index];
 
-        return {
+        return Object.assign({}, mapping, {
           columnIndex:
             mapping.columnIndex,
 
@@ -2657,7 +2706,7 @@ function saveSurveyMappings() {
             select
               ? select.value
               : mapping.suggestedType
-        };
+        });
       }
     );
 
@@ -2713,6 +2762,39 @@ function saveSurveyMappings() {
       payload,
       getWebAccessToken_()
     );
+}
+
+function loadSavedSurveyMappings() {
+  setLoading(true, "저장된 문항 매핑을 불러오고 있습니다.");
+  google.script.run.withSuccessHandler(function(result) {
+    setLoading(false);
+    if (!result || !result.success || !result.exists) {
+      showStatus(result && result.message ? result.message : "저장된 매핑이 없습니다.", "warning");
+      return;
+    }
+    result.questionCount = result.mappings.length;
+    result.mappingSource = "SAVED";
+    renderSurveyMappings(result);
+    showStatus(result.message, "success");
+  }).withFailureHandler(handleFailure)
+    .secureGetSavedSurveyMappingsFromWeb(getWebAccessToken_());
+}
+
+function resetSavedSurveyMappings() {
+  setLoading(true, "저장된 문항 매핑을 초기화하고 있습니다.");
+  google.script.run.withSuccessHandler(function(result) {
+    setLoading(false);
+    if (!result || !result.success) {
+      showStatus(result && result.error ? result.error : "매핑 초기화에 실패했습니다.", "danger");
+      return;
+    }
+    currentSurveyMappingResult = null;
+    document.getElementById("mappingTableBody").innerHTML = "";
+    document.getElementById("mappingSection").classList.remove("is-active");
+    showStatus(result.message, "success");
+    loadSystemStatus();
+  }).withFailureHandler(handleFailure)
+    .secureDeleteSavedSurveyMappingsFromWeb(getWebAccessToken_());
 }
 /**
  * 선택한 Excel을 범용 원자료 시트로 저장합니다.

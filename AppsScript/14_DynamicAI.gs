@@ -63,7 +63,7 @@ function generateDynamicAIReport() {
 
     // 2단계: 07_AI총평 시트를 생성하고 가독성 있게 디자인된 양식에 AI 총평을 기록합니다.
     createDynamicAITextSheet_(
-      "07_AI총평",
+      "09_AI총평",
       "AI 총평",
       summaryText,
       "※ 본 문안은 설문 통계와 주관식 의견을 바탕으로 Gemini가 작성한 초안이며, 담당자의 최종 검토가 필요합니다."
@@ -71,7 +71,7 @@ function generateDynamicAIReport() {
 
     // 3단계: 08_향후계획 시트를 생성하고 가독성 있게 디자인된 양식에 향후 계획을 기록합니다.
     createDynamicAITextSheet_(
-      "08_향후계획",
+      "10_향후계획",
       "향후계획",
       futurePlanText,
       "※ 본 문안은 조사 결과에 근거한 검토용 초안이며, 확정된 정책·예산·일정을 의미하지 않습니다."
@@ -87,7 +87,7 @@ function generateDynamicAIReport() {
     return {
       success: true,
       message: "범용 AI 주관식 분석, 총평 및 향후계획 생성이 완료되었습니다.",
-      generatedSheets: ["06_주관식분석", "07_AI총평", "08_향후계획"],
+      generatedSheets: ["08_주관식분석", "09_AI총평", "10_향후계획"],
       summary: {
         validOpinionCount: opinionAnalysis.validCount, // 유효한 주관식 의견 총 개수
         categoryCount: opinionAnalysis.categories.length // AI가 분류해 낸 카테고리 총 개수
@@ -181,6 +181,7 @@ ${surveyName}
 - 구체적인 개선 요구가 없는 긍정 표현을 개선 요구로 확대 해석하지 않는다.
 - 한 의견에 여러 의미가 있으면 최대 2개 범주에 중복 배정할 수 한다.
 - categoryName은 짧고 공공기관 보고서에 적합한 명사형 문구로 작성한다.
+- sentiment는 POSITIVE, NEGATIVE, SUGGESTION, INCONVENIENCE, OTHER 중 하나로 작성한다.
 - opinionIds에는 아래 입력에 존재하는 ID만 사용한다.
 - 존재하지 않는 ID를 만들지 않는다.
 - 대표 의견은 원문을 길게 복사하지 말고 핵심 의미를 1문장으로 요약한다.
@@ -202,6 +203,7 @@ ${opinions
   "categories": [
     {
       "categoryName": "범주명",
+      "sentiment": "SUGGESTION",
       "opinionIds": ["11-4", "11-7"],
       "representativeOpinions": [
         "대표 의견 요약"
@@ -252,12 +254,17 @@ ${opinions
 
     // AI가 작성한 카테고리별 요약 대표 의견을 최대 3개까지만 가져옵니다.
     const representativeOpinions = Array.isArray(categoryItem.representativeOpinions)
-      ? categoryItem.representativeOpinions.map(cleanText_).filter(Boolean).slice(0, 3)
+      ? categoryItem.representativeOpinions.map(function(value) {
+          return maskDynamicPersonalInfo_(cleanText_(value));
+        }).filter(Boolean).slice(0, 3)
       : [];
 
     // 검증된 정보와 실제 매핑된 데이터 건수를 기반으로 최종 카테고리 객체를 생성하여 배열에 추가합니다.
     categories.push({
       category: categoryName,
+      sentiment: ["POSITIVE", "NEGATIVE", "SUGGESTION", "INCONVENIENCE", "OTHER"]
+        .indexOf(cleanText_(categoryItem.sentiment).toUpperCase()) >= 0
+          ? cleanText_(categoryItem.sentiment).toUpperCase() : "OTHER",
       count: opinionIds.length, // AI가 준 값이 아닌, 실제 유효 필터링을 거친 건수를 기록!
       opinionIds: opinionIds,
       responseNumbers: opinionIds.map(function(id) {
@@ -271,6 +278,20 @@ ${opinions
   categories.sort(function(a, b) {
     return b.count - a.count || a.category.localeCompare(b.category, "ko");
   });
+
+  const assignedIds = {};
+  categories.forEach(function(category) {
+    category.opinionIds.forEach(function(id) { assignedIds[id] = true; });
+  });
+  const unassignedIds = opinions.map(function(item) { return item.id; }).filter(function(id) {
+    return !assignedIds[id];
+  });
+  if (unassignedIds.length > 0) {
+    categories.push({category: "미분류 의견", sentiment: "OTHER", count: unassignedIds.length,
+      opinionIds: unassignedIds, responseNumbers: unassignedIds.map(function(id) {
+        return validOpinionMap[id].responseNumber;
+      }), representativeOpinions: []});
+  }
 
   // 역으로, 원본 의견별로 본인이 어떤 카테고리들에 매핑되었는지 정리(역인덱싱)합니다.
   const opinionAssignments = opinions.map(function(opinion) {
@@ -480,7 +501,7 @@ ${summaryText}
  */
 function createDynamicAIOpinionSheet_(analysis, opinionAnalysis) {
   // 시트가 이미 있다면 깨끗이 밀어버리고(초기화) 새로 가져옵니다.
-  const sheet = getOrResetDynamicAISheet_("06_주관식분석");
+  const sheet = getOrResetDynamicAISheet_("08_주관식분석");
 
   // 시트 맨 상단에 제목(1~2행 병합)을 배치합니다. 총 7개 열 크기입니다.
   setDynamicAISheetTitle_(sheet, "주관식 의견 AI 분석", 7);
@@ -524,6 +545,16 @@ function createDynamicAIOpinionSheet_(analysis, opinionAnalysis) {
     
     // 테이블 전체 영역에 회색 테두리 등의 기본 격자 서식을 적용합니다.
     styleDynamicAITable_(sheet.getRange(4, 1, categoryRows.length + 1, 7));
+
+    try {
+      const chart = sheet.newChart().setChartType(Charts.ChartType.BAR)
+        .addRange(sheet.getRange(4, 2, categoryRows.length + 1, 2))
+        .setOption("title", "AI 의견 범주별 건수")
+        .setOption("legend", {position: "none"}).setPosition(4, 9, 0, 0).build();
+      sheet.insertChart(chart);
+    } catch (chartError) {
+      console.warn("주관식 차트 생성 건너뜀: " + chartError.message);
+    }
 
   } else {
     // 데이터가 아예 없을 때 예외적으로 출력할 안내 문구 세팅입니다.
@@ -814,7 +845,7 @@ function moveDynamicAISheetsInOrder_() {
   const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
 
   // 정렬 순서 정의
-  ["06_주관식분석", "07_AI총평", "08_향후계획"].forEach(function(sheetName, index) {
+  ["08_주관식분석", "09_AI총평", "10_향후계획"].forEach(function(sheetName, index) {
     const sheet = spreadsheet.getSheetByName(sheetName);
 
     if (!sheet) return; // 혹시라도 시트가 없으면 패스합니다.
@@ -823,7 +854,7 @@ function moveDynamicAISheetsInOrder_() {
 
     // 00_설정 탭(1번째) 및 01~05 통계 탭(2~6번째)이 앞에 고정되어 있다고 전제하므로,
     // 활성화된 탭을 순서대로 각각 7번째, 8번째, 9번째 탭 위치로 명시적 이동시킵니다.
-    spreadsheet.moveActiveSheet(index + 7);
+    spreadsheet.moveActiveSheet(index + 9);
   });
 }
 
