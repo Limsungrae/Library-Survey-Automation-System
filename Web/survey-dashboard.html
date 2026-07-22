@@ -916,8 +916,8 @@
               네이버폼 결과 Excel을 선택해 주세요.
             </p>
             <p class="upload-help">
-              .xlsx 또는 .xls · 최대 8MB<br>
-              업로드 파일은 임시 변환 후 자동 정리되며 결과는 09_범용원자료에 저장됩니다.
+              .xlsx 또는 .xls · 최대 12MB · 최대 20,000행/300열<br>
+              업로드 파일은 임시 변환 후 자동 정리되며 결과는 11_범용원자료에 저장됩니다.
             </p>
           </div>
 
@@ -982,6 +982,9 @@
                   <th style="width:100px;">신뢰도</th>
                   <th>판단 근거</th>
                   <th style="width:100px;">출처</th>
+                  <th style="width:190px;">척도 유형</th>
+                  <th style="min-width:260px;">점수 매핑 JSON</th>
+                  <th style="width:130px;">검토 상태</th>
                 </tr>
               </thead>
               <tbody id="mappingTableBody"></tbody>
@@ -1024,6 +1027,12 @@
     <div id="statisticsState" class="step-state is-pending">
       조사정보·문항매핑·범용 원자료가 필요합니다.
     </div>
+
+    <button type="button" class="button action-button button-soft is-fullwidth mt-3" onclick="runDynamicQualityCheck()">
+      품질검사 실행
+    </button>
+    <div id="qualityState" class="step-state is-pending">통계 생성 전후에 품질검사를 실행할 수 있습니다.</div>
+    <div id="qualityMessages" class="notification is-light" hidden></div>
 
     <button
       id="aiReportButton"
@@ -1080,7 +1089,7 @@
         <div>
           <h2 class="chart-title">만족도 문항별 평균</h2>
           <p class="chart-description">
-            09_범용원자료와 문항 매핑을 기준으로 계산한 결과입니다.
+            11_범용원자료와 12_문항매핑을 기준으로 계산한 결과입니다.
           </p>
         </div>
 
@@ -1175,7 +1184,7 @@
     "use strict";
 
     const MAX_EXCEL_SIZE_BYTES =
-      8 * 1024 * 1024;
+      12 * 1024 * 1024;
 
 
     let selectedExcelData = null;
@@ -1421,7 +1430,7 @@ window.addEventListener(
         selectedExcelData = null;
 
         showStatus(
-          "파일 용량은 8MB 이하로 선택해 주세요.",
+          "파일 용량은 12MB 이하로 선택해 주세요.",
           "danger"
         );
 
@@ -1634,11 +1643,9 @@ function generateDynamicStatistics() {
         document
           .getElementById("summaryAverage")
           .textContent =
-            Number(
-              result.summary.overallAverage
-              || 0
-            ).toFixed(2)
-            + "점";
+            result.summary.overallAverage === null
+              ? "산출 불가"
+              : Number(result.summary.overallAverage).toFixed(2) + "점";
 
         document
           .getElementById("summaryPositive")
@@ -1652,14 +1659,15 @@ function generateDynamicStatistics() {
         document
           .getElementById("summaryRecommend")
           .textContent =
-            Number(
-              result.summary.recommendationPositiveRate
-              || 0
-            ).toFixed(1)
-            + "%";
+            result.summary.nps !== null && result.summary.nps !== undefined
+              ? "NPS " + Number(result.summary.nps).toFixed(1)
+              : (result.summary.recommendationPositiveRate !== null
+                  ? Number(result.summary.recommendationPositiveRate).toFixed(1) + "%"
+                  : "NPS 문항 없음");
       }
 
       loadSystemStatus();
+      runDynamicQualityCheck();
     })
     .withFailureHandler(handleFailure)
     .secureGenerateDynamicStatisticalReportFromWeb(
@@ -2154,12 +2162,12 @@ function renderSystemStatus(result) {
         Boolean(
           statisticsReady
           && result.statisticsComplete
+          && result.qualityAiAllowed
         );
 
       const exportReady =
         Boolean(
-          aiReady
-          && result.aiComplete
+          result.exportReady
         );
 
       setStepButtonState_(
@@ -2179,6 +2187,8 @@ function renderSystemStatus(result) {
         aiReady,
         result.aiComplete
           ? "AI 보고서 생성 완료 · 다시 생성할 수 있습니다."
+          : result.statisticsComplete && !result.qualityAiAllowed
+            ? "품질검사 오류를 해결해야 AI 보고서를 생성할 수 있습니다."
           : aiReady
             ? "통계 완료 · Gemini AI 분석을 실행하세요."
             : "통계 보고서 생성 후 활성화됩니다."
@@ -2190,7 +2200,7 @@ function renderSystemStatus(result) {
         exportReady,
         exportReady
           ? "최종 보고서 준비 완료 · Excel을 생성할 수 있습니다."
-          : "Gemini AI 보고서 생성 후 활성화됩니다."
+          : "통계 보고서와 품질검사를 완료해 주세요."
       );
     }
 
@@ -2610,7 +2620,7 @@ function renderSystemStatus(result) {
 
           if (
             questionType.value
-            === mapping.suggestedType
+            === (mapping.selectedType || mapping.suggestedType)
           ) {
             option.selected =
               true;
@@ -2643,6 +2653,20 @@ function renderSystemStatus(result) {
         const sourceCell = document.createElement("td");
         sourceCell.textContent = mapping.mappingSource || result.mappingSource || "RULE";
         row.appendChild(sourceCell);
+
+        const scaleKindCell=document.createElement("td");
+        const scaleKind=document.createElement("select");scaleKind.className="select mapping-scale-kind";
+        [{value:"",label:"해당 없음"},{value:"RECOMMENDATION_1_5",label:"5점 추천의향"},{value:"NPS_0_10",label:"NPS 0~10"}]
+          .forEach(function(item){const option=document.createElement("option");option.value=item.value;option.textContent=item.label;
+            option.selected=item.value===(mapping.scaleKind||"");scaleKind.appendChild(option);});
+        scaleKindCell.appendChild(scaleKind);row.appendChild(scaleKindCell);
+
+        const scoreMapCell=document.createElement("td");const scoreMap=document.createElement("input");
+        scoreMap.className="input mapping-score-map";scoreMap.type="text";
+        scoreMap.value=JSON.stringify(mapping.scoreMap||{});scoreMap.setAttribute("aria-label","점수 매핑 JSON");
+        scoreMapCell.appendChild(scoreMap);row.appendChild(scoreMapCell);
+
+        const reviewCell=document.createElement("td");reviewCell.textContent=mapping.reviewStatus||"REVIEW_REQUIRED";row.appendChild(reviewCell);
 
 
         mappingTableBody.appendChild(
@@ -2678,7 +2702,10 @@ function saveSurveyMappings() {
     document.querySelectorAll(
       ".mapping-type-select"
     );
+  const scaleKinds=document.querySelectorAll(".mapping-scale-kind");
+  const scoreMaps=document.querySelectorAll(".mapping-score-map");
 
+  let scoreMapError="";
   const mappings =
     currentSurveyMappingResult.mappings.map(
       function(mapping, index) {
@@ -2686,6 +2713,9 @@ function saveSurveyMappings() {
         const select =
           selects[index];
 
+        let parsedScoreMap={};
+        try{parsedScoreMap=JSON.parse(scoreMaps[index]?scoreMaps[index].value:"{}");}
+        catch(error){scoreMapError=(index+1)+"번째 문항의 점수 매핑 JSON이 올바르지 않습니다.";}
         return Object.assign({}, mapping, {
           columnIndex:
             mapping.columnIndex,
@@ -2705,10 +2735,15 @@ function saveSurveyMappings() {
           selectedType:
             select
               ? select.value
-              : mapping.suggestedType
+              : mapping.suggestedType,
+          scaleKind: scaleKinds[index]?scaleKinds[index].value:(mapping.scaleKind||""),
+          scoreMap: parsedScoreMap,
+          reviewStatus: "USER_REVIEWED"
         });
       }
     );
+
+  if(scoreMapError){showStatus(scoreMapError,"danger");return;}
 
 
   const payload = {
@@ -2861,6 +2896,19 @@ function createGenericRawSheet() {
           ).trim()
         : "";
     }
+function runDynamicQualityCheck() {
+  setLoading(true,"설문 분석 품질을 검사하고 있습니다.");
+  google.script.run.withSuccessHandler(function(result){
+    setLoading(false);const quality=result&&(result.quality||(result.data));
+    if(!result||!result.success||!quality){showStatus(result&&result.message?result.message:"품질검사에 실패했습니다.","danger");return;}
+    const state=document.getElementById("qualityState");const messages=document.getElementById("qualityMessages");
+    state.className="step-state "+(quality.status==="PASS"?"is-complete":(quality.status==="WARNING"?"is-warning":"is-error"));
+    state.textContent="품질검사: "+quality.status+" · 오류 "+quality.errors.length+"건 · 경고 "+quality.warnings.length+"건";
+    messages.hidden=false;messages.textContent=[].concat(quality.errors,quality.warnings).map(function(item){return "["+item.code+"] "+item.message;}).join("\n")||"검증 오류가 없습니다.";
+    document.getElementById("aiReportButton").disabled=!quality.aiAllowed;
+  }).withFailureHandler(handleFailure).secureGetDynamicSurveyQualityFromWeb(getWebAccessToken_());
+}
+
 function generateDynamicAIReport() {
   const button =
     document.getElementById("aiReportButton");

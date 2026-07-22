@@ -376,7 +376,9 @@ function sanitizeFileName_(
   }
 
 
-  return fileName;
+  const extension=fileName.toLowerCase().endsWith(".xlsx")?".xlsx":"";
+  const base=extension?fileName.substring(0,fileName.length-extension.length):fileName;
+  return base.substring(0,120)+extension;
 }
 /**
  * ==========================================================================
@@ -410,18 +412,19 @@ function sanitizeFileName_(
  */
 function getDynamicExportSheetNames_() {
   return [
+    "00_품질검사",
     "01_조사개요",
     "02_대시보드",
     "03_응답자특성",
     "04_단일응답분석",
     "05_복수응답분석",
     "06_척도분석",
-    "07_추천지수분석",
+    "07_추천의향분석",
     "08_주관식분석",
     "09_AI총평",
     "10_향후계획",
-    "10_문항매핑",
-    "09_범용원자료"
+    "11_범용원자료",
+    "12_문항매핑"
   ];
 }
 
@@ -436,7 +439,8 @@ function getDynamicExportSheetNames_() {
  * @return {Object} 생성된 파일 정보
  */
 function createDynamicSurveyReportXlsx_(
-  requestedFileName
+  requestedFileName,
+  options
 ) {
   let temporarySpreadsheet = null;
 
@@ -454,14 +458,15 @@ function createDynamicSurveyReportXlsx_(
 
     const requiredSheets = [
       "01_조사개요",
+      "00_품질검사",
       "02_대시보드",
       "03_응답자특성",
       "04_단일응답분석",
       "05_복수응답분석",
       "06_척도분석",
-      "07_추천지수분석",
+      "07_추천의향분석",
       "08_주관식분석",
-      "09_범용원자료"
+      "11_범용원자료"
     ];
 
 
@@ -479,6 +484,11 @@ function createDynamicSurveyReportXlsx_(
         + missingSheets.join("\n- ")
         + "\n\n먼저 범용 통계 보고서를 생성해 주세요."
       );
+    }
+
+    const qualitySheet=sourceSpreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.QUALITY);
+    if(qualitySheet&&qualitySheet.getRange("B5").getDisplayValue()==="FAIL"&&!(options&&options.force===true)){
+      throw new Error("품질검사 실패 상태에서는 기본 내보내기를 차단합니다. 오류를 수정하거나 관리자 강제 내보내기를 사용하세요.");
     }
 
 
@@ -650,6 +660,7 @@ function createDynamicSurveyReportXlsx_(
         .setContentType(
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         );
+    if(excelBlob.getBytes().length===0)throw new Error("생성된 Excel 파일이 비어 있습니다.");
 
 
     // ----------------------------------------------------------------------
@@ -713,11 +724,13 @@ function createDynamicSurveyReportXlsx_(
  * @return {Object}
  */
 function exportDynamicSurveyReportFromWeb(
-  requestedFileName
+  requestedFileName,
+  options
 ) {
   try {
     const result = createDynamicSurveyReportXlsx_(
-      requestedFileName
+      requestedFileName,
+      options
     );
 
     const savedFile = DriveApp.getFileById(

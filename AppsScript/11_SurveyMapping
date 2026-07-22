@@ -470,7 +470,7 @@ function buildSurveyQuestionMappingsWithAI_(
   responseRows,
   aiCaller
 ) {
-  const ruleMappings =
+  let ruleMappings =
     buildSurveyQuestionMappings_(
       headers,
       sampleRow
@@ -504,6 +504,7 @@ function buildSurveyQuestionMappingsWithAI_(
         sampleRow,
         responseRows
       );
+    ruleMappings = enhanceSurveyRuleMappingsWithProfiles_(ruleMappings, profiles);
 
     const prompt =
       buildSurveyMappingAIPrompt_(profiles);
@@ -625,6 +626,7 @@ function buildSurveyColumnProfiles_(
     let emailCount = 0;
     let phoneCount = 0;
     let delimiterDetected = false;
+    let delimitedValueCount = 0;
     const delimiterCandidates = [];
     const numericValues = [];
 
@@ -641,6 +643,7 @@ function buildSurveyColumnProfiles_(
       }
       if (/[|;\n,]/.test(value)) {
         delimiterDetected = true;
+        delimitedValueCount++;
       }
       [["PIPE", "|"], ["SEMICOLON", ";"], ["NEWLINE", "\n"], ["COMMA", ","]]
         .forEach(function(candidate) {
@@ -697,6 +700,7 @@ function buildSurveyColumnProfiles_(
         ? totalTextLength / values.length
         : 0,
       delimiterDetected: delimiterDetected,
+      delimitedValueCount: delimitedValueCount,
       delimiterCandidates: delimiterCandidates,
       detectedScaleRange: detectedScaleRange,
       detectedScaleValues: numericValues
@@ -735,6 +739,31 @@ function buildSurveyMappingAIPrompt_(profiles) {
     "Column Profiles:",
     JSON.stringify(profiles)
   ].join("\n");
+}
+
+function enhanceSurveyRuleMappingsWithProfiles_(ruleMappings, profiles) {
+  const profileByColumn={};(profiles||[]).forEach(function(p){profileByColumn[p.columnNumber]=p;});
+  return (ruleMappings||[]).map(function(mapping){
+    const profile=profileByColumn[mapping.columnNumber]; if(!profile)return mapping;
+    const header=profile.normalizedHeader; let type=mapping.suggestedType;
+    const multiHeader=["향후희망서비스","개선필요사항","이용공간","인지경로"].some(function(key){return header.indexOf(key)!==-1;});
+    const delimiterRate=profile.totalCount?profile.delimitedValueCount/profile.totalCount:0;
+    if((multiHeader||delimiterRate>=0.2)&&profile.averageTextLength<120)type="MULTIPLE";
+    let scaleKind="",scoreMap={};
+    if(type==="RECOMMENDATION"){
+      scaleKind=profile.detectedScaleRange&&profile.detectedScaleRange.min===0&&profile.detectedScaleRange.max>5?"NPS_0_10":"RECOMMENDATION_1_5";
+    }
+    if(type==="SCALE"||scaleKind==="RECOMMENDATION_1_5") scoreMap=buildSurveyScaleMapCandidate_(profile.sampleValues);
+    return Object.assign({},mapping,{suggestedType:type,selectedType:type,
+      suggestedTypeLabel:getSurveyQuestionTypeLabel_(type),scaleKind:scaleKind,scoreMap:scoreMap,
+      confidence:profile.ruleConfidence,reason:profile.ruleReason,reviewStatus:profile.ruleConfidence<0.7?"REVIEW_REQUIRED":"AUTO_REVIEWED"});
+  });
+}
+
+function buildSurveyScaleMapCandidate_(values) {
+  const result={};(values||[]).forEach(function(value){
+    const score=dynamicMappedScore_(value,{scoreMap:{}},false);if(score!==null)result[value]=score;
+  });return result;
 }
 
 
@@ -913,6 +942,8 @@ function mergeSurveyAIAndRuleMappings_(ruleMappings, aiMappings) {
       confidence: ai.confidence,
       reason: ai.reason,
       mappingSource: "AI",
+      reviewStatus: ai.confidence < 0.7 || questionType !== rule.suggestedType
+        ? "REVIEW_REQUIRED" : "AUTO_REVIEWED",
       ruleSuggestedType: rule.suggestedType
     });
   });
@@ -1172,6 +1203,11 @@ function validateSurveyMappings_(
         );
       }
 
+      if (type === "RECOMMENDATION"
+          && DYNAMIC_SURVEY_CONFIG.ALLOWED_RECOMMENDATION_KINDS.indexOf(cleanText_(mapping.scaleKind).toUpperCase()) === -1) {
+        errors.push((index + 1) + "번째 추천 문항의 척도 유형을 NPS_0_10 또는 RECOMMENDATION_1_5로 지정해 주세요.");
+      }
+
       return {
         originalHeader:
           originalHeader,
@@ -1343,15 +1379,15 @@ function saveSurveyMappingsFromWeb(payload) {
     });
 
     const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-    let sheet = spreadsheet.getSheetByName("10_문항매핑");
-    if (!sheet) sheet = spreadsheet.insertSheet("10_문항매핑");
+    let sheet = spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.MAPPING);
+    if (!sheet) sheet = spreadsheet.insertSheet(DYNAMIC_SURVEY_CONFIG.SHEETS.MAPPING);
     sheet.getDataRange().breakApart();
     sheet.clear();
 
     const headers = [
       "순번", "원본 컬럼번호", "원본 문항", "예시 응답", "자동 추천 유형", "최종 선택 유형",
       "파일명", "원본 시트명", "저장일시", "정규화 문항", "분석대상", "그룹 ID", "행렬 ID",
-      "척도 유형", "점수 매핑 JSON", "신뢰도", "판단 이유", "매핑 출처", "매핑 버전"
+      "척도 유형", "점수 매핑 JSON", "신뢰도", "판단 이유", "매핑 출처", "매핑 버전", "검토 상태"
     ];
     const savedAt = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
     const mappingVersion = "2";
@@ -1367,7 +1403,8 @@ function saveSurveyMappingsFromWeb(payload) {
         cleanText_(mapping.normalizedHeader || normalizeHeader_(mapping.originalHeader)), analysisTarget,
         cleanText_(mapping.groupId), cleanText_(mapping.matrixId), cleanText_(mapping.scaleKind), JSON.stringify(scoreMap),
         Math.max(0, Math.min(1, Number(mapping.confidence) || 0)), cleanText_(mapping.reason),
-        cleanText_(mapping.mappingSource || payload.mappingSource || "USER"), mappingVersion
+        cleanText_(mapping.mappingSource || payload.mappingSource || "USER"), mappingVersion,
+        cleanText_(mapping.reviewStatus || "USER_REVIEWED")
       ];
     });
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
@@ -1379,7 +1416,7 @@ function saveSurveyMappingsFromWeb(payload) {
     sheet.autoResizeColumns(1, headers.length);
     sheet.setColumnWidth(3, 420);
     sheet.setColumnWidth(4, 260);
-    return {success: true, savedCount: rows.length, sheetName: "10_문항매핑", mappingVersion: mappingVersion,
+    return {success: true, savedCount: rows.length, sheetName: DYNAMIC_SURVEY_CONFIG.SHEETS.MAPPING, mappingVersion: mappingVersion,
       validation: validation, message: "문항 매핑 " + rows.length + "개를 저장했습니다."};
   } catch (error) {
     return {success: false, error: error && error.message ? error.message : String(error)};
@@ -1399,7 +1436,8 @@ function parseSurveyMappingScoreMap_(value) {
 function getSavedSurveyMappingsFromWeb() {
   try {
     const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = spreadsheet.getSheetByName("10_문항매핑");
+    const sheet = spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.MAPPING)
+      || spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.LEGACY_MAPPING);
     if (!sheet || sheet.getLastRow() < 2) {
       return {success: true, exists: false, mappings: [], message: "저장된 문항 매핑이 없습니다."};
     }
@@ -1423,7 +1461,8 @@ function getSavedSurveyMappingsFromWeb() {
         scaleKind: at_(row, "척도 유형", 13), scoreMap: parseSurveyMappingScoreMap_(at_(row, "점수 매핑 JSON", 14)),
         confidence: Number(at_(row, "신뢰도", 15) || 0), reason: at_(row, "판단 이유", 16),
         mappingSource: at_(row, "매핑 출처", 17) || "RULE", updatedAt: at_(row, "저장일시", 8),
-        mappingVersion: at_(row, "매핑 버전", 18) || "1"
+        mappingVersion: at_(row, "매핑 버전", 18) || "1",
+        reviewStatus: at_(row, "검토 상태", 19) || "REVIEW_REQUIRED"
       };
     });
     return {success: true, exists: true, fileName: at_(values[1], "파일명", 6),
@@ -1437,7 +1476,9 @@ function getSavedSurveyMappingsFromWeb() {
 
 function deleteSavedSurveyMappingsFromWeb() {
   try {
-    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("10_문항매핑");
+    const spreadsheet=SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.MAPPING)
+      || spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.LEGACY_MAPPING);
     if (sheet) sheet.clear();
     return {success: true, message: "저장된 문항 매핑을 초기화했습니다."};
   } catch (error) {

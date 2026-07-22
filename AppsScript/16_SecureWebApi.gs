@@ -112,6 +112,11 @@ function secureGetDynamicSurveyDashboardDataFromWeb(accessToken) {
   return getDynamicSurveyDashboardDataFromWeb();
 }
 
+function secureGetDynamicSurveyQualityFromWeb(accessToken) {
+  requireWebAccessToken_(accessToken);
+  return getDynamicSurveyQualityFromWeb();
+}
+
 /**
  * 범용 Gemini AI 보고서 생성
  */
@@ -123,7 +128,7 @@ function secureGenerateDynamicAIReportFromWeb(accessToken) {
 /**
  * 범용 Excel 보고서 생성
  */
-function secureExportDynamicSurveyReportFromWeb(requestedFileName, accessToken) {
+function secureExportDynamicSurveyReportFromWeb(requestedFileName, accessToken, options) {
   requireWebAccessToken_(accessToken);
-  return exportDynamicSurveyReportFromWeb(requestedFileName);
+  return exportDynamicSurveyReportFromWeb(requestedFileName, options);
 }

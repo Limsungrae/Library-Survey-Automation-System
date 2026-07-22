@@ -875,8 +875,8 @@ function createGenericRawSheetFromWeb(fileData) {
       SpreadsheetApp.getActiveSpreadsheet();
 
     // 문항 유형을 먼저 저장했는지 확인합니다.
-    const mappingSheet =
-      spreadsheet.getSheetByName("10_문항매핑");
+    const mappingSheet = spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.MAPPING)
+      || spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.LEGACY_MAPPING);
 
     if (!mappingSheet || mappingSheet.getLastRow() < 2) {
       throw new Error(
@@ -993,8 +993,7 @@ function createGenericRawSheetFromWeb(fileData) {
       return row.some(function(value) { return cleanText_(value) !== ""; });
     }));
 
-    const targetSheetName =
-      "09_범용원자료";
+    const targetSheetName = DYNAMIC_SURVEY_CONFIG.SHEETS.RAW;
 
     let targetSheet =
       spreadsheet.getSheetByName(
@@ -1037,6 +1036,11 @@ removeAllCharts_(targetSheet);
 
     // 기본 서식
     targetSheet.setFrozenRows(1);
+    if (targetSheet.getFilter()) targetSheet.getFilter().remove();
+    targetSheet.getRange(1,1,nonEmptyValues.length,nonEmptyValues[0].length).createFilter();
+    targetSheet.getBandings().forEach(function(banding){banding.remove();});
+    targetSheet.getRange(1,1,nonEmptyValues.length,nonEmptyValues[0].length)
+      .applyRowBanding(SpreadsheetApp.BandingTheme.LIGHT_GREY,true,false);
 
     targetSheet
       .getRange(
@@ -1067,6 +1071,12 @@ removeAllCharts_(targetSheet);
       1,
       values[0].length
     );
+    const savedMappings=getSavedSurveyMappingsFromWeb();
+    if(savedMappings.success&&savedMappings.exists){
+      targetSheet.showColumns(1,targetSheet.getMaxColumns());
+      savedMappings.mappings.filter(function(mapping){return mapping.selectedType==="PERSONAL_INFO";})
+        .forEach(function(mapping){if(mapping.columnNumber<=targetSheet.getMaxColumns())targetSheet.hideColumns(mapping.columnNumber);});
+    }
 
     return {
       success: true,
@@ -1075,7 +1085,7 @@ removeAllCharts_(targetSheet);
       rowCount: nonEmptyValues.length - 1,
       columnCount: values[0].length,
       message:
-        "09_범용원자료 시트에 응답 "
+        targetSheetName + " 시트에 응답 "
         + (nonEmptyValues.length - 1)
         + "건과 문항 "
         + values[0].length
@@ -1113,6 +1123,9 @@ function validateSurveyExcelBase64_(pureBase64Data, lowerFileName) {
   let bytes;
   try { bytes = Utilities.base64Decode(encoded); }
   catch (ignored) { throw new Error("Excel 파일의 Base64 데이터가 올바르지 않습니다."); }
+  if (bytes.length > 12 * 1024 * 1024) {
+    throw new Error("업로드 파일이 너무 큽니다. 최대 12MB의 Excel 파일만 지원합니다.");
+  }
   validateSurveyExcelBinary_(bytes, lowerFileName);
   return bytes;
 }

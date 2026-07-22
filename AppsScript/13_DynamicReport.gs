@@ -26,8 +26,11 @@ function generateDynamicStatisticalReportFromWeb() {
     lock.waitLock(30000);
 
     const settings = getSurveySettings_();
-    const analysis = calculateDynamicSurveyAnalysis_();
+    const source = getDynamicSurveySource_();
+    const analysis = calculateDynamicSurveyAnalysis_(source);
+    const quality = validateDynamicSurveyQuality_(analysis, source);
 
+    createDynamicQualitySheet_(analysis, quality);
     createDynamicOverviewSheet_(analysis, settings);
     createDynamicDashboardSheet_(analysis, settings);
     createDynamicRespondentSheet_(analysis);
@@ -44,16 +47,18 @@ function generateDynamicStatisticalReportFromWeb() {
       success: true,
       message: "범용 통계 보고서 생성이 완료되었습니다.",
       generatedSheets: [
+        "00_품질검사",
         "01_조사개요",
         "02_대시보드",
         "03_응답자특성",
         "04_단일응답분석",
         "05_복수응답분석",
         "06_척도분석",
-        "07_추천지수분석",
+        "07_추천의향분석",
         "08_주관식분석"
       ],
-      summary: buildDynamicReportSummary_(analysis)
+      summary: buildDynamicReportSummary_(analysis),
+      quality: quality
     };
 
   } catch (error) {
@@ -100,27 +105,17 @@ function generateDynamicStatisticalReport() {
 
 
 function buildDynamicReportSummary_(analysis) {
-  const recommendation =
-    analysis.recommendation
-    && analysis.recommendation.length > 0
-      ? analysis.recommendation[0]
-      : null;
+  const recommendations = analysis.recommendation || [];
+  const npsItems = recommendations.filter(function(item){return item.scaleKind === "NPS_0_10";});
+  const recommendationItems = recommendations.filter(function(item){return item.scaleKind === "RECOMMENDATION_1_5";});
 
   return {
     respondentCount: Number(analysis.respondentCount || 0),
     totalRespondents: Number(analysis.respondentCount || 0),
-    overallAverage: Number(
-      analysis.scaleSummary
-      && analysis.scaleSummary.overallAverage
-        ? analysis.scaleSummary.overallAverage
-        : 0
-    ),
-    overallConverted100: Number(
-      analysis.scaleSummary
-      && analysis.scaleSummary.overallConverted100
-        ? analysis.scaleSummary.overallConverted100
-        : 0
-    ),
+    overallAverage: analysis.scaleSummary && analysis.scaleSummary.weightedAverage !== null
+      ? Number(analysis.scaleSummary.weightedAverage) : null,
+    overallConverted100: analysis.scaleSummary && analysis.scaleSummary.overallConverted100 !== null
+      ? Number(analysis.scaleSummary.overallConverted100) : null,
     overallPositiveRate: Number(
       analysis.scaleSummary
       && analysis.scaleSummary.overallPositiveRate
@@ -128,10 +123,12 @@ function buildDynamicReportSummary_(analysis) {
         : 0
     ),
     recommendationAverage:
-      recommendation ? Number(recommendation.average || 0) : 0,
+      recommendationItems.length ? Number(recommendationItems[0].average || 0) : null,
     recommendationPositiveRate:
-      recommendation ? Number(recommendation.positiveRate || 0) : 0,
-    nps: recommendation ? Number(recommendation.nps || 0) : 0,
+      recommendationItems.length ? Number(recommendationItems[0].positiveRate || 0) : null,
+    nps: npsItems.length ? npsItems[0].nps : null,
+    recommendationItems: recommendations.map(function(item){return {question:item.question,scaleKind:item.scaleKind,
+      average:item.average===undefined?null:item.average,nps:item.nps===undefined?null:item.nps};}),
     analyzedQuestionCount: Number(analysis.summary && analysis.summary.analyzedQuestionCount || 0),
     opinionCount: Number(analysis.summary && analysis.summary.opinionCount || 0),
     missingRate: Number(analysis.summary && analysis.summary.missingRate || 0),
@@ -153,16 +150,19 @@ function createDynamicOverviewSheet_(analysis, settings) {
 
   const rows = [
     ["구분", "내용"],
-    ["조사명", getDynamicSettingValue_(settings, "조사명", "surveyName")],
-    ["조사목적", getDynamicSettingValue_(settings, "조사목적", "surveyPurpose")],
-    ["조사기간", getDynamicSettingValue_(settings, "조사기간", "surveyPeriod")],
-    ["조사대상", getDynamicSettingValue_(settings, "조사대상", "surveyTarget")],
-    ["조사방법", getDynamicSettingValue_(settings, "조사방법", "surveyMethod")],
-    ["분석방법", getDynamicSettingValue_(settings, "분석방법", "analysisMethod")],
+    ["조사명", getDynamicSettingDisplay_(settings, "조사명", "surveyName")],
+    ["조사목적", getDynamicSettingDisplay_(settings, "조사목적", "surveyPurpose")],
+    ["조사기간", getDynamicSettingDisplay_(settings, "조사기간", "surveyPeriod")],
+    ["조사대상", getDynamicSettingDisplay_(settings, "조사대상", "surveyTarget")],
+    ["조사방법", getDynamicSettingDisplay_(settings, "조사방법", "surveyMethod")],
+    ["분석방법", getDynamicSettingDisplay_(settings, "분석방법", "analysisMethod")],
     ["표본 수", Number(analysis.respondentCount || 0) + "명"],
     ["담당부서", getDynamicSettingValue_(settings, "담당부서", "department")],
     ["문의처", getDynamicSettingValue_(settings, "문의처", "contact")],
-    ["생성기관", getDynamicSettingValue_(settings, "생성기관", "organization")]
+    ["생성기관", getDynamicSettingDisplay_(settings, "생성기관", "organization")],
+    ["유효응답 기준", "문항별 비어 있지 않고 유효하게 변환된 응답"],
+    ["개인정보 처리", "개인정보 문항 분석 제외 및 AI 입력 비식별 처리"],
+    ["생성일", Utilities.formatDate(new Date(),Session.getScriptTimeZone(),"yyyy-MM-dd HH:mm:ss")]
   ];
 
   sheet.getRange(4, 1, rows.length, 2).setValues(rows);
@@ -179,76 +179,52 @@ function createDynamicOverviewSheet_(analysis, settings) {
 }
 
 
-function createDynamicDashboardSheet_(analysis, settings) {
-  const sheet = resetDynamicReportSheet_("02_대시보드");
-  const summary = buildDynamicReportSummary_(analysis);
-
-  setDynamicReportTitle_(
-    sheet,
-    "A1:H2",
-    getDynamicSettingValue_(settings, "대시보드 제목", "dashboardTitle")
-      || "만족도 조사 대시보드"
-  );
-
-  const cards = [
-    ["전체 응답", summary.respondentCount + "명"],
-    ["만족도 평균", summary.overallAverage.toFixed(2) + "점"],
-    ["100점 환산", summary.overallConverted100.toFixed(1) + "점"],
-    ["전체 긍정률", summary.overallPositiveRate.toFixed(1) + "%"],
-    ["재이용·추천 평균", summary.recommendationAverage.toFixed(2) + "점"],
-    ["재이용·추천 긍정률", summary.recommendationPositiveRate.toFixed(1) + "%"]
-    ,["NPS", summary.nps.toFixed(1)]
-    ,["분석 문항", summary.analyzedQuestionCount + "개"]
-    ,["유효 주관식 의견", summary.opinionCount + "건"]
-    ,["전체 무응답률", summary.missingRate.toFixed(1) + "%"]
-    ,["마지막 생성", summary.generatedAt]
-  ];
-
-  sheet.getRange(4, 1, cards.length, 2).setValues(cards);
-  styleDynamicReportHeader_(sheet.getRange(4, 1, 1, 2));
-  sheet.getRange(5, 1, cards.length - 1, 1)
-    .setBackground("#EAF2F8")
-    .setFontWeight("bold");
-
-  let row = 12;
-  const scaleRows = [["문항", "평균", "100점 환산", "긍정률", "순위"]];
-
-  (analysis.scale || []).forEach(function(item) {
-    scaleRows.push([
-      item.question,
-      Number(item.average || 0),
-      Number(item.converted100 || 0),
-      Number(item.positiveRate || 0) / 100,
-      item.rank || ""
-    ]);
-  });
-
-  sheet.getRange(row, 1, scaleRows.length, 5).setValues(scaleRows);
-  styleDynamicReportHeader_(sheet.getRange(row, 1, 1, 5));
-
-  if (scaleRows.length > 1) {
-    sheet.getRange(row + 1, 2, scaleRows.length - 1, 2)
-      .setNumberFormat("0.00");
-    sheet.getRange(row + 1, 4, scaleRows.length - 1, 1)
-      .setNumberFormat("0.0%");
-
-    const chart = sheet.newChart()
-      .setChartType(Charts.ChartType.COLUMN)
-      .addRange(sheet.getRange(row, 1, scaleRows.length, 2))
-      .setOption("title", "문항별 평균 만족도")
-      .setOption("legend", { position: "none" })
-      .setOption("vAxis", { minValue: 0, maxValue: 5 })
-      .setPosition(4, 7, 0, 0)
-      .build();
-
-    sheet.insertChart(chart);
-  }
-
-  sheet.setColumnWidth(1, 360);
-  sheet.setColumnWidths(2, 4, 120);
-  finishDynamicReportSheet_(sheet, row + scaleRows.length + 2, 8);
+function createDynamicQualitySheet_(analysis, quality) {
+  const sheet=resetDynamicReportSheet_(DYNAMIC_SURVEY_CONFIG.SHEETS.QUALITY);
+  setDynamicReportTitle_(sheet,"A1:H2","설문 분석 품질검사");
+  const color=quality.status==="FAIL"?"#F8D7DA":(quality.status==="WARNING"?"#FFF2CC":"#E2F0D9");
+  const summary=[["항목","결과"],["전체 상태",quality.status],["응답자 수",analysis.respondentCount],
+    ["분석 문항 수",analysis.summary.analyzedQuestionCount],["AI 분석 가능",quality.aiAllowed?"가능":"차단"],
+    ["오류",quality.errors.length],["경고",quality.warnings.length],["검사 시각",quality.checkedAt]];
+  sheet.getRange(4,1,summary.length,2).setValues(summary);styleDynamicReportHeader_(sheet.getRange(4,1,1,2));
+  sheet.getRange(5,2,1,1).setBackground(color).setFontWeight("bold");
+  const messages=[["수준","코드","문항","메시지","조치 방법"]].concat([].concat(quality.errors,quality.warnings,quality.infos).map(function(item){
+    return [item.level,item.code,item.questionId,item.message,getDynamicQualityAction_(item.code)];}));
+  sheet.getRange(4,4,messages.length,5).setValues(messages);styleDynamicReportHeader_(sheet.getRange(4,4,1,5));
+  finishDynamicReportSheet_(sheet,Math.max(summary.length,messages.length)+4,8);
 }
 
+function getDynamicQualityAction_(code) {
+  if(code.indexOf("UNMAPPED")!==-1)return "문항 매핑의 scoreMap과 원자료 값을 확인하세요.";
+  if(code.indexOf("NPS")!==-1||code.indexOf("SCALE_KIND")!==-1)return "추천 문항의 척도 유형과 값 범위를 확인하세요.";
+  if(code.indexOf("MAPPING")!==-1)return "문항 매핑을 다시 저장하세요.";
+  return "원자료와 매핑을 확인한 뒤 보고서를 다시 생성하세요.";
+}
+
+function createDynamicDashboardSheet_(analysis, settings) {
+  const sheet=resetDynamicReportSheet_(DYNAMIC_SURVEY_CONFIG.SHEETS.DASHBOARD);
+  const summary=buildDynamicReportSummary_(analysis);
+  setDynamicReportTitle_(sheet,"A1:H2",getDynamicSettingValue_(settings,"대시보드 제목","dashboardTitle")||"만족도 조사 대시보드");
+  const npsText=summary.nps===null?"NPS 문항 없음":summary.nps.toFixed(1);
+  const top=analysis.scaleSummary.highest, low=analysis.scaleSummary.lowest;
+  const cards=[
+    ["전체 응답자",summary.respondentCount+"명","가중평균",summary.overallAverage===null?"산출 불가":summary.overallAverage.toFixed(2)+"점"],
+    ["전체 긍정률",summary.overallPositiveRate.toFixed(1)+"%","추천/NPS",npsText],
+    ["유효 주관식",summary.opinionCount+"건","결측률",summary.missingRate.toFixed(1)+"%"],
+    ["최고 만족",top?top.question:"산출 불가","개선 우선",low?low.question:"산출 불가"]
+  ];
+  sheet.getRange(4,1,4,4).setValues(cards);
+  sheet.getRange(4,1,4,4).setBorder(true,true,true,true,true,true,"#D9E2EC",SpreadsheetApp.BorderStyle.SOLID);
+  sheet.getRange(4,1,4,1).setBackground("#EAF2F8").setFontWeight("bold");
+  sheet.getRange(4,3,4,1).setBackground("#EAF2F8").setFontWeight("bold");
+  const ranked=(analysis.scale||[]).filter(function(i){return i.average!==null;}).slice().sort(compareDynamicScaleResults_);
+  const rows=[["구분","문항","평균","긍정률","순위"]];
+  ranked.slice(0,5).forEach(function(i){rows.push(["상위",i.question,i.average,i.positiveRate/100,i.rank]);});
+  ranked.slice(-5).reverse().forEach(function(i){rows.push(["하위",i.question,i.average,i.positiveRate/100,i.rank]);});
+  sheet.getRange(10,1,rows.length,5).setValues(rows);styleDynamicReportHeader_(sheet.getRange(10,1,1,5));
+  if(rows.length>1){sheet.getRange(11,3,rows.length-1,1).setNumberFormat("0.00");sheet.getRange(11,4,rows.length-1,1).setNumberFormat("0.0%");}
+  finishDynamicReportSheet_(sheet,rows.length+11,8);
+}
 
 function createDynamicRespondentSheet_(analysis) {
   createDynamicCategoricalSheet_("03_응답자특성", "응답자 특성", analysis.respondent || []);
@@ -309,7 +285,7 @@ function createDynamicMultipleSheet_(analysis) {
   }
 
   questions.forEach(function(question) {
-    sheet.getRange(row, 1, 1, 6)
+    sheet.getRange(row, 1, 1, 5)
       .merge()
       .setValue(question.question)
       .setBackground("#EAF2F8")
@@ -322,8 +298,7 @@ function createDynamicMultipleSheet_(analysis) {
       "선택건수",
       "선택건수 비율",
       "전체 응답자 선택률",
-      "유효 응답자",
-      "전체 선택건수"
+      "유효 응답자 선택률"
     ]];
 
     (question.items || []).forEach(function(item) {
@@ -332,28 +307,21 @@ function createDynamicMultipleSheet_(analysis) {
         Number(item.count || 0),
         Number(item.selectionRate || 0) / 100,
         Number(item.respondentRate || 0) / 100,
-        Number(question.validRespondentCount || 0),
-        Number(question.totalSelectionCount || 0)
+        Number(item.validRespondentRate || 0) / 100
       ]);
     });
 
-    rows.push([
-      "합계", Number(question.totalSelectionCount || 0),
-      question.totalSelectionCount ? 1 : 0,
-      Number(question.validResponses || 0),
-      Number(question.validResponses || 0),
-      Number(question.totalSelectionCount || 0)
-    ]);
+    rows.push(buildDynamicMultipleTotalRow_(question));
 
-    sheet.getRange(row, 1, rows.length, 6).setValues(rows);
-    styleDynamicReportHeader_(sheet.getRange(row, 1, 1, 6));
+    sheet.getRange(row, 1, rows.length, 5).setValues(rows);
+    styleDynamicReportHeader_(sheet.getRange(row, 1, 1, 5));
 
     if (rows.length > 1) {
-      sheet.getRange(row + 1, 3, rows.length - 1, 2)
+      sheet.getRange(row + 1, 3, rows.length - 1, 3)
         .setNumberFormat("0.0%");
     }
 
-    sheet.getRange(row + rows.length - 1, 1, 1, 6)
+    sheet.getRange(row + rows.length - 1, 1, 1, 5)
       .setFontWeight("bold").setBackground("#FFF2CC");
 
     if (question.items && question.items.length > 0) {
@@ -366,78 +334,38 @@ function createDynamicMultipleSheet_(analysis) {
   });
 
   sheet.setColumnWidth(1, 380);
-  sheet.setColumnWidths(2, 5, 125);
-  finishDynamicReportSheet_(sheet, row, 6);
+  sheet.setColumnWidths(2, 4, 125);
+  finishDynamicReportSheet_(sheet, row, 5);
+}
+
+function buildDynamicMultipleTotalRow_(question) {
+  return ["합계",Number(question.totalSelections||question.totalSelectionCount||0),
+    Number(question.totalSelections||question.totalSelectionCount||0)>0?1:0,"",""];
 }
 
 
 function createDynamicSatisfactionSheet_(analysis) {
-  const sheet = resetDynamicReportSheet_("06_척도분석");
-  setDynamicReportTitle_(sheet, "A1:O2", "5점 척도 만족도 및 추천 분석");
-
-  const rows = [[
-    "문항",
-    "유효응답",
-    "5점",
-    "4점",
-    "3점",
-    "2점",
-    "1점",
-    "평균",
-    "100점 환산",
-    "긍정률",
-    "중립률",
-    "부정률",
-    "순위",
-    "전체평균 대비",
-    "유형"
-  ]];
-
-  (analysis.scale || []).forEach(function(item) {
-    const distribution = {};
-    (item.distribution || []).forEach(function(value) {
-      distribution[value.score] = value.count;
-    });
-
-    rows.push([
-      item.question,
-      Number(item.validCount || 0),
-      Number(distribution[5] || 0),
-      Number(distribution[4] || 0),
-      Number(distribution[3] || 0),
-      Number(distribution[2] || 0),
-      Number(distribution[1] || 0),
-      Number(item.average || 0),
-      Number(item.converted100 || 0),
-      Number(item.positiveRate || 0) / 100,
-      Number(item.neutralRate || 0) / 100,
-      Number(item.negativeRate || 0) / 100,
-      item.rank || "",
-      Number(item.deviation || 0),
-      "만족도"
-    ]);
-  });
-
-  sheet.getRange(4, 1, rows.length, rows[0].length).setValues(rows);
-  styleDynamicReportHeader_(sheet.getRange(4, 1, 1, rows[0].length));
-
-  if (rows.length > 1) {
-    sheet.getRange(5, 8, rows.length - 1, 2).setNumberFormat("0.00");
-    sheet.getRange(5, 10, rows.length - 1, 3).setNumberFormat("0.0%");
-    sheet.getRange(5, 14, rows.length - 1, 1).setNumberFormat("0.00");
-    insertDynamicReportChart_(sheet, [sheet.getRange(4, 1, rows.length, 1), sheet.getRange(4, 8, rows.length, 1)],
-      "문항별 평균 비교", Charts.ChartType.COLUMN, 4, 17);
-  }
-
-  sheet.setColumnWidth(1, 420);
-  sheet.setColumnWidths(2, 14, 95);
-  finishDynamicReportSheet_(sheet, rows.length + 6, 15);
+  const sheet=resetDynamicReportSheet_(DYNAMIC_SURVEY_CONFIG.SHEETS.SCALE);
+  setDynamicReportTitle_(sheet,"A1:R2","5점 척도 분석");
+  const headers=["문항","유효응답","결측","미매핑","5점","4점","3점","2점","1점","평균","중앙값","표준편차","100점 환산","긍정률","중립률","부정률","전체 가중평균 대비","순위"];
+  const rows=[headers];
+  (analysis.scale||[]).forEach(function(item){const d=item.scoreDistribution||{};rows.push([item.question,item.validCount,item.missingCount,item.unmappedCount,
+    d[5]||0,d[4]||0,d[3]||0,d[2]||0,d[1]||0,item.average,item.median,item.standardDeviation,item.converted100,
+    item.positiveRate/100,item.neutralRate/100,item.negativeRate/100,item.deviation,item.rank]);});
+  const s=analysis.scaleSummary;
+  rows.push(["전체 요약",s.totalValidResponses,"","",s.totalPositiveCount?"":"","","","","",s.weightedAverage,"","",s.overallConverted100,
+    s.overallPositiveRate/100,s.overallNeutralRate/100,s.overallNegativeRate/100,"",""]);
+  sheet.getRange(4,1,rows.length,headers.length).setValues(rows);styleDynamicReportHeader_(sheet.getRange(4,1,1,headers.length));
+  if(rows.length>1){sheet.getRange(5,10,rows.length-1,4).setNumberFormat("0.00");sheet.getRange(5,14,rows.length-1,3).setNumberFormat("0.0%");}
+  sheet.getRange(4+rows.length-1,1,1,headers.length).setBackground("#FFF2CC").setFontWeight("bold");
+  const noteRow=5+rows.length;sheet.getRange(noteRow,1,1,headers.length).merge().setValue(
+    "※ 전체 평균은 전체 유효 척도 응답 기준 가중평균입니다. 표준편차는 모집단 방식입니다. 순위는 평균→긍정률→5점 응답 수이며 완전 동점은 공동순위입니다.").setWrap(true);
+  sheet.setColumnWidth(1,420);sheet.setColumnWidths(2,headers.length-1,95);finishDynamicReportSheet_(sheet,noteRow,headers.length);
 }
 
-
 function createDynamicRecommendationSheet_(analysis) {
-  const sheet = resetDynamicReportSheet_("07_추천지수분석");
-  setDynamicReportTitle_(sheet, "A1:H2", "추천지수 및 추천의향 분석");
+  const sheet = resetDynamicReportSheet_(DYNAMIC_SURVEY_CONFIG.SHEETS.RECOMMENDATION);
+  setDynamicReportTitle_(sheet, "A1:H2", "추천의향 및 NPS 분석");
   let row = 4;
   const questions = analysis.recommendation || [];
   if (questions.length === 0) {
@@ -468,7 +396,7 @@ function createDynamicRecommendationSheet_(analysis) {
     sheet.getRange(row + 1, 3, rows.length - 1, 1).setNumberFormat("0.0%");
     sheet.getRange(row + rows.length - 1, 1, 1, 7).setFontWeight("bold").setBackground("#FFF2CC");
     if (index < getDynamicReportMaxChartCount_()) insertDynamicReportChart_(sheet,
-      sheet.getRange(headerRow, 1, 4, 2), item.question, Charts.ChartType.PIE, headerRow, 9 + index * 8);
+      sheet.getRange(headerRow, 1, 4, 2), item.question, Charts.ChartType.BAR, headerRow, 9 + index * 8);
     row += rows.length + 2;
   });
   finishDynamicReportSheet_(sheet, row, 8);
@@ -478,33 +406,38 @@ function createDynamicOpinionRawSheet_(analysis) {
   const sheet = resetDynamicReportSheet_("08_주관식분석");
   setDynamicReportTitle_(sheet, "A1:D2", "주관식 응답 목록");
 
-  const rows = [["문항", "응답 번호", "의견", "상태"]];
+  const rows = [["문항", "응답 ID", "응답 번호", "원문", "비식별문", "유효 여부", "제외 사유", "검토 상태"]];
 
   (analysis.text || []).forEach(function(question) {
-    (question.opinions || []).forEach(function(opinion) {
+    (question.responses || []).forEach(function(opinion) {
       rows.push([
         question.question,
-        Number(opinion.responseNumber || 0),
+        opinion.responseId,
+        String(opinion.responseNumber || ""),
         opinion.text,
+        opinion.maskedText,
+        opinion.valid ? "유효" : "제외",
+        opinion.exclusionReason,
         "AI 분석 전"
       ]);
     });
   });
 
   if (rows.length === 1) {
-    rows.push(["-", "-", "유효한 주관식 응답이 없습니다.", "-"]);
+    rows.push(["-", "-", "-", "유효한 주관식 응답이 없습니다.", "-", "-", "-", "-"]);
   }
 
-  sheet.getRange(4, 1, rows.length, 4).setValues(rows);
-  styleDynamicReportHeader_(sheet.getRange(4, 1, 1, 4));
-  sheet.getRange(5, 1, rows.length - 1, 4)
+  sheet.getRange(4, 1, rows.length, 8).setValues(rows);
+  styleDynamicReportHeader_(sheet.getRange(4, 1, 1, 8));
+  sheet.getRange(5, 3, rows.length - 1, 1).setNumberFormat("@");
+  sheet.getRange(5, 1, rows.length - 1, 8)
     .setWrap(true)
     .setVerticalAlignment("top");
   sheet.setColumnWidth(1, 340);
   sheet.setColumnWidth(2, 100);
   sheet.setColumnWidth(3, 560);
   sheet.setColumnWidth(4, 120);
-  finishDynamicReportSheet_(sheet, rows.length + 6, 4);
+  finishDynamicReportSheet_(sheet, rows.length + 6, 8);
 }
 
 
@@ -520,8 +453,10 @@ function getDynamicSettingValue_(settings, koreanKey, webKey) {
   );
 }
 
+function getDynamicSettingDisplay_(settings,koreanKey,webKey){return getDynamicSettingValue_(settings,koreanKey,webKey)||"미입력";}
+
 function getDynamicReportMaxChartCount_() {
-  return 12;
+  return DYNAMIC_SURVEY_CONFIG.REPORT.MAX_CHARTS;
 }
 
 function insertDynamicReportChart_(sheet, range, title, chartType, row, column) {
@@ -616,18 +551,19 @@ function moveDynamicStatisticalSheetsInOrder_() {
   const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
   const order = [
     "00_설정",
+    "00_품질검사",
     "01_조사개요",
     "02_대시보드",
     "03_응답자특성",
     "04_단일응답분석",
     "05_복수응답분석",
     "06_척도분석",
-    "07_추천지수분석",
+    "07_추천의향분석",
     "08_주관식분석",
     "09_AI총평",
     "10_향후계획",
-    "09_범용원자료",
-    "10_문항매핑"
+    "11_범용원자료",
+    "12_문항매핑"
   ];
 
   order.forEach(function(sheetName, index) {
