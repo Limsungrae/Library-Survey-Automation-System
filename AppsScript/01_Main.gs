@@ -77,9 +77,20 @@ function doGet(e) {
       ? e.parameter.page
       : "";
 
-  const fileName =
+  const requestedUi =
+    e && e.parameter
+      ? String(e.parameter.ui || "").toLowerCase()
+      : "";
+
+  const useSurveyV2 =
     page === "survey"
-      ? "survey-dashboard"
+    && requestedUi === "v2";
+
+  const fileName =
+    useSurveyV2
+      ? "survey-dashboard-v2"
+      : page === "survey"
+        ? "survey-dashboard"
       : "index";
 
   const template =
@@ -92,7 +103,9 @@ function doGet(e) {
     .evaluate()
     .setTitle(
       page === "survey"
-        ? "성남시중원도서관 만족도 조사 보고서 시스템"
+        ? useSurveyV2
+          ? "Survey Insight Studio v2"
+          : "성남시중원도서관 만족도 조사 보고서 시스템"
         : "성남시중원도서관 AI 홍보 비서 시스템"
     )
     .setXFrameOptionsMode(
@@ -102,4 +115,18 @@ function doGet(e) {
       "viewport",
       "width=device-width, initial-scale=1"
     );
+}
+
+
+/**
+ * HtmlService 템플릿에서 v2 전용 CSS와 JavaScript 조각을 포함합니다.
+ * 기존 페이지는 이 함수를 사용하지 않으므로 렌더링 경로가 변경되지 않습니다.
+ *
+ * @param {string} fileName 포함할 HTML 파일명
+ * @return {string}
+ */
+function includeHtml_(fileName) {
+  return HtmlService
+    .createHtmlOutputFromFile(fileName)
+    .getContent();
 }

@@ -1,0 +1,105 @@
+<script>
+(function (window, document) {
+  "use strict";
+
+  const TOKEN_KEY = "librarySurveyAccessToken";
+  const UI_STATE_KEY = "librarySurveyV2UiState";
+  const MAX_FILE_BYTES = 12 * 1024 * 1024;
+  const STEPS = [
+    {id:"dashboard",label:"Dashboard",description:"작업 현황과 시작점"},
+    {id:"upload",label:"Upload",description:"Excel 응답 업로드"},
+    {id:"mapping",label:"Mapping",description:"문항 유형 검토"},
+    {id:"analysis",label:"Analysis",description:"동적 통계 생성"},
+    {id:"quality",label:"Quality",description:"데이터 품질 확인"},
+    {id:"ai",label:"AI Report",description:"AI 총평과 계획"},
+    {id:"download",label:"Download",description:"최종 Excel 저장"}
+  ];
+
+  const state = {
+    currentPage:"dashboard",completedSteps:[],accessibleSteps:["dashboard","upload"],
+    selectedFile:null,filePayload:null,uploadStatus:"idle",projectName:"프로젝트 미선택",
+    respondentCount:0,lastSavedAt:"",qualityStatus:"NOT_RUN",authenticated:false,
+    loading:false,error:"",serverStatus:null
+  };
+
+  function el(id){return document.getElementById(id);}
+  function token(){return sessionStorage.getItem(TOKEN_KEY)||"";}
+  function setState(patch,persist){Object.keys(patch||{}).forEach(function(key){state[key]=patch[key];});if(persist!==false)persistState();render();}
+  function persistState(){sessionStorage.setItem(UI_STATE_KEY,JSON.stringify({currentPage:state.currentPage,uploadStatus:state.uploadStatus}));}
+  function restoreState(){try{const saved=JSON.parse(sessionStorage.getItem(UI_STATE_KEY)||"{}");if(STEPS.some(function(step){return step.id===saved.currentPage;}))state.currentPage=saved.currentPage;if(saved.uploadStatus==="success")state.uploadStatus="success";}catch(ignored){sessionStorage.removeItem(UI_STATE_KEY);}}
+
+  function friendlyError(error){
+    const raw=String(error&&error.message?error.message:error||"");
+    if(/인증|token|토큰|만료/i.test(raw))return "인증 세션을 확인할 수 없습니다. 다시 로그인한 뒤 시도해 주세요.";
+    if(/size|크기|12\s*MB/i.test(raw))return "파일이 최대 허용 용량 12MB를 초과했습니다. 응답 파일을 나누거나 불필요한 시트를 제거해 주세요.";
+    if(/xlsx|xls|excel|형식|signature|서명/i.test(raw))return "지원되는 Excel 파일로 확인되지 않았습니다. .xlsx 또는 .xls 형식으로 다시 저장한 뒤 선택해 주세요.";
+    return "요청을 완료하지 못했습니다. 파일과 네트워크 상태를 확인한 뒤 다시 시도해 주세요.";
+  }
+
+  const api = {
+    invoke:function(executor,options){
+      options=options||{};setLoading(true,options.loadingText||"요청을 처리하고 있습니다.");
+      return new Promise(function(resolve,reject){
+        let runner=google.script.run.withSuccessHandler(function(result){setLoading(false);if(!result||result.success!==true){const message=friendlyError(result&&result.error?result.error:result&&result.message);showStatus(message,"error");reject(new Error(message));return;}resolve(result);}).withFailureHandler(function(error){setLoading(false);const message=friendlyError(error);showStatus(message,"error");reject(new Error(message));});
+        executor(runner);
+      });
+    },
+    validateToken:function(){return this.invoke(function(runner){runner.validateWebAppTokenFromWeb(token());},{loadingText:"세션을 확인하고 있습니다."});},
+    login:function(passcode){return this.invoke(function(runner){runner.verifyWebAppPasscodeFromWeb(passcode);},{loadingText:"담당자 인증 중입니다."});},
+    settings:function(){return this.invoke(function(runner){runner.secureGetSurveySettingsForWeb(token());},{loadingText:"프로젝트 정보를 불러오고 있습니다."});},
+    systemStatus:function(){return this.invoke(function(runner){runner.secureGetDynamicSurveySystemStatusFromWeb(token());},{loadingText:"작업 상태를 확인하고 있습니다."});},
+    upload:function(filePayload){return this.invoke(function(runner){runner.secureUploadSurveyExcelFromWeb(filePayload,token());},{loadingText:"Excel을 검증하고 업로드하고 있습니다."});},
+    logout:function(){return this.invoke(function(runner){runner.logoutWebAppFromWeb(token());},{loadingText:"로그아웃하고 있습니다."});}
+  };
+
+  function setLoading(active,message){state.loading=active;el("v2Loading").hidden=!active;el("v2LoadingText").textContent=message||"처리 중입니다.";}
+  function showStatus(message,type){const box=el("v2GlobalStatus");box.hidden=!message;box.textContent=message||"";box.className="v2-global-status"+(type?" v2-global-status--"+type:"");if(message)showToast(message);}
+  function showToast(message){const toast=document.createElement("div");toast.className="v2-toast";toast.textContent=message;el("v2ToastRegion").appendChild(toast);window.setTimeout(function(){toast.remove();},4200);}
+  function qualityLabel(value){const key=String(value||"NOT_RUN").toUpperCase();return key==="PASS"?"품질 통과":key==="WARNING"?"검토 필요":key==="FAIL"?"품질 실패":"품질검사 전";}
+  function stepStatus(step){if(step.id===state.currentPage)return "current";if(state.completedSteps.indexOf(step.id)>=0)return "complete";if(step.id==="quality"&&state.qualityStatus==="WARNING")return "warning";return state.accessibleSteps.indexOf(step.id)>=0?"available":"locked";}
+
+  function deriveWorkflow(){
+    const status=state.serverStatus||{};const complete=[];const accessible=["dashboard","upload"];
+    if(state.uploadStatus==="success"||status.rawSheetExists){complete.push("upload");accessible.push("mapping");}
+    if(status.mappingExists){complete.push("mapping");accessible.push("analysis");}
+    if(status.statisticsComplete){complete.push("analysis");accessible.push("quality");}
+    if(status.qualityStatus&&status.qualityStatus!=="NOT_RUN"){complete.push("quality");if(status.qualityAiAllowed)accessible.push("ai");}
+    if(status.aiComplete){complete.push("ai");}
+    if(status.exportReady){accessible.push("download");}
+    setState({completedSteps:complete,accessibleSteps:Array.from(new Set(accessible)),qualityStatus:status.qualityStatus||"NOT_RUN"},false);
+  }
+
+  function render(){
+    el("v2HeaderProject").textContent=state.projectName||"프로젝트 미선택";
+    el("v2HeaderRespondents").textContent=state.respondentCount>0?state.respondentCount.toLocaleString("ko-KR")+"명":"응답 데이터 없음";
+    el("v2HeaderSaved").textContent=state.lastSavedAt||"아직 저장되지 않음";
+    const badge=el("v2HeaderQuality");badge.textContent=qualityLabel(state.qualityStatus);badge.className="v2-badge "+(state.qualityStatus==="PASS"?"v2-badge--success":state.qualityStatus==="WARNING"?"v2-badge--warning":state.qualityStatus==="FAIL"?"v2-badge--error":"v2-badge--neutral");
+    renderSteps();renderPage();renderDashboard();renderBottomNav();renderUpload();
+  }
+
+  function renderSteps(){const list=el("v2StepList");list.textContent="";STEPS.forEach(function(step,index){const status=stepStatus(step);const item=document.createElement("li");item.className="v2-step v2-step--"+status;const button=document.createElement("button");button.type="button";button.disabled=status==="locked";button.title=status==="locked"?"이전 단계를 완료해야 접근할 수 있습니다.":step.description;button.setAttribute("aria-current",status==="current"?"page":"false");button.innerHTML='<span class="v2-step__number">'+(index+1)+'</span><span><strong>'+step.label+'</strong><small style="display:block">'+step.description+'</small></span><span class="v2-step__status">'+(status==="complete"?"✓ 완료":status==="warning"?"! 검토":status==="locked"?"잠김":"")+'</span>';button.addEventListener("click",function(){navigate(step.id);});item.appendChild(button);list.appendChild(item);});}
+  function renderPage(){el("v2PageDashboard").hidden=state.currentPage!=="dashboard";el("v2PageUpload").hidden=state.currentPage!=="upload";const isPlaceholder=["mapping","analysis","quality","ai","download"].indexOf(state.currentPage)>=0;el("v2PagePlaceholder").hidden=!isPlaceholder;if(isPlaceholder){const step=STEPS.find(function(item){return item.id===state.currentPage;});el("v2PlaceholderEyebrow").textContent="FUTURE SPRINT";el("v2PlaceholderTitle").textContent=step.label;el("v2PlaceholderDescription").textContent=step.description+" 기능은 기존 운영 화면에서 계속 사용할 수 있으며 v2 연결은 다음 Sprint에서 진행됩니다.";}el("v2Main").focus({preventScroll:true});}
+  function renderDashboard(){const count=state.completedSteps.length;el("v2ProgressText").textContent=count+" / "+STEPS.length+" 단계";el("v2ProgressBar").style.width=Math.round(count/STEPS.length*100)+"%";const summary=el("v2WorkflowSummary");summary.textContent="";STEPS.forEach(function(step){const li=document.createElement("li");const status=stepStatus(step);li.className=status==="complete"?"is-complete":status==="current"?"is-current":"";li.textContent=step.label;summary.appendChild(li);});const hasWork=Boolean(state.serverStatus&&(state.serverStatus.mappingExists||state.serverStatus.rawSheetExists));el("v2ContinueContent").innerHTML=hasWork?"<strong>진행 중인 설문 작업이 있습니다.</strong><span>Sidebar에서 접근 가능한 다음 단계를 선택해 이어서 작업하세요.</span>":"<strong>진행 중인 작업이 없습니다.</strong><span>‘새 설문 분석 시작’을 눌러 Excel 업로드부터 시작하세요.</span>";el("v2RecentContent").innerHTML=state.serverStatus&&state.serverStatus.statisticsComplete?"<strong>생성된 통계 보고서가 있습니다.</strong><span>기존 운영 화면에서 보고서와 다운로드 기능을 이용할 수 있습니다.</span>":"<strong>최근 보고서가 없습니다.</strong><span>통계 보고서 생성 후 이 영역에서 상태를 확인할 수 있습니다.</span>";}
+  function renderBottomNav(){const index=STEPS.findIndex(function(step){return step.id===state.currentPage;});const previous=STEPS[index-1];const next=STEPS[index+1];el("v2CurrentStepLabel").textContent=(index+1)+"단계 · "+STEPS[index].label;const previousButton=el("v2PreviousButton");previousButton.disabled=!previous;previousButton.textContent=previous?"이전 · "+previous.label:"이전";const nextButton=el("v2NextButton");if(!next){nextButton.disabled=true;nextButton.textContent="마지막 단계";}else{nextButton.textContent=next.label+"로 이동";nextButton.disabled=state.accessibleSteps.indexOf(next.id)<0;nextButton.title=nextButton.disabled?"이전 단계를 완료해야 이동할 수 있습니다.":"";}}
+  function renderUpload(){const file=state.selectedFile;el("v2SelectedFile").hidden=!file;if(file)el("v2SelectedFile").innerHTML="<strong>"+escapeHtml(file.name)+"</strong><span>"+formatBytes(file.size)+"</span>";el("v2UploadButton").disabled=!state.filePayload||state.uploadStatus==="uploading";const status=el("v2UploadStatus");status.className="v2-upload-status"+(state.uploadStatus==="success"?" v2-upload-status--success":state.uploadStatus==="error"?" v2-upload-status--error":"");status.textContent=state.uploadStatus==="success"?"업로드가 완료되었습니다. Mapping 단계로 이동할 수 있습니다.":state.uploadStatus==="uploading"?"서버에서 파일을 검증하고 원자료를 생성하고 있습니다.":state.error||"업로드할 파일을 선택해 주세요.";}
+
+  function navigate(page){if(state.accessibleSteps.indexOf(page)<0){showStatus("이전 단계를 완료해야 이 화면에 접근할 수 있습니다.","error");return;}setState({currentPage:page});el("v2Sidebar").classList.remove("is-open");el("v2MenuButton").setAttribute("aria-expanded","false");}
+  function validateFile(file){if(!file)return "파일을 선택해 주세요.";if(!/\.(xlsx|xls)$/i.test(file.name))return "지원하지 않는 파일 형식입니다. .xlsx 또는 .xls 파일을 선택해 주세요.";if(file.size>MAX_FILE_BYTES)return "파일 크기가 12MB를 초과했습니다. 파일을 나누거나 불필요한 시트를 제거해 주세요.";if(file.size===0)return "파일 내용이 비어 있습니다. 원본 Excel을 다시 저장한 뒤 선택해 주세요.";return "";}
+  function selectFile(file){const error=validateFile(file);if(error){setState({selectedFile:null,filePayload:null,uploadStatus:"error",error:error});showStatus(error,"error");return;}const reader=new FileReader();setState({selectedFile:{name:file.name,size:file.size},filePayload:null,uploadStatus:"reading",error:""});reader.onload=function(event){const dataUrl=String(event.target.result||"");const comma=dataUrl.indexOf(",");setState({filePayload:{fileName:file.name,mimeType:file.type||"",base64Data:comma>=0?dataUrl.slice(comma+1):dataUrl},uploadStatus:"ready",error:""});showStatus("파일을 확인했습니다. 서버 업로드를 실행해 주세요.","");};reader.onerror=function(){const message="파일을 읽을 수 없습니다. 파일이 다른 프로그램에서 잠겨 있지 않은지 확인한 뒤 다시 선택해 주세요.";setState({filePayload:null,uploadStatus:"error",error:message});showStatus(message,"error");};reader.readAsDataURL(file);}
+  function upload(){if(!state.filePayload)return;setState({uploadStatus:"uploading",error:""},false);api.upload(state.filePayload).then(function(result){setState({uploadStatus:"success",respondentCount:Number(result.rowCount||state.respondentCount||0),lastSavedAt:new Date().toLocaleString("ko-KR"),error:""});showStatus("Excel 업로드가 완료되었습니다. 다음 단계에서 문항 매핑을 진행할 수 있습니다.","success");deriveWorkflow();}).catch(function(error){setState({uploadStatus:"error",error:error.message});});}
+  function formatBytes(bytes){return bytes>=1048576?(bytes/1048576).toFixed(1)+" MB":Math.max(1,Math.round(bytes/1024))+" KB";}
+  function escapeHtml(value){const node=document.createElement("span");node.textContent=String(value||"");return node.innerHTML;}
+
+  function loadContext(){Promise.all([api.settings(),api.systemStatus()]).then(function(results){const settings=results[0].settings||{};const status=results[1];state.projectName=settings.surveyName||"프로젝트 미선택";state.respondentCount=Number(status.respondentCount||0);state.serverStatus=status;state.qualityStatus=status.qualityStatus||"NOT_RUN";deriveWorkflow();render();}).catch(function(){render();});}
+  function openApplication(){state.authenticated=true;el("v2AccessGate").hidden=true;el("v2Application").hidden=false;restoreState();render();loadContext();}
+  function initialize(){bindEvents();render();if(!token()){el("v2AccessPasscode").focus();return;}api.validateToken().then(function(result){if(result.authenticated)openApplication();else{sessionStorage.removeItem(TOKEN_KEY);el("v2AccessPasscode").focus();}}).catch(function(){sessionStorage.removeItem(TOKEN_KEY);el("v2AccessPasscode").focus();});}
+  function bindEvents(){
+    el("v2AccessForm").addEventListener("submit",function(event){event.preventDefault();const passcode=el("v2AccessPasscode").value.trim();el("v2AccessError").textContent="";if(!passcode){el("v2AccessError").textContent="인증 코드를 입력해 주세요.";return;}api.login(passcode).then(function(result){if(!result.authenticated){el("v2AccessError").textContent="인증 코드를 확인해 주세요.";return;}sessionStorage.setItem(TOKEN_KEY,result.token);el("v2AccessPasscode").value="";openApplication();}).catch(function(error){el("v2AccessError").textContent=error.message;});});
+    el("v2StartButton").addEventListener("click",function(){navigate("upload");});el("v2ChooseFileButton").addEventListener("click",function(){el("v2FileInput").click();});el("v2FileInput").addEventListener("change",function(event){selectFile(event.target.files[0]);});["dragenter","dragover"].forEach(function(name){el("v2Dropzone").addEventListener(name,function(event){event.preventDefault();el("v2Dropzone").classList.add("is-dragging");});});["dragleave","drop"].forEach(function(name){el("v2Dropzone").addEventListener(name,function(event){event.preventDefault();el("v2Dropzone").classList.remove("is-dragging");if(name==="drop")selectFile(event.dataTransfer.files[0]);});});el("v2UploadButton").addEventListener("click",upload);
+    el("v2PreviousButton").addEventListener("click",function(){const index=STEPS.findIndex(function(step){return step.id===state.currentPage;});if(index>0)navigate(STEPS[index-1].id);});el("v2NextButton").addEventListener("click",function(){const index=STEPS.findIndex(function(step){return step.id===state.currentPage;});if(index<STEPS.length-1)navigate(STEPS[index+1].id);});el("v2MenuButton").addEventListener("click",function(){const open=el("v2Sidebar").classList.toggle("is-open");this.setAttribute("aria-expanded",String(open));});el("v2LogoutButton").addEventListener("click",function(){api.logout().catch(function(){return null;}).then(function(){sessionStorage.removeItem(TOKEN_KEY);sessionStorage.removeItem(UI_STATE_KEY);window.location.reload();});});
+  }
+
+  window.SurveyDashboardV2={getState:function(){return Object.assign({},state);},navigate:navigate};
+  window.addEventListener("load",initialize);
+})(window,document);
+</script>

@@ -205,7 +205,10 @@ Library-Survey-Automation-System/
 │   └── 19_DynamicSurveyTests.gs    # GAS regression suite
 ├── Web/
 │   ├── index.html                  # Promotion frontend; protected from survey work
-│   └── survey-dashboard.html       # Survey single-page frontend
+│   ├── survey-dashboard.html       # Survey v1 single-page frontend
+│   ├── survey-dashboard-v2.html    # Opt-in v2 shell (`?page=survey&ui=v2`)
+│   ├── survey-dashboard-v2-css.html # v2 design system and responsive styles
+│   └── survey-dashboard-v2-app.html # v2 state, events, rendering, API façade
 ├── images/                         # README/UI reference screenshots
 ├── README.md
 └── ProjectContext.md               # This living baseline
@@ -331,12 +334,19 @@ isolation and must not introduce Node.js or browser module syntax.
 | Page/surface | File | Purpose | Survey scope |
 |---|---|---|---|
 | Survey dashboard | `Web/survey-dashboard.html` | Full survey workflow | Primary |
+| Survey dashboard v2 | `Web/survey-dashboard-v2.html` | Opt-in Sprint 1 shell; Dashboard and Upload only | Experimental/additive |
 | Promotion assistant | `Web/index.html` | Promotion automation | Excluded/protected |
 | Google Sheets menu/UI | `01_Main.gs` and public functions | Manual operations/tests | Secondary |
 | Generated Spreadsheet sheets | Active Spreadsheet | Persistence and report output | Primary |
 
-The survey dashboard is a single page with authentication and conditional
-sections; it is not a multi-route application.
+Each survey dashboard is a single page with authentication and conditional
+sections; routing selects v1 or the opt-in v2 shell rather than providing
+client-side routes.
+
+The default routing contract remains unchanged: the promotion page is the default
+and `?page=survey` opens v1. The additive opt-in route
+`?page=survey&ui=v2` opens the v2 shell. Mapping, Analysis, Quality, AI Report,
+and Download are honest placeholders in Sprint 1.
 
 ---
 
@@ -486,6 +496,13 @@ the Architecture Audit.
 - `.mapping-score-map`
 
 The mapping serializer assumes these three NodeLists have matching row order.
+
+### Opt-in v2 DOM namespace
+
+All new v2 IDs use the `v2` prefix and are isolated from the v1 protected IDs.
+The v2 JavaScript exposes only one namespace, `window.SurveyDashboardV2`, and
+stores only `currentPage` and `uploadStatus` in session storage. File payloads and
+response data are not persisted in browser storage.
 
 ---
 
@@ -889,7 +906,7 @@ before modification.
 
 ## Sprint status
 
-**Architecture and Project Context baseline documentation.**
+**Survey Insight Studio v2 Sprint 1 — opt-in UI shell.**
 
 The repository does not contain a confirmed Sprint identifier, owner, start/end
 date, or issue tracker reference. Those fields are **Unknown — Needs
@@ -897,17 +914,19 @@ Verification**.
 
 ### Current Sprint goals
 
-- [x] Record current architecture.
-- [x] Record protected APIs, DOM IDs, sheets, and JSON schemas.
-- [x] Record current workflow and state boundaries.
-- [x] Record technical debt and regression risks.
+- [x] Preserve the v1 default route and operating screen.
+- [x] Add explicit `?page=survey&ui=v2` routing.
+- [x] Add the v2 Header, Sidebar, Main, Status, and Bottom Navigation shell.
+- [x] Implement Dashboard and server-validated Upload pages.
+- [x] Add honest placeholders for later workflow pages.
+- [x] Isolate v2 state and API calls from v1 globals.
 - [ ] Confirm deployment/runtime metadata in the Apps Script environment.
-- [ ] Confirm owners and acceptance authority for each compatibility contract.
+- [ ] Verify the opt-in route and upload conversion in a deployed Apps Script Web App.
 
 ### Explicit non-goals
 
 - No source refactor.
-- No UI redesign.
+- No v1 UI redesign.
 - No function rename.
 - No sheet migration.
 - No API envelope migration.
@@ -918,19 +937,16 @@ Verification**.
 
 The next Sprint is a proposal, not an approved implementation commitment.
 
-## Recommended objective: Contract Baseline and Regression Harness
+## Recommended objective: Mapping Page v2 integration
 
-- [ ] Capture representative request/response fixtures for every protected API.
-- [ ] Add/confirm tests for all mapping fallback and validation paths.
-- [ ] Capture dynamic-analysis fixtures for every supported question type.
-- [ ] Verify all protected DOM references and inline handlers automatically.
-- [ ] Verify generated sheet names/order and mapping columns.
-- [ ] Separate tests that can run as pure logic from Apps Script integration tests.
-- [ ] Record manual verification for Drive conversion, Gemini, Chart.js, and XLSX.
-- [ ] Establish performance baselines at increasing row/column counts.
+- [ ] Connect Mapping through the documented secure inspect/save/load/reset APIs.
+- [ ] Preserve selected type, scale kind, score map, confidence, source, and review status.
+- [ ] Add mapping-specific state transitions without using DOM as storage.
+- [ ] Add contract tests before enabling Mapping as a completed v2 step.
+- [ ] Continue to leave Analysis, Quality, AI Report, and Download as placeholders.
 
-No file split or behavioral refactor should begin until this contract suite is
-accepted.
+No extraction or behavioral refactor of the v1 dashboard should begin until the
+relevant contract suite is accepted.
 
 ---
 
