@@ -47,6 +47,9 @@ function getSurveySystemStatusFromWeb() {
       spreadsheet.getSheetByName(
         settingsSheetName
       );
+    const qualitySheet=spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.QUALITY);
+    const qualityStatus=qualitySheet?cleanText_(qualitySheet.getRange("B5").getDisplayValue()):"NOT_RUN";
+    const qualityAiAllowed=qualitySheet?qualitySheet.getRange("B8").getDisplayValue()==="가능":false;
 
 
     let rowCount = 0;
@@ -165,28 +168,27 @@ function getDynamicSurveySystemStatusFromWeb() {
         "00_설정"
       );
 
-    const mappingSheet =
-      spreadsheet.getSheetByName(
-        "10_문항매핑"
-      );
+    const mappingSheet = spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.MAPPING)
+      || spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.LEGACY_MAPPING);
 
-    const rawSheet =
-      spreadsheet.getSheetByName(
-        "09_범용원자료"
-      );
+    const rawSheet = spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.RAW)
+      || spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.LEGACY_RAW);
 
     const statisticalSheetNames = [
       "01_조사개요",
+      "00_품질검사",
       "02_대시보드",
       "03_응답자특성",
-      "04_복수응답분석",
-      "05_만족도분석",
-      "06_주관식분석"
+      "04_단일응답분석",
+      "05_복수응답분석",
+      "06_척도분석",
+      "07_추천의향분석",
+      "08_주관식분석"
     ];
 
     const aiSheetNames = [
-      "07_AI총평",
-      "08_향후계획"
+      "09_AI총평",
+      "10_향후계획"
     ];
 
     const statisticalSheetCount =
@@ -248,7 +250,8 @@ function getDynamicSurveySystemStatusFromWeb() {
       settingsExists
       && mappingExists
       && rawSheetExists
-      && statisticsComplete;
+      && statisticsComplete
+      && qualityStatus !== "FAIL";
 
     return {
       success: true,
@@ -291,6 +294,9 @@ function getDynamicSurveySystemStatusFromWeb() {
 
       exportReady:
         exportReady,
+
+      qualityStatus: qualityStatus,
+      qualityAiAllowed: qualityAiAllowed,
 
       message:
         "범용 시스템 상태를 확인했습니다."
@@ -830,14 +836,11 @@ function getSurveyDashboardDataFromWeb() {
  */
 function getDynamicSurveyDashboardDataFromWeb() {
   try {
-    const analysis =
-      calculateDynamicSurveyAnalysis_();
-
-    const recommendation =
-      analysis.recommendation
-      && analysis.recommendation.length > 0
-        ? analysis.recommendation[0]
-        : null;
+    const source=getDynamicSurveySource_();
+    const analysis=calculateDynamicSurveyAnalysis_(source);
+    const quality=validateDynamicSurveyQuality_(analysis,source);
+    const npsItems=(analysis.recommendation||[]).filter(function(item){return item.scaleKind==="NPS_0_10";});
+    const fivePointItems=(analysis.recommendation||[]).filter(function(item){return item.scaleKind==="RECOMMENDATION_1_5";});
 
     return {
       success: true,
@@ -847,7 +850,7 @@ function getDynamicSurveyDashboardDataFromWeb() {
           analysis.respondentCount,
 
         overallAverage:
-          analysis.scaleSummary.overallAverage,
+          analysis.scaleSummary.weightedAverage,
 
         overallConverted100:
           analysis.scaleSummary.overallConverted100,
@@ -856,14 +859,18 @@ function getDynamicSurveyDashboardDataFromWeb() {
           analysis.scaleSummary.overallPositiveRate,
 
         recommendationAverage:
-          recommendation
-            ? recommendation.average
-            : 0,
+          fivePointItems.length ? fivePointItems[0].average : null,
 
         recommendationPositiveRate:
-          recommendation
-            ? recommendation.positiveRate
-            : 0
+          fivePointItems.length ? fivePointItems[0].positiveRate : null,
+
+        analyzedQuestionCount: analysis.summary.analyzedQuestionCount,
+        opinionCount: analysis.summary.opinionCount,
+        missingRate: analysis.summary.missingRate,
+        nps: npsItems.length ? npsItems[0].nps : null,
+        npsStatus: npsItems.length ? "산출" : "NPS 문항 없음",
+        qualityStatus: quality.status,
+        aiAllowed: quality.aiAllowed
       },
 
       satisfaction:
@@ -915,6 +922,18 @@ function getDynamicSurveyDashboardDataFromWeb() {
                 })
           };
         }),
+
+      respondent: (analysis.respondent || []).map(function(question) {
+        return {question: question.question, items: (question.items || []).slice(0, 10)};
+      }),
+
+      composition: (analysis.scale || []).map(function(item) {
+        return {label: item.question, positiveRate: item.positiveRate,
+          neutralRate: item.neutralRate, negativeRate: item.negativeRate};
+      }),
+
+      recommendations: analysis.recommendation || [],
+      quality: quality,
 
       message:
         "범용 대시보드 데이터를 불러왔습니다."

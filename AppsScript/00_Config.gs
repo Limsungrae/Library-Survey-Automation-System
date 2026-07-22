@@ -210,6 +210,22 @@ const APP_CONFIG = Object.freeze({
 
 });
 
+const DYNAMIC_SURVEY_CONFIG = Object.freeze({
+  SHEETS: Object.freeze({
+    SETTINGS: "00_설정", QUALITY: "00_품질검사", OVERVIEW: "01_조사개요",
+    DASHBOARD: "02_대시보드", RESPONDENT: "03_응답자특성", SINGLE: "04_단일응답분석",
+    MULTIPLE: "05_복수응답분석", SCALE: "06_척도분석", RECOMMENDATION: "07_추천의향분석",
+    TEXT: "08_주관식분석", AI_SUMMARY: "09_AI총평", FUTURE_PLAN: "10_향후계획",
+    RAW: "11_범용원자료", MAPPING: "12_문항매핑",
+    LEGACY_RAW: "09_범용원자료", LEGACY_MAPPING: "10_문항매핑"
+  }),
+  SCALE: Object.freeze({MIN: 1, MAX: 5, POSITIVE_MIN: 4, NEUTRAL: 3}),
+  ALLOWED_RECOMMENDATION_KINDS: Object.freeze(["NPS_0_10", "RECOMMENDATION_1_5"]),
+  QUALITY: Object.freeze({HIGH_MISSING_RATE: 50, RATE_TOLERANCE: 0.2}),
+  REPORT: Object.freeze({MAX_CHARTS: 10, HEADER_COLOR: "#244D78", TITLE_COLOR: "#17375E"}),
+  DEBUG: false
+});
+
 
 /**
  * 스크립트 속성에 등록한 Gemini API 키를 가져옵니다.
