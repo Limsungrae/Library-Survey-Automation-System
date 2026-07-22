@@ -1123,6 +1123,9 @@ function validateSurveyExcelBase64_(pureBase64Data, lowerFileName) {
   let bytes;
   try { bytes = Utilities.base64Decode(encoded); }
   catch (ignored) { throw new Error("Excel 파일의 Base64 데이터가 올바르지 않습니다."); }
+  if (bytes.length > 12 * 1024 * 1024) {
+    throw new Error("업로드 파일이 너무 큽니다. 최대 12MB의 Excel 파일만 지원합니다.");
+  }
   validateSurveyExcelBinary_(bytes, lowerFileName);
   return bytes;
 }

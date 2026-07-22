@@ -1184,7 +1184,7 @@
     "use strict";
 
     const MAX_EXCEL_SIZE_BYTES =
-      8 * 1024 * 1024;
+      12 * 1024 * 1024;
 
 
     let selectedExcelData = null;
@@ -1430,7 +1430,7 @@ window.addEventListener(
         selectedExcelData = null;
 
         showStatus(
-          "파일 용량은 8MB 이하로 선택해 주세요.",
+          "파일 용량은 12MB 이하로 선택해 주세요.",
           "danger"
         );
 
@@ -2620,7 +2620,7 @@ function renderSystemStatus(result) {
 
           if (
             questionType.value
-            === mapping.suggestedType
+            === (mapping.selectedType || mapping.suggestedType)
           ) {
             option.selected =
               true;

@@ -47,11 +47,6 @@ function getSurveySystemStatusFromWeb() {
       spreadsheet.getSheetByName(
         settingsSheetName
       );
-    const qualitySheet=spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.QUALITY);
-    const qualityStatus=qualitySheet?cleanText_(qualitySheet.getRange("B5").getDisplayValue()):"NOT_RUN";
-    const qualityAiAllowed=qualitySheet?qualitySheet.getRange("B8").getDisplayValue()==="가능":false;
-
-
     let rowCount = 0;
     let rawSheetValid = false;
     let rawSheetMessage =
@@ -167,6 +162,16 @@ function getDynamicSurveySystemStatusFromWeb() {
       spreadsheet.getSheetByName(
         "00_설정"
       );
+
+    const qualitySheet = spreadsheet.getSheetByName(
+      DYNAMIC_SURVEY_CONFIG.SHEETS.QUALITY
+    );
+    const qualityStatus = qualitySheet
+      ? cleanText_(qualitySheet.getRange("B5").getDisplayValue())
+      : "NOT_RUN";
+    const qualityAiAllowed = qualitySheet
+      ? qualitySheet.getRange("B8").getDisplayValue() === "가능"
+      : false;
 
     const mappingSheet = spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.MAPPING)
       || spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.LEGACY_MAPPING);
