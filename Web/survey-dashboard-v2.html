@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <base target="_top">
+  <title>Survey Insight Studio v2</title>
+  <?!= includeHtml_("survey-dashboard-v2-css"); ?>
+</head>
+<body>
+  <a class="skip-link" href="#v2Main">본문으로 바로가기</a>
+
+  <section id="v2AccessGate" class="v2-access" aria-labelledby="v2AccessTitle">
+    <form id="v2AccessForm" class="v2-access__panel">
+      <p class="v2-eyebrow">AUTHORIZED ACCESS</p>
+      <h1 id="v2AccessTitle">Survey Insight Studio</h1>
+      <p>담당자 인증 후 설문 분석 작업을 시작할 수 있습니다.</p>
+      <label for="v2AccessPasscode">인증 코드</label>
+      <input id="v2AccessPasscode" type="password" autocomplete="current-password" required>
+      <button class="v2-button v2-button--primary" type="submit">인증하고 시작</button>
+      <p id="v2AccessError" class="v2-field-error" role="alert"></p>
+    </form>
+  </section>
+
+  <div id="v2Application" class="v2-app" hidden>
+    <header class="v2-header">
+      <div class="v2-header__brand">
+        <button id="v2MenuButton" class="v2-icon-button" type="button" aria-controls="v2Sidebar" aria-expanded="false">
+          <span class="v2-sr-only">업무 단계 메뉴 열기</span><span aria-hidden="true">☰</span>
+        </button>
+        <div>
+          <p class="v2-eyebrow">SURVEY INSIGHT STUDIO</p>
+          <h1>Survey Insight Studio <span>v2</span></h1>
+        </div>
+      </div>
+      <dl class="v2-header__summary" aria-label="현재 작업 요약">
+        <div><dt>현재 설문</dt><dd id="v2HeaderProject">프로젝트 미선택</dd></div>
+        <div><dt>응답자</dt><dd id="v2HeaderRespondents">응답 데이터 없음</dd></div>
+        <div><dt>마지막 저장</dt><dd id="v2HeaderSaved">아직 저장되지 않음</dd></div>
+        <div><dt>품질</dt><dd><span id="v2HeaderQuality" class="v2-badge v2-badge--neutral">품질검사 전</span></dd></div>
+      </dl>
+      <div class="v2-session">
+        <span class="v2-badge v2-badge--success"><span aria-hidden="true">●</span> 인증됨</span>
+        <button id="v2LogoutButton" class="v2-button v2-button--quiet" type="button">로그아웃</button>
+      </div>
+    </header>
+
+    <div class="v2-layout">
+      <aside id="v2Sidebar" class="v2-sidebar" aria-label="설문 분석 업무 단계">
+        <nav><ol id="v2StepList" class="v2-steps"></ol></nav>
+        <a class="v2-legacy-link" href="?page=survey">기존 운영 화면으로 돌아가기</a>
+      </aside>
+
+      <main id="v2Main" class="v2-main" tabindex="-1">
+        <div id="v2GlobalStatus" class="v2-global-status" role="status" aria-live="polite" hidden></div>
+
+        <section id="v2PageDashboard" class="v2-page" aria-labelledby="v2DashboardTitle">
+          <div class="v2-page-heading">
+            <div><p class="v2-eyebrow">OVERVIEW</p><h2 id="v2DashboardTitle">Dashboard</h2><p>새 분석을 시작하거나 저장된 작업 상태를 확인하세요.</p></div>
+            <button id="v2StartButton" class="v2-button v2-button--primary" type="button">새 설문 분석 시작</button>
+          </div>
+          <div class="v2-dashboard-grid">
+            <article class="v2-card v2-card--wide">
+              <div class="v2-card__heading"><h3>전체 Workflow</h3><span id="v2ProgressText">0 / 7 단계</span></div>
+              <div class="v2-progress" aria-hidden="true"><span id="v2ProgressBar"></span></div>
+              <ol id="v2WorkflowSummary" class="v2-workflow-summary"></ol>
+            </article>
+            <article class="v2-card">
+              <h3>진행 중 작업</h3>
+              <div id="v2ContinueContent" class="v2-empty-state"></div>
+            </article>
+            <article class="v2-card">
+              <h3>최근 보고서</h3>
+              <div id="v2RecentContent" class="v2-empty-state"></div>
+            </article>
+          </div>
+        </section>
+
+        <section id="v2PageUpload" class="v2-page" aria-labelledby="v2UploadTitle" hidden>
+          <div class="v2-page-heading">
+            <div><p class="v2-eyebrow">STEP 2</p><h2 id="v2UploadTitle">Excel Upload</h2><p>설문 응답 Excel을 검증하고 서버에 업로드합니다.</p></div>
+          </div>
+          <article class="v2-card v2-upload-card">
+            <div id="v2Dropzone" class="v2-dropzone" role="group" aria-labelledby="v2DropzoneTitle">
+              <span class="v2-dropzone__icon" aria-hidden="true">⇧</span>
+              <h3 id="v2DropzoneTitle">파일을 끌어 놓거나 선택하세요</h3>
+              <p>.xlsx 또는 .xls · 최대 12MB</p>
+              <button id="v2ChooseFileButton" class="v2-button v2-button--secondary" type="button">파일 선택</button>
+              <input id="v2FileInput" type="file" accept=".xlsx,.xls" hidden>
+            </div>
+            <div id="v2SelectedFile" class="v2-file-summary" hidden></div>
+            <div id="v2UploadStatus" class="v2-upload-status" aria-live="polite">업로드할 파일을 선택해 주세요.</div>
+            <button id="v2UploadButton" class="v2-button v2-button--primary" type="button" disabled>선택한 파일 업로드</button>
+          </article>
+        </section>
+
+        <section id="v2PagePlaceholder" class="v2-page" aria-labelledby="v2PlaceholderTitle" hidden>
+          <div class="v2-page-heading"><div><p id="v2PlaceholderEyebrow" class="v2-eyebrow"></p><h2 id="v2PlaceholderTitle"></h2></div></div>
+          <article class="v2-card v2-placeholder">
+            <span aria-hidden="true">◇</span><h3>다음 Sprint에서 연결됩니다.</h3>
+            <p id="v2PlaceholderDescription"></p>
+            <p class="v2-muted">아직 구현되지 않은 기능은 실행할 수 없습니다.</p>
+          </article>
+        </section>
+
+        <nav class="v2-bottom-nav" aria-label="단계 이동">
+          <button id="v2PreviousButton" class="v2-button v2-button--quiet" type="button">이전</button>
+          <p id="v2CurrentStepLabel" aria-live="polite">1단계 · Dashboard</p>
+          <button id="v2NextButton" class="v2-button v2-button--secondary" type="button">Upload로 이동</button>
+        </nav>
+      </main>
+    </div>
+  </div>
+
+  <div id="v2ToastRegion" class="v2-toast-region" aria-live="polite" aria-atomic="true"></div>
+  <div id="v2Loading" class="v2-loading" role="status" aria-live="polite" hidden><span class="v2-spinner" aria-hidden="true"></span><span id="v2LoadingText">처리 중입니다.</span></div>
+  <?!= includeHtml_("survey-dashboard-v2-app"); ?>
+</body>
+</html>
