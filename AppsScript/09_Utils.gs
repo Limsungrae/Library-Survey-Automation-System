@@ -672,8 +672,6 @@ function saveSurveySettingsFromWeb(settingsData) {
       360
     );
 
-    moveReportSheetsInOrder_();
-
     return {
       success: true,
       message: "조사 기본정보를 저장했습니다.",

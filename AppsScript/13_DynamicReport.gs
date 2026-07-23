@@ -556,7 +556,9 @@ function moveDynamicStatisticalSheetsInOrder_() {
     "12_문항매핑"
   ];
 
-  order.forEach(function(sheetName, index) {
+  let targetPosition = 1;
+
+  order.forEach(function(sheetName) {
     const sheet = spreadsheet.getSheetByName(sheetName);
 
     if (!sheet) {
@@ -564,6 +566,7 @@ function moveDynamicStatisticalSheetsInOrder_() {
     }
 
     spreadsheet.setActiveSheet(sheet);
-    spreadsheet.moveActiveSheet(index + 1);
+    spreadsheet.moveActiveSheet(targetPosition);
+    targetPosition++;
   });
 }
