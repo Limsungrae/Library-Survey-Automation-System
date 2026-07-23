@@ -93,6 +93,236 @@
           </article>
         </section>
 
+        <section id="v2PageMapping" class="v2-page" aria-labelledby="v2MappingTitle" hidden>
+          <div class="v2-page-heading">
+            <div>
+              <p class="v2-eyebrow">STEP 3</p>
+              <h2 id="v2MappingTitle">Question Mapping</h2>
+              <p>자동 추천 결과를 검토하고 실제 분석에 사용할 문항 유형을 확정합니다.</p>
+            </div>
+            <div class="v2-mapping-actions" aria-label="문항 매핑 작업">
+              <button id="v2LoadSavedMappingButton" class="v2-button v2-button--quiet" type="button">저장 매핑 불러오기</button>
+              <button id="v2RuleMappingButton" class="v2-button v2-button--quiet" type="button">규칙 기반 분석</button>
+              <button id="v2AiMappingButton" class="v2-button v2-button--secondary" type="button">AI 추천 다시 분석</button>
+            </div>
+          </div>
+
+          <div id="v2MappingStatus" class="v2-upload-status" aria-live="polite">문항 매핑을 불러오는 중입니다.</div>
+          <section id="v2MappingSummary" class="v2-mapping-summary" aria-label="문항 매핑 요약" hidden></section>
+          <div id="v2MappingEmpty" class="v2-card v2-empty-state" hidden>
+            <strong>표시할 문항이 없습니다.</strong>
+            <span>Upload 단계에서 Excel을 업로드하거나 저장된 매핑을 불러와 주세요.</span>
+          </div>
+
+          <div id="v2MappingTableWrap" class="v2-mapping-table-wrap" hidden>
+            <table class="v2-mapping-table">
+              <caption class="v2-sr-only">문항별 분석 유형과 척도 설정</caption>
+              <thead><tr>
+                <th scope="col">열</th>
+                <th scope="col">원본 열 이름 / 자동 추천</th>
+                <th scope="col">문항 유형</th>
+                <th scope="col">척도 유형</th>
+                <th scope="col">점수 매핑 JSON</th>
+                <th scope="col">신뢰도</th>
+                <th scope="col">출처</th>
+                <th scope="col">검토 상태</th>
+              </tr></thead>
+              <tbody id="v2MappingTableBody"></tbody>
+            </table>
+          </div>
+          <div class="v2-mapping-save">
+            <p id="v2MappingHelp" class="v2-muted">검토 필요 문항이 목록 상단에 표시됩니다.</p>
+            <button id="v2SaveMappingButton" class="v2-button v2-button--primary" type="button" disabled>문항 매핑 저장</button>
+          </div>
+        </section>
+
+        <section id="v2PageAnalysis" class="v2-page" aria-labelledby="v2AnalysisTitle" hidden>
+          <div class="v2-page-heading">
+            <div>
+              <p class="v2-eyebrow">STEP 4</p>
+              <h2 id="v2AnalysisTitle">Dynamic Analysis</h2>
+              <p>저장된 문항 매핑과 범용 원자료를 기준으로 통계 보고서를 생성합니다.</p>
+            </div>
+            <button id="v2AnalysisStartButton" class="v2-button v2-button--primary" type="button">분석 시작</button>
+          </div>
+
+          <div class="v2-analysis-grid">
+            <article class="v2-card v2-analysis-progress-card">
+              <div class="v2-card__heading">
+                <div><p class="v2-eyebrow">ANALYSIS STATUS</p><h3 id="v2AnalysisState">분석 준비</h3></div>
+                <span id="v2AnalysisBadge" class="v2-badge v2-badge--neutral">대기</span>
+              </div>
+              <p id="v2AnalysisStage" class="v2-analysis-stage">분석 시작 버튼을 눌러 주세요.</p>
+              <div id="v2AnalysisProgress" class="v2-analysis-progress" role="progressbar" aria-label="통계 분석 진행률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="v2AnalysisProgressBar"></span></div>
+              <p id="v2AnalysisProgressText" class="v2-analysis-progress-text">0%</p>
+            </article>
+
+            <article class="v2-card v2-analysis-log-card">
+              <h3>처리 로그</h3>
+              <ol id="v2AnalysisLog" class="v2-analysis-log" aria-live="polite"><li>분석을 시작하면 처리 단계가 표시됩니다.</li></ol>
+            </article>
+          </div>
+
+          <section id="v2AnalysisSummary" class="v2-analysis-summary" aria-label="분석 결과 요약" hidden>
+            <article class="v2-card"><span>응답자 수</span><strong id="v2AnalysisRespondents">-</strong></article>
+            <article class="v2-card"><span>분석 문항 수</span><strong id="v2AnalysisQuestions">-</strong></article>
+            <article class="v2-card"><span>생성된 통계</span><strong id="v2AnalysisSheets">-</strong></article>
+            <article class="v2-card"><span>생성 시간</span><strong id="v2AnalysisGeneratedAt">-</strong></article>
+          </section>
+
+          <div id="v2AnalysisError" class="v2-analysis-error" role="alert" hidden>
+            <strong>분석을 완료하지 못했습니다.</strong>
+            <p id="v2AnalysisErrorMessage"></p>
+          </div>
+        </section>
+
+        <section id="v2PageQuality" class="v2-page" aria-labelledby="v2QualityTitle" hidden>
+          <div class="v2-page-heading">
+            <div>
+              <p class="v2-eyebrow">STEP 5</p>
+              <h2 id="v2QualityTitle">Quality Check</h2>
+              <p>동적 분석 결과의 합계, 비율, 척도 범위와 AI 사용 가능 여부를 검사합니다.</p>
+            </div>
+            <button id="v2QualityStartButton" class="v2-button v2-button--primary" type="button">품질검사 실행</button>
+          </div>
+
+          <article class="v2-card v2-quality-status-card">
+            <div class="v2-card__heading">
+              <div><p class="v2-eyebrow">QUALITY STATUS</p><h3 id="v2QualityState">검사 준비</h3></div>
+              <span id="v2QualityBadge" class="v2-badge v2-badge--neutral">검사 전</span>
+            </div>
+            <p id="v2QualityStage" class="v2-analysis-stage">통계 분석 완료 후 품질검사를 실행해 주세요.</p>
+            <div id="v2QualityProgress" class="v2-analysis-progress" role="progressbar" aria-label="품질검사 진행률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="v2QualityProgressBar"></span></div>
+            <p id="v2QualityProgressText" class="v2-analysis-progress-text">0%</p>
+          </article>
+
+          <section id="v2QualitySummary" class="v2-quality-summary" aria-label="품질검사 결과 요약" hidden>
+            <article class="v2-card"><span>품질검사 상태</span><strong id="v2QualityResultStatus">-</strong></article>
+            <article class="v2-card"><span>오류</span><strong id="v2QualityErrorCount">-</strong></article>
+            <article class="v2-card"><span>경고</span><strong id="v2QualityWarningCount">-</strong></article>
+            <article class="v2-card"><span>통과 여부</span><strong id="v2QualityPass">-</strong></article>
+            <article class="v2-card"><span>검사 시간</span><strong id="v2QualityCheckedAt">-</strong></article>
+          </section>
+
+          <div class="v2-quality-grid">
+            <article class="v2-card">
+              <h3>검사 로그</h3>
+              <ol id="v2QualityLog" class="v2-analysis-log" aria-live="polite"><li>품질검사를 실행하면 처리 로그가 표시됩니다.</li></ol>
+            </article>
+            <article class="v2-card">
+              <h3>검사 메시지</h3>
+              <ul id="v2QualityMessages" class="v2-quality-messages"><li>검사 결과가 없습니다.</li></ul>
+            </article>
+          </div>
+
+          <div id="v2QualityError" class="v2-analysis-error" role="alert" hidden>
+            <strong>품질검사를 완료하지 못했습니다.</strong>
+            <p id="v2QualityErrorMessage"></p>
+          </div>
+        </section>
+
+        <section id="v2PageAi" class="v2-page" aria-labelledby="v2AiTitle" hidden>
+          <div class="v2-page-heading">
+            <div>
+              <p class="v2-eyebrow">STEP 6</p>
+              <h2 id="v2AiTitle">AI Report</h2>
+              <p>품질검사를 통과한 통계와 비식별 의견으로 AI 총평과 향후계획을 생성합니다.</p>
+            </div>
+            <button id="v2AiStartButton" class="v2-button v2-button--primary" type="button">AI 총평 생성</button>
+          </div>
+
+          <div class="v2-ai-grid">
+            <article class="v2-card v2-ai-status-card">
+              <div class="v2-card__heading">
+                <div><p class="v2-eyebrow">AI GENERATION</p><h3 id="v2AiState">생성 준비</h3></div>
+                <span id="v2AiBadge" class="v2-badge v2-badge--neutral">대기</span>
+              </div>
+              <p id="v2AiStage" class="v2-analysis-stage">품질검사 통과 후 AI 총평을 생성할 수 있습니다.</p>
+              <div id="v2AiProgress" class="v2-analysis-progress" role="progressbar" aria-label="AI 보고서 생성 진행률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="v2AiProgressBar"></span></div>
+              <p id="v2AiProgressText" class="v2-analysis-progress-text">0%</p>
+              <dl class="v2-ai-meta">
+                <div><dt>사용 모델</dt><dd id="v2AiModel">Gemini · 서버 설정 모델</dd></div>
+                <div><dt>생성 완료</dt><dd id="v2AiGeneratedAt">아직 생성되지 않음</dd></div>
+              </dl>
+            </article>
+
+            <article class="v2-card v2-ai-log-card">
+              <h3>생성 로그</h3>
+              <ol id="v2AiLog" class="v2-analysis-log" aria-live="polite"><li>AI 총평 생성을 시작하면 처리 로그가 표시됩니다.</li></ol>
+            </article>
+          </div>
+
+          <article id="v2AiReportCard" class="v2-card v2-ai-report-card" hidden>
+            <div class="v2-card__heading">
+              <div><p class="v2-eyebrow">GENERATED REPORT</p><h3>AI 총평</h3></div>
+              <div class="v2-ai-actions">
+                <button id="v2AiCopyButton" class="v2-button v2-button--quiet" type="button" disabled title="현재 API는 AI 총평 본문을 반환하지 않습니다.">총평 복사</button>
+                <button id="v2AiRegenerateButton" class="v2-button v2-button--secondary" type="button">다시 생성</button>
+              </div>
+            </div>
+            <p id="v2AiReportText" class="v2-ai-report-text">AI 총평은 Spreadsheet의 09_AI총평 시트에 생성됩니다.</p>
+            <div class="v2-ai-result-summary">
+              <span id="v2AiGeneratedSheets">생성 시트 확인 필요</span>
+              <span id="v2AiOpinionSummary">주관식 분석 결과 확인 필요</span>
+            </div>
+          </article>
+
+          <div id="v2AiError" class="v2-analysis-error" role="alert" hidden>
+            <strong>AI 보고서를 생성하지 못했습니다.</strong>
+            <p id="v2AiErrorMessage"></p>
+          </div>
+        </section>
+
+        <section id="v2PageDownload" class="v2-page" aria-labelledby="v2DownloadTitle" hidden>
+          <div class="v2-page-heading">
+            <div>
+              <p class="v2-eyebrow">STEP 7</p>
+              <h2 id="v2DownloadTitle">Download</h2>
+              <p>완료된 동적 설문 보고서를 Excel 형식으로 생성하고 내려받습니다.</p>
+            </div>
+            <button id="v2ExportButton" class="v2-button v2-button--primary" type="button">Excel 보고서 생성</button>
+          </div>
+
+          <article class="v2-card v2-download-status-card">
+            <div class="v2-card__heading">
+              <div><p class="v2-eyebrow">EXPORT STATUS</p><h3 id="v2DownloadState">생성 준비</h3></div>
+              <span id="v2DownloadBadge" class="v2-badge v2-badge--neutral">대기</span>
+            </div>
+            <label class="v2-download-file-name" for="v2ExportFileName">
+              <span>저장 파일명</span>
+              <input id="v2ExportFileName" type="text" maxlength="120" placeholder="만족도조사_결과보고서.xlsx">
+            </label>
+            <p id="v2DownloadMessage" class="v2-upload-status" aria-live="polite">AI 보고서 완료 후 Excel 파일을 생성할 수 있습니다.</p>
+          </article>
+
+          <section class="v2-download-files" aria-labelledby="v2DownloadFilesTitle">
+            <div class="v2-section-heading"><div><p class="v2-eyebrow">AVAILABLE FILES</p><h3 id="v2DownloadFilesTitle">다운로드 가능한 파일</h3></div></div>
+            <article id="v2DownloadEmpty" class="v2-card v2-empty-state">
+              <span aria-hidden="true">⇩</span><h3>생성된 파일이 없습니다.</h3><p>Excel 보고서 생성 버튼을 누르면 다운로드 파일이 이곳에 표시됩니다.</p>
+            </article>
+            <article id="v2DownloadFileCard" class="v2-card v2-download-file" hidden>
+              <div class="v2-download-file__icon" aria-hidden="true">XLSX</div>
+              <div class="v2-download-file__content">
+                <strong id="v2DownloadFileName">결과보고서.xlsx</strong>
+                <p>조사개요, 대시보드, 통계, 품질검사 및 생성된 AI 보고서 시트를 포함한 Excel 보고서입니다.</p>
+                <small id="v2DownloadFileMeta">생성 시각 확인 필요</small>
+                <small id="v2DownloadIncludedSheets">포함 시트 확인 필요</small>
+              </div>
+              <button id="v2DownloadFileButton" class="v2-button v2-button--secondary" type="button">Excel 다운로드</button>
+            </article>
+          </section>
+
+          <div id="v2DownloadError" class="v2-analysis-error" role="alert" hidden>
+            <strong>Excel 보고서를 생성하지 못했습니다.</strong>
+            <p id="v2DownloadErrorMessage"></p>
+          </div>
+
+          <div id="v2DownloadCompleteActions" class="v2-download-complete-actions" hidden>
+            <button id="v2NewSurveyButton" class="v2-button v2-button--primary" type="button">새 설문 분석 시작</button>
+            <button id="v2BackDashboardButton" class="v2-button v2-button--quiet" type="button">Dashboard로 돌아가기</button>
+          </div>
+        </section>
+
         <section id="v2PagePlaceholder" class="v2-page" aria-labelledby="v2PlaceholderTitle" hidden>
           <div class="v2-page-heading"><div><p id="v2PlaceholderEyebrow" class="v2-eyebrow"></p><h2 id="v2PlaceholderTitle"></h2></div></div>
           <article class="v2-card v2-placeholder">
