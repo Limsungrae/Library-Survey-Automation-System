@@ -455,6 +455,686 @@ function buildSurveyQuestionMappings_(
 
 
 /**
+ * 규칙 기반 매핑을 항상 먼저 만든 뒤 Gemini 결과를 검증하여 병합합니다.
+ * AI 호출 실패 또는 전체적으로 무효한 응답은 규칙 결과로 복구합니다.
+ *
+ * @param {Array<string>} headers
+ * @param {Array<string>} sampleRow
+ * @param {Array<Array<string>>} responseRows
+ * @param {Function=} aiCaller 테스트에서만 사용하는 Gemini 대체 함수
+ * @return {Object}
+ */
+function buildSurveyQuestionMappingsWithAI_(
+  headers,
+  sampleRow,
+  responseRows,
+  aiCaller
+) {
+  let ruleMappings =
+    buildSurveyQuestionMappings_(
+      headers,
+      sampleRow
+    );
+
+  const fallback = function(reason) {
+    return {
+      mappings: ruleMappings,
+      surveyStructure: {
+        title: "",
+        description: "",
+        respondentColumnNumber: null,
+        confidence: 0,
+        reason: ""
+      },
+      mappingSource: "RULE",
+      fallbackUsed: true,
+      fallbackReason: cleanText_(reason) || "Gemini 매핑을 사용할 수 없습니다.",
+      aiWarnings: [cleanText_(reason) || "Gemini 매핑을 사용할 수 없습니다."]
+    };
+  };
+
+  if (ruleMappings.length === 0) {
+    return fallback("분석할 문항이 없습니다.");
+  }
+
+  try {
+    const profiles =
+      buildSurveyColumnProfiles_(
+        headers,
+        sampleRow,
+        responseRows
+      );
+    ruleMappings = enhanceSurveyRuleMappingsWithProfiles_(ruleMappings, profiles);
+
+    const prompt =
+      buildSurveyMappingAIPrompt_(profiles);
+
+    const schemaText = JSON.stringify({
+      surveyStructure: {
+        title: "",
+        description: "",
+        respondentColumnNumber: null,
+        confidence: 0,
+        reason: ""
+      },
+      mappings: [{
+        columnNumber: 1,
+        questionType: "RESPONDENT",
+        analysisTarget: true,
+        groupId: "",
+        matrixId: "",
+        scaleKind: "",
+        scoreMap: {},
+        confidence: 0,
+        reason: ""
+      }]
+    });
+
+    const caller =
+      typeof aiCaller === "function"
+        ? aiCaller
+        : callGeminiJson_;
+
+    const aiResult =
+      caller(prompt, schemaText);
+
+    const validated =
+      validateSurveyAIMappingResult_(
+        aiResult,
+        ruleMappings
+      );
+
+    if (!validated.valid) {
+      return fallback(validated.reason);
+    }
+
+    const isMixed =
+      validated.mappings.length < ruleMappings.length
+      || validated.warnings.length > 0;
+
+    return {
+      mappings:
+        mergeSurveyAIAndRuleMappings_(
+          ruleMappings,
+          validated.mappings
+        ),
+      surveyStructure: validated.surveyStructure,
+      mappingSource: isMixed ? "MIXED" : "AI",
+      fallbackUsed: isMixed,
+      fallbackReason: isMixed
+        ? "일부 AI 결과를 규칙 기반 결과로 보완했습니다."
+        : "",
+      aiWarnings: validated.warnings
+    };
+
+  } catch (error) {
+    return fallback(
+      error && error.message
+        ? error.message
+        : String(error)
+    );
+  }
+}
+
+
+/**
+ * Gemini에 전달할 열별 최소 프로파일을 생성합니다.
+ * 통계에는 전달받은 행을 사용하되 샘플은 최대 3개, 각 120자로 제한합니다.
+ */
+function buildSurveyColumnProfiles_(
+  headers,
+  sampleRow,
+  responseRows
+) {
+  const safeHeaders =
+    Array.isArray(headers) ? headers : [];
+  const safeSampleRow =
+    Array.isArray(sampleRow) ? sampleRow : [];
+  const safeRows =
+    Array.isArray(responseRows) && responseRows.length > 0
+      ? responseRows
+      : [safeSampleRow];
+
+  const ruleMappings =
+    buildSurveyQuestionMappings_(
+      safeHeaders,
+      safeSampleRow
+    );
+  const ruleByColumn = {};
+  ruleMappings.forEach(function(mapping) {
+    ruleByColumn[mapping.columnNumber] = mapping;
+  });
+
+  return safeHeaders.map(function(header, index) {
+    const originalHeader = cleanText_(header);
+    if (!originalHeader) {
+      return null;
+    }
+
+    const values = safeRows.map(function(row) {
+      return cleanText_(
+        Array.isArray(row) ? row[index] : ""
+      );
+    }).filter(function(value) {
+      return value !== "";
+    });
+
+    const uniqueValues = {};
+    let numericCount = 0;
+    let totalTextLength = 0;
+    let dateCount = 0;
+    let emailCount = 0;
+    let phoneCount = 0;
+    let delimiterDetected = false;
+    let delimitedValueCount = 0;
+    const delimiterCandidates = [];
+    const numericValues = [];
+
+    values.forEach(function(value) {
+      uniqueValues[value] = true;
+      totalTextLength += value.length;
+      if (/^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}/.test(value)) dateCount++;
+      if (/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(value)) emailCount++;
+      if (/(?:\+?82[- .]?)?(?:0\d{1,2})[- .]?\d{3,4}[- .]?\d{4}/.test(value)) phoneCount++;
+      const numericValue = Number(value);
+      if (!isNaN(numericValue) && isFinite(numericValue)) {
+        numericCount++;
+        numericValues.push(numericValue);
+      }
+      if (/[|;\n,]/.test(value)) {
+        delimiterDetected = true;
+        delimitedValueCount++;
+      }
+      [["PIPE", "|"], ["SEMICOLON", ";"], ["NEWLINE", "\n"], ["COMMA", ","]]
+        .forEach(function(candidate) {
+          if (value.indexOf(candidate[1]) !== -1
+              && delimiterCandidates.indexOf(candidate[0]) === -1) {
+            delimiterCandidates.push(candidate[0]);
+          }
+        });
+    });
+
+    const columnNumber = index + 1;
+    const rule = ruleByColumn[columnNumber];
+    const ruleType = rule ? rule.suggestedType : "SINGLE";
+    const ruleConfidence =
+      ruleType === "SINGLE" ? 0.55 : 0.85;
+
+    const samples = [];
+    Object.keys(uniqueValues).some(function(value) {
+      samples.push(
+        maskSurveyMappingSampleValue_(value).substring(0, 120)
+      );
+      return samples.length >= 3;
+    });
+
+    let detectedScaleRange = null;
+    if (numericValues.length > 0) {
+      const minimum = Math.min.apply(null, numericValues);
+      const maximum = Math.max.apply(null, numericValues);
+      if (minimum >= 0 && maximum <= 10) {
+        detectedScaleRange = {
+          min: minimum,
+          max: maximum
+        };
+      }
+    }
+
+    return {
+      columnNumber: columnNumber,
+      originalHeader: originalHeader,
+      normalizedHeader: normalizeHeader_(originalHeader),
+      sampleValues: samples,
+      nonEmptyCount: values.length,
+      emptyCount: Math.max(safeRows.length - values.length, 0),
+      totalCount: safeRows.length,
+      numericCount: numericCount,
+      numericRatio: values.length > 0
+        ? numericCount / values.length
+        : 0,
+      uniqueCount: Object.keys(uniqueValues).length,
+      uniqueRatio: values.length > 0
+        ? Object.keys(uniqueValues).length / values.length
+        : 0,
+      averageTextLength: values.length > 0
+        ? totalTextLength / values.length
+        : 0,
+      delimiterDetected: delimiterDetected,
+      delimitedValueCount: delimitedValueCount,
+      delimiterCandidates: delimiterCandidates,
+      detectedScaleRange: detectedScaleRange,
+      detectedScaleValues: numericValues
+        .filter(function(value, position, array) {
+          return array.indexOf(value) === position;
+        })
+        .sort(function(left, right) { return left - right; })
+        .slice(0, 11),
+      dateRatio: values.length > 0 ? dateCount / values.length : 0,
+      emailRatio: values.length > 0 ? emailCount / values.length : 0,
+      phoneRatio: values.length > 0 ? phoneCount / values.length : 0,
+      ruleSuggestedType: ruleType,
+      ruleConfidence: ruleConfidence,
+      ruleReason:
+        ruleType === "SINGLE"
+          ? "명확한 특수 유형 규칙이 없어 단일응답으로 추천"
+          : "문항명 또는 응답 예시가 " + ruleType + " 규칙과 일치"
+    };
+  }).filter(function(profile) {
+    return profile !== null;
+  });
+}
+
+
+/** Gemini 문항 분류용 프롬프트를 생성합니다. */
+function buildSurveyMappingAIPrompt_(profiles) {
+  return [
+    "너는 만족도 조사 문항 구조를 분류하는 보조자이다.",
+    "각 Column Profile만 근거로 모든 열을 정확히 한 번씩 분류한다.",
+    "허용 questionType: RESPONDENT, SINGLE, MULTIPLE, SCALE, RECOMMENDATION, TEXT, PERSONAL_INFO, EXCLUDE.",
+    "개인정보 열은 PERSONAL_INFO, 타임스탬프나 내부 식별자는 EXCLUDE로 분류한다.",
+    "응답자 특성 대표 열은 최대 하나만 RESPONDENT로 선택한다.",
+    "확신이 낮으면 Rule Engine 결과를 우선한다.",
+    "자료에 없는 문항이나 columnNumber를 만들지 않는다.",
+    "confidence는 0부터 1 사이의 숫자로 작성한다.",
+    "Column Profiles:",
+    JSON.stringify(profiles)
+  ].join("\n");
+}
+
+function enhanceSurveyRuleMappingsWithProfiles_(ruleMappings, profiles) {
+  const profileByColumn={};(profiles||[]).forEach(function(p){profileByColumn[p.columnNumber]=p;});
+  return (ruleMappings||[]).map(function(mapping){
+    const profile=profileByColumn[mapping.columnNumber]; if(!profile)return mapping;
+    const header=profile.normalizedHeader; let type=mapping.suggestedType;
+    const multiHeader=["향후희망서비스","개선필요사항","이용공간","인지경로"].some(function(key){return header.indexOf(key)!==-1;});
+    const delimiterRate=profile.totalCount?profile.delimitedValueCount/profile.totalCount:0;
+    if((multiHeader||delimiterRate>=0.2)&&profile.averageTextLength<120)type="MULTIPLE";
+    let scaleKind="",scoreMap={};
+    if(type==="RECOMMENDATION"){
+      scaleKind=profile.detectedScaleRange&&profile.detectedScaleRange.min===0&&profile.detectedScaleRange.max>5?"NPS_0_10":"RECOMMENDATION_1_5";
+    }
+    if(type==="SCALE"||scaleKind==="RECOMMENDATION_1_5") scoreMap=buildSurveyScaleMapCandidate_(profile.sampleValues);
+    return Object.assign({},mapping,{suggestedType:type,selectedType:type,
+      suggestedTypeLabel:getSurveyQuestionTypeLabel_(type),scaleKind:scaleKind,scoreMap:scoreMap,
+      confidence:profile.ruleConfidence,reason:profile.ruleReason,reviewStatus:profile.ruleConfidence<0.7?"REVIEW_REQUIRED":"AUTO_REVIEWED"});
+  });
+}
+
+function buildSurveyScaleMapCandidate_(values) {
+  const result={};(values||[]).forEach(function(value){
+    const score=dynamicMappedScore_(value,{scoreMap:{}},false);if(score!==null)result[value]=score;
+  });return result;
+}
+
+
+/**
+ * AI 응답을 실제 규칙 매핑에 대조해 정규화합니다.
+ * 누락 열 보충은 병합 함수가 담당하며, 유효 AI 행이 하나도 없으면 실패입니다.
+ */
+function validateSurveyAIMappingResult_(aiResult, ruleMappings) {
+  if (
+    !aiResult
+    || typeof aiResult !== "object"
+    || !Array.isArray(aiResult.mappings)
+  ) {
+    return {
+      valid: false,
+      reason: "Gemini 매핑 JSON의 mappings 배열이 없습니다.",
+      mappings: []
+    };
+  }
+
+  const ruleByColumn = {};
+  (ruleMappings || []).forEach(function(mapping) {
+    ruleByColumn[mapping.columnNumber] = mapping;
+  });
+
+  const seen = {};
+  const warnings = [];
+  const normalized = [];
+  aiResult.mappings.forEach(function(mapping) {
+    if (!mapping || typeof mapping !== "object") {
+      return;
+    }
+    const columnNumber = Number(mapping.columnNumber);
+    if (
+      !Number.isInteger(columnNumber)
+      || !ruleByColumn[columnNumber]
+      || seen[columnNumber]
+    ) {
+      warnings.push("존재하지 않거나 중복된 columnNumber를 제외했습니다: " + mapping.columnNumber);
+      return;
+    }
+    seen[columnNumber] = true;
+
+    const rule = ruleByColumn[columnNumber];
+    let questionType =
+      cleanText_(mapping.questionType).toUpperCase();
+    if (!isSupportedSurveyQuestionType_(questionType)) {
+      warnings.push(columnNumber + "번 열의 잘못된 questionType을 규칙 결과로 복구했습니다.");
+      questionType = rule.suggestedType;
+    }
+
+    let confidence = Number(mapping.confidence);
+    if (isNaN(confidence) || !isFinite(confidence)) {
+      confidence = 0;
+    }
+    confidence = Math.max(0, Math.min(1, confidence));
+
+    const scoreMap =
+      mapping.scoreMap
+      && typeof mapping.scoreMap === "object"
+      && !Array.isArray(mapping.scoreMap)
+        ? mapping.scoreMap
+        : {};
+
+    normalized.push({
+      columnNumber: columnNumber,
+      questionType: questionType,
+      analysisTarget:
+        typeof mapping.analysisTarget === "boolean"
+          ? mapping.analysisTarget
+          : questionType !== "EXCLUDE" && questionType !== "PERSONAL_INFO",
+      groupId: cleanText_(mapping.groupId),
+      matrixId: cleanText_(mapping.matrixId),
+      scaleKind: cleanText_(mapping.scaleKind),
+      scoreMap: scoreMap,
+      confidence: confidence,
+      reason: cleanText_(mapping.reason)
+    });
+  });
+
+  if (normalized.length === 0) {
+    return {
+      valid: false,
+      reason: "Gemini 응답에 실제 Excel 열과 일치하는 매핑이 없습니다.",
+      mappings: []
+    };
+  }
+
+  if (normalized.length < (ruleMappings || []).length) {
+    warnings.push("AI가 누락한 열은 규칙 기반 결과로 보충했습니다.");
+  }
+
+  const respondents = normalized.filter(function(mapping) {
+    return mapping.questionType === "RESPONDENT";
+  }).sort(function(left, right) {
+    return right.confidence - left.confidence;
+  });
+
+  if (respondents.length > 1) {
+    const retainedColumn = respondents[0].columnNumber;
+    normalized.forEach(function(mapping) {
+      if (
+        mapping.questionType === "RESPONDENT"
+        && mapping.columnNumber !== retainedColumn
+      ) {
+        const ruleType = ruleByColumn[mapping.columnNumber].suggestedType;
+        mapping.questionType =
+          ruleType === "RESPONDENT" ? "SINGLE" : ruleType;
+        mapping.analysisTarget =
+          mapping.questionType !== "EXCLUDE"
+          && mapping.questionType !== "PERSONAL_INFO";
+      }
+    });
+  }
+
+  const rawStructure =
+    aiResult.surveyStructure
+    && typeof aiResult.surveyStructure === "object"
+      ? aiResult.surveyStructure
+      : {};
+  let structureConfidence = Number(rawStructure.confidence);
+  if (isNaN(structureConfidence) || !isFinite(structureConfidence)) {
+    structureConfidence = 0;
+  }
+  structureConfidence = Math.max(0, Math.min(1, structureConfidence));
+
+  const retainedRespondent = normalized.find(function(mapping) {
+    return mapping.questionType === "RESPONDENT";
+  });
+  const respondentColumnNumber = retainedRespondent
+    ? retainedRespondent.columnNumber
+    : null;
+
+  return {
+    valid: true,
+    reason: "",
+    warnings: warnings,
+    mappings: normalized,
+    surveyStructure: {
+      title: cleanText_(rawStructure.title),
+      description: cleanText_(rawStructure.description),
+      respondentColumnNumber: respondentColumnNumber,
+      confidence: structureConfidence,
+      reason: cleanText_(rawStructure.reason)
+    }
+  };
+}
+
+
+/** AI가 검증된 열만 덮어쓰고 나머지는 기존 규칙 결과로 보충합니다. */
+function mergeSurveyAIAndRuleMappings_(ruleMappings, aiMappings) {
+  const aiByColumn = {};
+  (aiMappings || []).forEach(function(mapping) {
+    aiByColumn[mapping.columnNumber] = mapping;
+  });
+
+  return (ruleMappings || []).map(function(rule) {
+    const ai = aiByColumn[rule.columnNumber];
+    if (!ai) {
+      return rule;
+    }
+
+    const questionType = ai.questionType;
+    return Object.assign({}, rule, {
+      originalHeader: rule.originalHeader,
+      normalizedHeader: rule.normalizedHeader,
+      suggestedType: questionType,
+      suggestedTypeLabel:
+        getSurveyQuestionTypeLabel_(questionType),
+      selectedType: questionType,
+      analysisTarget: ai.analysisTarget,
+      groupId: ai.groupId,
+      matrixId: ai.matrixId,
+      scaleKind: ai.scaleKind,
+      scoreMap: ai.scoreMap,
+      confidence: ai.confidence,
+      reason: ai.reason,
+      mappingSource: "AI",
+      reviewStatus: ai.confidence < 0.7 || questionType !== rule.suggestedType
+        ? "REVIEW_REQUIRED" : "AUTO_REVIEWED",
+      ruleSuggestedType: rule.suggestedType
+    });
+  });
+}
+
+
+/** Gemini에 전달하는 표본에서 이메일과 전화번호를 비식별 처리합니다. */
+function maskSurveyMappingSampleValue_(value) {
+  return cleanText_(value)
+    .replace(/\b\d{6}[- ]?[1-4]\d{6}\b/g, "[주민등록번호 마스킹]")
+    .replace(
+      /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,
+      "[이메일 마스킹]"
+    )
+    .replace(
+      /(?:\+?82[- .]?)?(?:0\d{1,2})[- .]?\d{3,4}[- .]?\d{4}/g,
+      "[전화번호 마스킹]"
+    );
+}
+
+
+/**
+ * 외부 Gemini 호출 없이 Stage 1 검증·병합·fallback을 점검합니다.
+ * Apps Script 편집기에서 직접 실행하며 실패 시 예외를 발생시킵니다.
+ */
+function testSurveyAIQuestionMappingStage1() {
+  const headers = [
+    "연령대",
+    "전반적 만족도",
+    "자유의견"
+  ];
+  const sampleRow = [
+    "30대",
+    "매우 만족",
+    "좋았습니다"
+  ];
+  const rows = [
+    sampleRow,
+    ["40대", "4", "test@example.com 010-1234-5678"]
+  ];
+  const rules =
+    buildSurveyQuestionMappings_(headers, sampleRow);
+
+  function assert_(condition, message) {
+    if (!condition) {
+      throw new Error("Stage 1 테스트 실패: " + message);
+    }
+  }
+
+  function aiResult_(mappings) {
+    return {
+      surveyStructure: {
+        title: "도서관 만족도 조사",
+        description: "테스트",
+        respondentColumnNumber: 1,
+        confidence: 1.5,
+        reason: "문항 구성"
+      },
+      mappings: mappings
+    };
+  }
+
+  // 1. 정상적인 AI 매핑 및 confidence 보정
+  const normal = validateSurveyAIMappingResult_(
+    aiResult_([
+      {columnNumber: 1, questionType: "RESPONDENT", confidence: 0.9, scoreMap: {}},
+      {columnNumber: 2, questionType: "SCALE", confidence: 2, scoreMap: {"매우 만족": 5}},
+      {columnNumber: 3, questionType: "TEXT", confidence: 0.8, scoreMap: {}}
+    ]),
+    rules
+  );
+  assert_(normal.valid, "정상 AI 매핑");
+  assert_(normal.mappings[1].confidence === 1, "confidence 0~1 보정");
+
+  // 2. 존재하지 않는 열 제거
+  const nonexistent = validateSurveyAIMappingResult_(
+    aiResult_([
+      {columnNumber: 99, questionType: "TEXT", confidence: 1},
+      {columnNumber: 1, questionType: "RESPONDENT", confidence: 1}
+    ]),
+    rules
+  );
+  assert_(nonexistent.mappings.length === 1, "존재하지 않는 columnNumber 제거");
+
+  // 3. 중복 열 제거
+  const duplicate = validateSurveyAIMappingResult_(
+    aiResult_([
+      {columnNumber: 1, questionType: "RESPONDENT", confidence: 0.9},
+      {columnNumber: 1, questionType: "TEXT", confidence: 1}
+    ]),
+    rules
+  );
+  assert_(duplicate.mappings.length === 1, "중복 columnNumber 제거");
+
+  // 4. 잘못된 유형은 규칙 결과 사용
+  const badType = validateSurveyAIMappingResult_(
+    aiResult_([{columnNumber: 2, questionType: "UNKNOWN", confidence: 1}]),
+    rules
+  );
+  assert_(badType.mappings[0].questionType === rules[1].suggestedType, "잘못된 유형 fallback");
+
+  // 5. 일부 열 누락은 병합 시 규칙 결과로 보충
+  const merged = mergeSurveyAIAndRuleMappings_(
+    rules,
+    normal.mappings.slice(0, 1)
+  );
+  assert_(merged.length === rules.length, "누락 열 보충");
+  assert_(merged[2].selectedType === rules[2].selectedType, "누락 열 규칙 유지");
+
+  // 6. RESPONDENT 중복은 최고 신뢰도 하나만 유지
+  const respondents = validateSurveyAIMappingResult_(
+    aiResult_([
+      {columnNumber: 1, questionType: "RESPONDENT", confidence: 0.4},
+      {columnNumber: 2, questionType: "RESPONDENT", confidence: 0.9}
+    ]),
+    rules
+  );
+  assert_(
+    respondents.mappings.filter(function(item) {
+      return item.questionType === "RESPONDENT";
+    }).length === 1,
+    "RESPONDENT 중복 제거"
+  );
+  assert_(respondents.surveyStructure.respondentColumnNumber === 2, "최고 신뢰도 RESPONDENT 유지");
+
+  // 7. scoreMap 배열은 빈 객체로 보정
+  const badScoreMap = validateSurveyAIMappingResult_(
+    aiResult_([{columnNumber: 2, questionType: "SCALE", scoreMap: [], confidence: 1}]),
+    rules
+  );
+  assert_(
+    Object.keys(badScoreMap.mappings[0].scoreMap).length === 0,
+    "잘못된 scoreMap 보정"
+  );
+
+  // 8. Gemini 오류는 규칙 매핑으로 fallback
+  const fallback = buildSurveyQuestionMappingsWithAI_(
+    headers,
+    sampleRow,
+    rows,
+    function() {
+      throw new Error("테스트 Gemini 오류");
+    }
+  );
+  assert_(fallback.mappingSource === "RULE" && fallback.fallbackUsed, "Gemini 오류 fallback");
+  assert_(fallback.mappings.length === rules.length, "fallback 매핑 보존");
+
+  // 9. 이메일·전화번호 마스킹
+  const masked = maskSurveyMappingSampleValue_(
+    "test@example.com / 010-1234-5678"
+  );
+  assert_(masked.indexOf("test@example.com") === -1, "이메일 마스킹");
+  assert_(masked.indexOf("010-1234-5678") === -1, "전화번호 마스킹");
+
+  // 10. 기존 프런트엔드가 사용하는 매핑 필드 유지
+  const compatibility = buildSurveyQuestionMappingsWithAI_(
+    headers,
+    sampleRow,
+    rows,
+    function() {
+      return aiResult_([
+        {columnNumber: 1, questionType: "RESPONDENT", confidence: 0.9}
+      ]);
+    }
+  );
+  [
+    "columnIndex",
+    "columnNumber",
+    "originalHeader",
+    "normalizedHeader",
+    "sampleValue",
+    "suggestedType",
+    "suggestedTypeLabel",
+    "selectedType"
+  ].forEach(function(field) {
+    assert_(
+      Object.prototype.hasOwnProperty.call(compatibility.mappings[0], field),
+      "기존 반환 필드 유지: " + field
+    );
+  });
+
+  console.log("Stage 1 AI 문항 매핑 테스트 10개 통과");
+  return {
+    success: true,
+    testCount: 10,
+    message: "Stage 1 AI 문항 매핑 테스트 10개가 통과했습니다."
+  };
+}
+
+
+/**
  * ==========================================================================
  * 문항 매핑 구조 검사
  * ==========================================================================
@@ -521,6 +1201,11 @@ function validateSurveyMappings_(
           + "번째 문항의 분석 유형이 올바르지 않습니다: "
           + type
         );
+      }
+
+      if (type === "RECOMMENDATION"
+          && DYNAMIC_SURVEY_CONFIG.ALLOWED_RECOMMENDATION_KINDS.indexOf(cleanText_(mapping.scaleKind).toUpperCase()) === -1) {
+        errors.push((index + 1) + "번째 추천 문항의 척도 유형을 NPS_0_10 또는 RECOMMENDATION_1_5로 지정해 주세요.");
       }
 
       return {
@@ -678,284 +1363,125 @@ function getSurveyQuestionTypesForWeb() {
  */
 function saveSurveyMappingsFromWeb(payload) {
   try {
-    if (
-      !payload
-      || !Array.isArray(payload.mappings)
-      || payload.mappings.length === 0
-    ) {
-      throw new Error(
-        "저장할 문항 매핑 정보가 없습니다."
-      );
+    if (!payload || !Array.isArray(payload.mappings) || payload.mappings.length === 0) {
+      throw new Error("저장할 문항 매핑 정보가 없습니다.");
     }
+    const validation = validateSurveyMappings_(payload.mappings);
+    if (!validation.valid) throw new Error(validation.errors.join("\n"));
 
-    const validation =
-      validateSurveyMappings_(
-        payload.mappings
-      );
+    const seen = {};
+    payload.mappings.forEach(function(mapping) {
+      const columnNumber = Number(mapping.columnNumber);
+      if (!Number.isInteger(columnNumber) || columnNumber < 1 || seen[columnNumber]) {
+        throw new Error("문항 매핑의 columnNumber가 유효하지 않거나 중복되었습니다: " + mapping.columnNumber);
+      }
+      seen[columnNumber] = true;
+    });
 
-    if (!validation.valid) {
-      throw new Error(
-        validation.errors.join("\n")
-      );
-    }
-
-    const spreadsheet =
-      SpreadsheetApp.getActiveSpreadsheet();
-
-    const sheetName =
-      "10_문항매핑";
-
-    let sheet =
-      spreadsheet.getSheetByName(sheetName);
-
-    if (!sheet) {
-      sheet =
-        spreadsheet.insertSheet(sheetName);
-    }
-
-
-
-    // 기존 병합 셀을 안전하게 해제합니다.
-
-    sheet
-
-      .getRange(
-
-        1,
-
-        1,
-
-        sheet.getMaxRows(),
-
-        sheet.getMaxColumns()
-
-      )
-
-      .breakApart();
-
-
-
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    let sheet = spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.MAPPING);
+    if (!sheet) sheet = spreadsheet.insertSheet(DYNAMIC_SURVEY_CONFIG.SHEETS.MAPPING);
+    sheet.getDataRange().breakApart();
     sheet.clear();
 
-
-
     const headers = [
-      "순번",
-      "원본 컬럼번호",
-      "원본 문항",
-      "예시 응답",
-      "자동 추천 유형",
-      "최종 선택 유형",
-      "파일명",
-      "원본 시트명",
-      "저장일시"
+      "순번", "원본 컬럼번호", "원본 문항", "예시 응답", "자동 추천 유형", "최종 선택 유형",
+      "파일명", "원본 시트명", "저장일시", "정규화 문항", "분석대상", "그룹 ID", "행렬 ID",
+      "척도 유형", "점수 매핑 JSON", "신뢰도", "판단 이유", "매핑 출처", "매핑 버전", "검토 상태"
     ];
-
-    const savedAt =
-      Utilities.formatDate(
-        new Date(),
-        Session.getScriptTimeZone(),
-        "yyyy-MM-dd HH:mm:ss"
-      );
-
-    const rows =
-      payload.mappings.map(function(
-        mapping,
-        index
-      ) {
-        return [
-          index + 1,
-          Number(
-            mapping.columnNumber
-            || index + 1
-          ),
-          cleanText_(
-            mapping.originalHeader
-          ),
-          cleanText_(
-            mapping.sampleValue
-          ),
-          cleanText_(
-            mapping.suggestedType
-          ),
-          cleanText_(
-            mapping.selectedType
-            || mapping.suggestedType
-          ),
-          cleanText_(
-            payload.fileName
-          ),
-          cleanText_(
-            payload.sheetName
-          ),
-          savedAt
-        ];
-      });
-
-    sheet
-      .getRange(
-        1,
-        1,
-        1,
-        headers.length
-      )
-      .setValues([
-        headers
-      ]);
-
-    sheet
-      .getRange(
-        2,
-        1,
-        rows.length,
-        headers.length
-      )
-      .setValues(
-        rows
-      );
-
+    const savedAt = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
+    const mappingVersion = "2";
+    const rows = payload.mappings.map(function(mapping, index) {
+      const selectedType = cleanText_(mapping.selectedType || mapping.suggestedType).toUpperCase();
+      const analysisTarget = selectedType !== "EXCLUDE" && selectedType !== "PERSONAL_INFO"
+        && mapping.analysisTarget !== false;
+      const scoreMap = mapping.scoreMap && typeof mapping.scoreMap === "object" && !Array.isArray(mapping.scoreMap)
+        ? mapping.scoreMap : {};
+      return [
+        index + 1, Number(mapping.columnNumber), cleanText_(mapping.originalHeader), cleanText_(mapping.sampleValue),
+        cleanText_(mapping.suggestedType), selectedType, cleanText_(payload.fileName), cleanText_(payload.sheetName), savedAt,
+        cleanText_(mapping.normalizedHeader || normalizeHeader_(mapping.originalHeader)), analysisTarget,
+        cleanText_(mapping.groupId), cleanText_(mapping.matrixId), cleanText_(mapping.scaleKind), JSON.stringify(scoreMap),
+        Math.max(0, Math.min(1, Number(mapping.confidence) || 0)), cleanText_(mapping.reason),
+        cleanText_(mapping.mappingSource || payload.mappingSource || "USER"), mappingVersion,
+        cleanText_(mapping.reviewStatus || "USER_REVIEWED")
+      ];
+    });
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
     sheet.setFrozenRows(1);
-
-    sheet
-      .getRange(
-        1,
-        1,
-        1,
-        headers.length
-      )
-      .setFontWeight("bold")
-      .setBackground("#1b365d")
-      .setFontColor("#ffffff")
-      .setHorizontalAlignment("center");
-
-    sheet
-      .getDataRange()
-      .setVerticalAlignment("top")
-      .setWrap(true);
-
-    sheet.autoResizeColumns(
-      1,
-      headers.length
-    );
-
-    sheet.setColumnWidth(
-      3,
-      420
-    );
-
-    sheet.setColumnWidth(
-      4,
-      260
-    );
-
-    return {
-      success: true,
-      savedCount: rows.length,
-      sheetName: sheetName,
-      validation: validation,
-      message:
-        "문항 매핑 "
-        + rows.length
-        + "개를 저장했습니다."
-    };
-
+    sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold").setBackground("#1b365d")
+      .setFontColor("#ffffff").setHorizontalAlignment("center");
+    sheet.getDataRange().setVerticalAlignment("top").setWrap(true);
+    sheet.autoResizeColumns(1, headers.length);
+    sheet.setColumnWidth(3, 420);
+    sheet.setColumnWidth(4, 260);
+    return {success: true, savedCount: rows.length, sheetName: DYNAMIC_SURVEY_CONFIG.SHEETS.MAPPING, mappingVersion: mappingVersion,
+      validation: validation, message: "문항 매핑 " + rows.length + "개를 저장했습니다."};
   } catch (error) {
-    return {
-      success: false,
-      error:
-        error && error.message
-          ? error.message
-          : String(error)
-    };
+    return {success: false, error: error && error.message ? error.message : String(error)};
   }
 }
 
+function parseSurveyMappingScoreMap_(value) {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value;
+  try {
+    const parsed = JSON.parse(String(value || "{}"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch (ignored) {
+    return {};
+  }
+}
 
-/**
- * 저장된 문항 매핑 정보를 웹페이지로 반환합니다.
- *
- * @return {Object} 저장된 매핑 목록
- */
 function getSavedSurveyMappingsFromWeb() {
   try {
-    const spreadsheet =
-      SpreadsheetApp.getActiveSpreadsheet();
-
-    const sheet =
-      spreadsheet.getSheetByName(
-        "10_문항매핑"
-      );
-
-    if (
-      !sheet
-      || sheet.getLastRow() < 2
-    ) {
-      return {
-        success: true,
-        exists: false,
-        mappings: [],
-        message:
-          "저장된 문항 매핑이 없습니다."
-      };
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.MAPPING)
+      || spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.LEGACY_MAPPING);
+    if (!sheet || sheet.getLastRow() < 2) {
+      return {success: true, exists: false, mappings: [], message: "저장된 문항 매핑이 없습니다."};
     }
-
-    const values =
-      sheet
-        .getRange(
-          2,
-          1,
-          sheet.getLastRow() - 1,
-          9
-        )
-        .getDisplayValues();
-
-    const mappings =
-      values.map(function(row) {
-        return {
-          columnNumber:
-            Number(row[1] || 0),
-
-          originalHeader:
-            row[2] || "",
-
-          sampleValue:
-            row[3] || "",
-
-          suggestedType:
-            row[4] || "",
-
-          selectedType:
-            row[5] || ""
-        };
-      });
-
-    return {
-      success: true,
-      exists: true,
-      fileName:
-        values[0][6] || "",
-
-      sheetName:
-        values[0][7] || "",
-
-      savedAt:
-        values[0][8] || "",
-
-      mappings: mappings,
-
-      message:
-        "저장된 문항 매핑 "
-        + mappings.length
-        + "개를 불러왔습니다."
-    };
-
+    const values = sheet.getDataRange().getDisplayValues();
+    const header = values[0];
+    function at_(row, name, legacyIndex) {
+      const index = header.indexOf(name);
+      return row[index >= 0 ? index : legacyIndex] || "";
+    }
+    const mappings = values.slice(1).map(function(row) {
+      const selectedType = cleanText_(at_(row, "최종 선택 유형", 5)).toUpperCase();
+      return {
+        columnNumber: Number(at_(row, "원본 컬럼번호", 1) || 0),
+        originalHeader: at_(row, "원본 문항", 2), normalizedHeader: at_(row, "정규화 문항", 9),
+        sampleValue: at_(row, "예시 응답", 3), suggestedType: at_(row, "자동 추천 유형", 4),
+        selectedType: selectedType,
+        analysisTarget: header.indexOf("분석대상") >= 0
+          ? String(at_(row, "분석대상", 10)).toUpperCase() === "TRUE"
+          : selectedType !== "EXCLUDE" && selectedType !== "PERSONAL_INFO",
+        groupId: at_(row, "그룹 ID", 11), matrixId: at_(row, "행렬 ID", 12),
+        scaleKind: at_(row, "척도 유형", 13), scoreMap: parseSurveyMappingScoreMap_(at_(row, "점수 매핑 JSON", 14)),
+        confidence: Number(at_(row, "신뢰도", 15) || 0), reason: at_(row, "판단 이유", 16),
+        mappingSource: at_(row, "매핑 출처", 17) || "RULE", updatedAt: at_(row, "저장일시", 8),
+        mappingVersion: at_(row, "매핑 버전", 18) || "1",
+        reviewStatus: at_(row, "검토 상태", 19) || "REVIEW_REQUIRED"
+      };
+    });
+    return {success: true, exists: true, fileName: at_(values[1], "파일명", 6),
+      sheetName: at_(values[1], "원본 시트명", 7), savedAt: at_(values[1], "저장일시", 8),
+      mappingVersion: mappings[0].mappingVersion, mappings: mappings,
+      message: "저장된 문항 매핑 " + mappings.length + "개를 불러왔습니다."};
   } catch (error) {
-    return {
-      success: false,
-      error:
-        error && error.message
-          ? error.message
-          : String(error)
-    };
+    return {success: false, error: error && error.message ? error.message : String(error)};
+  }
+}
+
+function deleteSavedSurveyMappingsFromWeb() {
+  try {
+    const spreadsheet=SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.MAPPING)
+      || spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.LEGACY_MAPPING);
+    if (sheet) sheet.clear();
+    return {success: true, message: "저장된 문항 매핑을 초기화했습니다."};
+  } catch (error) {
+    return {success: false, error: error && error.message ? error.message : String(error)};
   }
 }

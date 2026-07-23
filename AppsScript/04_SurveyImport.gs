@@ -186,10 +186,8 @@ if (lowerFileName.endsWith(".xls")) {
     if (pureBase64Data.indexOf(",") !== -1) {
       pureBase64Data = pureBase64Data.split(",")[1];
     }
-    const binaryData =
-      Utilities.base64Decode(
-        fileData.base64Data
-      );
+    validateSurveyExcelBase64_(pureBase64Data, lowerFileName);
+    const binaryData = Utilities.base64Decode(pureBase64Data);
 
     const blob =
       Utilities.newBlob(
@@ -404,7 +402,7 @@ function authorizeDriveAccessTest_() {
  * @param {Object} fileData 웹페이지에서 전달받은 Excel 파일 정보
  * @return {Object} 문항 분석 결과
  */
-function inspectSurveyExcelForMappingFromWeb(fileData) {
+function inspectSurveyExcelForMappingFromWeb(fileData, options) {
   let convertedFileId = null;
 
   try {
@@ -475,6 +473,7 @@ function inspectSurveyExcelForMappingFromWeb(fileData) {
       Utilities.base64Decode(
         pureBase64Data
       );
+    validateSurveyExcelBinary_(binaryData, lowerFileName);
 
     const blob =
       Utilities.newBlob(
@@ -554,11 +553,19 @@ function inspectSurveyExcelForMappingFromWeb(fileData) {
         surveySheet
       );
 
+    // 규칙 엔진 결과를 안전망으로 유지하면서 Column Profile을 Gemini에
+    // 전달합니다. Gemini 호출이나 검증이 실패하면 이 함수 내부에서
+    // 기존 규칙 기반 매핑으로 정상 복구합니다.
+    const ruleOnly = options && options.ruleOnly === true;
+    const ruleMappings = buildSurveyQuestionMappings_(structure.headers, structure.sampleRow);
+    const mappingResult = ruleOnly
+      ? {mappings: ruleMappings, surveyStructure: {title: "", description: "",
+          respondentColumnNumber: null, confidence: 0, reason: ""}, mappingSource: "RULE",
+          fallbackUsed: false, fallbackReason: "", aiWarnings: []}
+      : buildSurveyQuestionMappingsWithAI_(structure.headers, structure.sampleRow, structure.responseRows);
+
     const mappings =
-      buildSurveyQuestionMappings_(
-        structure.headers,
-        structure.sampleRow
-      );
+      mappingResult.mappings;
 
     const validation =
       validateSurveyMappings_(
@@ -586,6 +593,21 @@ function inspectSurveyExcelForMappingFromWeb(fileData) {
 
       mappings:
         mappings,
+
+      surveyStructure:
+        mappingResult.surveyStructure,
+
+      mappingSource:
+        mappingResult.mappingSource,
+
+      fallbackUsed:
+        mappingResult.fallbackUsed,
+
+      fallbackReason:
+        mappingResult.fallbackReason,
+
+      aiWarnings:
+        mappingResult.aiWarnings || [],
 
       validation:
         validation,
@@ -791,6 +813,27 @@ function readSurveySheetStructureForMapping_(
         .getDisplayValues()[0];
   }
 
+  // 프로파일 통계는 실행 시간과 개인정보 노출을 제한하기 위해 최대
+  // 200개 응답만 읽습니다. Gemini에는 이 중 열별 최대 3개 샘플만
+  // 마스킹하여 전달합니다.
+  const profileRowCount =
+    Math.min(
+      Math.max(lastRow - headerRow, 0),
+      200
+    );
+
+  const responseRows =
+    profileRowCount > 0
+      ? sheet
+          .getRange(
+            headerRow + 1,
+            1,
+            profileRowCount,
+            lastColumn
+          )
+          .getDisplayValues()
+      : [];
+
   return {
     headerRow:
       headerRow,
@@ -800,6 +843,9 @@ function readSurveySheetStructureForMapping_(
 
     sampleRow:
       sampleRow,
+
+    responseRows:
+      responseRows,
 
     responseCount:
       Math.max(
@@ -829,8 +875,8 @@ function createGenericRawSheetFromWeb(fileData) {
       SpreadsheetApp.getActiveSpreadsheet();
 
     // 문항 유형을 먼저 저장했는지 확인합니다.
-    const mappingSheet =
-      spreadsheet.getSheetByName("10_문항매핑");
+    const mappingSheet = spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.MAPPING)
+      || spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.LEGACY_MAPPING);
 
     if (!mappingSheet || mappingSheet.getLastRow() < 2) {
       throw new Error(
@@ -869,7 +915,7 @@ function createGenericRawSheetFromWeb(fileData) {
 
     const blob =
       Utilities.newBlob(
-        Utilities.base64Decode(pureBase64Data),
+        validateSurveyExcelBase64_(pureBase64Data, lowerFileName),
         mimeType,
         fileName
       );
@@ -932,8 +978,22 @@ function createGenericRawSheetFromWeb(fileData) {
         .getDataRange()
         .getDisplayValues();
 
-    const targetSheetName =
-      "09_범용원자료";
+    if (values.length > 20001 || values[0].length > 300
+        || values.length * values[0].length > 2000000) {
+      throw new Error("설문 데이터가 처리 한도를 초과했습니다(최대 20,000행, 300열, 2,000,000셀).");
+    }
+    const normalizedHeaders = {};
+    values[0].forEach(function(header, index) {
+      const normalized = normalizeHeader_(header);
+      if (!normalized) throw new Error((index + 1) + "번 열의 헤더가 비어 있습니다.");
+      if (normalizedHeaders[normalized]) throw new Error("중복 문항 헤더가 있습니다: " + cleanText_(header));
+      normalizedHeaders[normalized] = true;
+    });
+    const nonEmptyValues = [values[0]].concat(values.slice(1).filter(function(row) {
+      return row.some(function(value) { return cleanText_(value) !== ""; });
+    }));
+
+    const targetSheetName = DYNAMIC_SURVEY_CONFIG.SHEETS.RAW;
 
     let targetSheet =
       spreadsheet.getSheetByName(
@@ -965,13 +1025,22 @@ removeAllCharts_(targetSheet);
       .getRange(
         1,
         1,
-        values.length,
-        values[0].length
+        nonEmptyValues.length,
+        nonEmptyValues[0].length
       )
-      .setValues(values);
+      .setValues(nonEmptyValues);
+    targetSheet.getRange(1, 1).setNote(JSON.stringify({
+      sourceFileName: fileName, sourceSheetName: sourceSheet.getName(), importedAt: new Date().toISOString(),
+      blankRowsRemoved: values.length - nonEmptyValues.length
+    }));
 
     // 기본 서식
     targetSheet.setFrozenRows(1);
+    if (targetSheet.getFilter()) targetSheet.getFilter().remove();
+    targetSheet.getRange(1,1,nonEmptyValues.length,nonEmptyValues[0].length).createFilter();
+    targetSheet.getBandings().forEach(function(banding){banding.remove();});
+    targetSheet.getRange(1,1,nonEmptyValues.length,nonEmptyValues[0].length)
+      .applyRowBanding(SpreadsheetApp.BandingTheme.LIGHT_GREY,true,false);
 
     targetSheet
       .getRange(
@@ -1002,16 +1071,22 @@ removeAllCharts_(targetSheet);
       1,
       values[0].length
     );
+    const savedMappings=getSavedSurveyMappingsFromWeb();
+    if(savedMappings.success&&savedMappings.exists){
+      targetSheet.showColumns(1,targetSheet.getMaxColumns());
+      savedMappings.mappings.filter(function(mapping){return mapping.selectedType==="PERSONAL_INFO";})
+        .forEach(function(mapping){if(mapping.columnNumber<=targetSheet.getMaxColumns())targetSheet.hideColumns(mapping.columnNumber);});
+    }
 
     return {
       success: true,
       sheetName: targetSheetName,
       sourceSheet: sourceSheet.getName(),
-      rowCount: values.length - 1,
+      rowCount: nonEmptyValues.length - 1,
       columnCount: values[0].length,
       message:
-        "09_범용원자료 시트에 응답 "
-        + (values.length - 1)
+        targetSheetName + " 시트에 응답 "
+        + (nonEmptyValues.length - 1)
         + "건과 문항 "
         + values[0].length
         + "개를 저장했습니다."
@@ -1036,5 +1111,33 @@ removeAllCharts_(targetSheet);
         // 임시 파일 삭제 실패는 무시합니다.
       }
     }
+  }
+}
+
+function validateSurveyExcelBase64_(pureBase64Data, lowerFileName) {
+  const encoded = String(pureBase64Data || "").replace(/\s/g, "");
+  if (!encoded) throw new Error("Excel 파일 데이터가 비어 있습니다.");
+  if (encoded.length > 16 * 1024 * 1024) {
+    throw new Error("업로드 파일이 너무 큽니다. 최대 12MB의 Excel 파일만 지원합니다.");
+  }
+  let bytes;
+  try { bytes = Utilities.base64Decode(encoded); }
+  catch (ignored) { throw new Error("Excel 파일의 Base64 데이터가 올바르지 않습니다."); }
+  if (bytes.length > 12 * 1024 * 1024) {
+    throw new Error("업로드 파일이 너무 큽니다. 최대 12MB의 Excel 파일만 지원합니다.");
+  }
+  validateSurveyExcelBinary_(bytes, lowerFileName);
+  return bytes;
+}
+
+function validateSurveyExcelBinary_(bytes, lowerFileName) {
+  if (!bytes || bytes.length < 8) throw new Error("Excel 파일이 비어 있거나 손상되었습니다.");
+  const unsigned = function(index) { return (Number(bytes[index]) + 256) % 256; };
+  const isXlsx = unsigned(0) === 0x50 && unsigned(1) === 0x4B;
+  const isXls = unsigned(0) === 0xD0 && unsigned(1) === 0xCF
+    && unsigned(2) === 0x11 && unsigned(3) === 0xE0;
+  if ((lowerFileName.endsWith(".xlsx") && !isXlsx)
+      || (lowerFileName.endsWith(".xls") && !isXls)) {
+    throw new Error("파일 확장자와 실제 Excel 파일 형식이 일치하지 않습니다.");
   }
 }
