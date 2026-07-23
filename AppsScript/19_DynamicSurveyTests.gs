@@ -46,6 +46,14 @@ function testDynamicSurveyV2RegressionSuite() {
   test_("결측과 미매핑 분리",function(){const r=scale_(["","알 수 없음"]);equal_(r.missingCount,1,"결측");equal_(r.unmappedCount,1,"미매핑");});
   test_("동일 응답자 중복 선택 제거",function(){const r=analyzeDynamicMultipleQuestions_({respondentCount:1,rows:[["AI교육, AI교육, 독서모임"]],mappings:[{columnNumber:1,originalHeader:"복수",selectedType:"MULTIPLE",analysisTarget:true}]})[0];
     equal_(r.totalSelections,2,"중복 제거");});
+  test_("문항별 SPARKLINE 최대 범위 분리",function(){const calls=[];const sheet={getRange:function(row,column,rowCount,columnCount){return {
+      setFormulas:function(formulas){calls.push({row:row,column:column,rowCount:rowCount,columnCount:columnCount,formulas:formulas});}
+    };}};
+    setDynamicBarSparklines_(sheet,5,3,2,3);setDynamicBarSparklines_(sheet,12,2,2,3);
+    equal_(calls.length,2,"SPARKLINE 범위 수");
+    equal_(calls[0].formulas[0][0].indexOf("MAX($B$5:$B$7)")>=0,true,"첫 문항 MAX 범위");
+    equal_(calls[1].formulas[0][0].indexOf("MAX($B$12:$B$13)")>=0,true,"둘째 문항 MAX 범위");
+    equal_(calls[0].formulas[0][0].indexOf("#4F81BD")>=0,true,"막대 색상");});
   return {success:results.every(function(r){return r.status==="PASS";}),passed:results.filter(function(r){return r.status==="PASS";}).length,
     failed:results.filter(function(r){return r.status==="FAIL";}).length,results:results};
 }

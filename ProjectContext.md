@@ -501,7 +501,7 @@ response data are not persisted in browser storage.
 |---:|---|---|---|
 | 1 | `00_설정` | Survey configuration | Required |
 | 2 | `01_조사개요` | Survey overview | Generated |
-| 3 | `02_대시보드` | KPIs and charts | Generated |
+| 3 | `02_대시보드` | KPIs and table-based visual summaries | Generated |
 | 4 | `03_응답자특성` | Respondent distributions | Generated |
 | 5 | `04_단일응답분석` | Single-response analysis | Generated |
 | 6 | `05_복수응답분석` | Multiple-response analysis | Generated |
@@ -515,6 +515,13 @@ response data are not persisted in browser storage.
 
 Quality validation remains an internal in-memory gate and is not generated or
 exported as a user-facing report sheet.
+
+Generated report tables use a separate `시각화` column containing SPARKLINE bar
+formulas. Each question uses its own response-count MAX range, tied maxima remain
+highlighted with `#FFF2CC`, and report generation does not create EmbeddedChart
+objects. The final XLSX includes report/AI sheets through `11_범용원자료`; the
+operational `12_문항매핑` sheet remains in the source spreadsheet but is not part
+of the user-facing report export.
 
 ## 13.2 Legacy compatibility sheets
 
