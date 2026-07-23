@@ -20,15 +20,11 @@ function getDynamicSurveySource_() {
   const spreadsheet =
     SpreadsheetApp.getActiveSpreadsheet();
 
-  const mappingSheet =
-    spreadsheet.getSheetByName(
-      "10_문항매핑"
-    );
+  const mappingSheet = spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.MAPPING)
+    || spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.LEGACY_MAPPING);
 
-  const rawSheet =
-    spreadsheet.getSheetByName(
-      "09_범용원자료"
-    );
+  const rawSheet = spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.RAW)
+    || spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.LEGACY_RAW);
 
 
   if (
@@ -36,7 +32,7 @@ function getDynamicSurveySource_() {
     || mappingSheet.getLastRow() < 2
   ) {
     throw new Error(
-      "10_문항매핑 시트에 저장된 문항 정보가 없습니다."
+      "12_문항매핑(또는 구 10_문항매핑) 시트에 저장된 문항 정보가 없습니다."
     );
   }
 
@@ -46,20 +42,14 @@ function getDynamicSurveySource_() {
     || rawSheet.getLastRow() < 2
   ) {
     throw new Error(
-      "09_범용원자료 시트에 응답 데이터가 없습니다."
+      "11_범용원자료(또는 구 09_범용원자료) 시트에 응답 데이터가 없습니다."
     );
   }
 
 
-  const mappingValues =
-    mappingSheet
-      .getRange(
-        2,
-        1,
-        mappingSheet.getLastRow() - 1,
-        9
-      )
-      .getDisplayValues();
+  const mappingTable = mappingSheet.getDataRange().getDisplayValues();
+  const mappingHeaders = mappingTable[0];
+  const mappingValues = mappingTable.slice(1);
 
 
   const rawValues =
@@ -75,28 +65,43 @@ function getDynamicSurveySource_() {
       });
 
 
+  function mappingValue_(row, name, legacyIndex) {
+    const index = mappingHeaders.indexOf(name);
+    return row[index >= 0 ? index : legacyIndex] || "";
+  }
+
   const mappings =
     mappingValues.map(function(row) {
+      const selectedType = cleanText_(mappingValue_(row, "최종 선택 유형", 5)
+        || mappingValue_(row, "자동 추천 유형", 4)).toUpperCase();
       return {
         order:
-          Number(row[0] || 0),
+          Number(mappingValue_(row, "순번", 0) || 0),
 
         columnNumber:
-          Number(row[1] || 0),
+          Number(mappingValue_(row, "원본 컬럼번호", 1) || 0),
 
         originalHeader:
-          cleanText_(row[2]),
+          cleanText_(mappingValue_(row, "원본 문항", 2)),
 
         sampleValue:
-          cleanText_(row[3]),
+          cleanText_(mappingValue_(row, "예시 응답", 3)),
 
         suggestedType:
-          cleanText_(row[4]),
+          cleanText_(mappingValue_(row, "자동 추천 유형", 4)),
 
         selectedType:
-          cleanText_(
-            row[5] || row[4]
-          ).toUpperCase()
+          selectedType,
+
+        analysisTarget: mappingHeaders.indexOf("분석대상") >= 0
+          ? String(mappingValue_(row, "분석대상", 10)).toUpperCase() === "TRUE"
+          : selectedType !== "EXCLUDE" && selectedType !== "PERSONAL_INFO",
+
+        groupId: cleanText_(mappingValue_(row, "그룹 ID", 11)),
+        matrixId: cleanText_(mappingValue_(row, "행렬 ID", 12)),
+        scaleKind: cleanText_(mappingValue_(row, "척도 유형", 13)),
+        scoreMap: parseSurveyMappingScoreMap_(mappingValue_(row, "점수 매핑 JSON", 14)),
+        reviewStatus: cleanText_(mappingValue_(row, "검토 상태", 19))
       };
     });
 
@@ -203,9 +208,8 @@ function testDynamicSurveySource() {
  *
  * @return {Object} 전체 분석 결과
  */
-function calculateDynamicSurveyAnalysis_() {
-  const source =
-    getDynamicSurveySource_();
+function calculateDynamicSurveyAnalysis_(sourceOverride) {
+  const source = sourceOverride || getDynamicSurveySource_();
 
   const analysis = {
     respondentCount:
@@ -253,6 +257,10 @@ function calculateDynamicSurveyAnalysis_() {
     buildDynamicScaleSummary_(
       analysis.scale
     );
+
+  analysis.groups = buildDynamicGroupSummaries_(analysis, source.mappings);
+  analysis.matrix = buildDynamicMatrixSummaries_(analysis.scale, source.mappings);
+  analysis.summary = buildDynamicAnalysisSummary_(analysis);
 
 
   return analysis;
@@ -324,7 +332,11 @@ function analyzeDynamicSingleQuestions_(
                       * 100,
                       1
                     )
-                  : 0
+                  : 0,
+              totalRespondentRate: source.respondentCount > 0
+                ? round_(count / source.respondentCount * 100, 1) : 0,
+              validResponseRate: validCount > 0
+                ? round_(count / validCount * 100, 1) : 0
             };
           })
           .sort(function(a, b) {
@@ -348,6 +360,11 @@ function analyzeDynamicSingleQuestions_(
         validCount:
           validCount,
 
+        totalRespondents: source.respondentCount,
+        validResponses: validCount,
+        missingResponses: Math.max(source.respondentCount - validCount, 0),
+        totalCount: validCount,
+
         items:
           items
       };
@@ -365,137 +382,54 @@ function analyzeDynamicSingleQuestions_(
  * @param {Object} source getDynamicSurveySource_() 결과
  * @return {Array<Object>}
  */
-function analyzeDynamicMultipleQuestions_(
-  source
-) {
-  return source.mappings
-    .filter(function(mapping) {
-      return (
-        mapping.selectedType
-        === "MULTIPLE"
-      );
-    })
-    .map(function(mapping) {
-      const columnIndex =
-        mapping.columnNumber - 1;
-
-      const counts = {};
-
-      let validRespondentCount = 0;
-      let totalSelectionCount = 0;
-
-
-      source.rows.forEach(function(row) {
-        const rawValue =
-          cleanText_(
-            row[columnIndex]
-          );
-
-        if (!rawValue) {
-          return;
-        }
-
-        const selections =
-          splitDynamicMultipleValue_(
-            rawValue
-          );
-
-        if (
-          selections.length === 0
-        ) {
-          return;
-        }
-
-        validRespondentCount++;
-
-
-        // 동일 응답자가 같은 항목을 중복 선택한 경우
-        // 한 번만 집계하도록 중복을 제거합니다.
-        const uniqueSelections =
-          Array.from(
-            new Set(selections)
-          );
-
-
-        uniqueSelections.forEach(function(
-          selection
-        ) {
-          counts[selection] =
-            (counts[selection] || 0)
-            + 1;
-
-          totalSelectionCount++;
+function analyzeDynamicMultipleQuestions_(source) {
+  return source.mappings.filter(function(mapping) {
+    return mapping.selectedType === "MULTIPLE" && mapping.analysisTarget !== false;
+  }).map(function(mapping) {
+    const counts = {};
+    const originalLabels = {};
+    let validRespondents = 0;
+    let totalSelections = 0;
+    source.rows.forEach(function(row) {
+      const raw = cleanText_(row[mapping.columnNumber - 1]);
+      if (!raw) return;
+      const selections = splitDynamicMultipleValue_(raw);
+      if (!selections.length) return;
+      const respondentKeys = {};
+      selections.forEach(function(original) {
+        expandDynamicOtherSelection_(original).forEach(function(part) {
+          const normalized = normalizeDynamicMultipleItem_(part);
+          if (!normalized || respondentKeys[normalized.key]) return;
+          respondentKeys[normalized.key] = true;
+          if (!originalLabels[normalized.key]) originalLabels[normalized.key] = [];
+          if (originalLabels[normalized.key].indexOf(part) === -1) originalLabels[normalized.key].push(part);
         });
       });
-
-
-      const items =
-        Object.keys(counts)
-          .map(function(label) {
-            const count =
-              counts[label];
-
-            return {
-              label:
-                label,
-
-              count:
-                count,
-
-              selectionRate:
-                totalSelectionCount > 0
-                  ? round_(
-                      count
-                      / totalSelectionCount
-                      * 100,
-                      1
-                    )
-                  : 0,
-
-              respondentRate:
-                source.respondentCount > 0
-                  ? round_(
-                      count
-                      / source.respondentCount
-                      * 100,
-                      1
-                    )
-                  : 0
-            };
-          })
-          .sort(function(a, b) {
-            return (
-              b.count
-              - a.count
-            );
-          });
-
-
-      return {
-        columnNumber:
-          mapping.columnNumber,
-
-        question:
-          mapping.originalHeader,
-
-        type:
-          "MULTIPLE",
-
-        totalRespondentCount:
-          source.respondentCount,
-
-        validRespondentCount:
-          validRespondentCount,
-
-        totalSelectionCount:
-          totalSelectionCount,
-
-        items:
-          items
-      };
+      const keys = Object.keys(respondentKeys);
+      if (!keys.length) return;
+      validRespondents++;
+      keys.forEach(function(key) { counts[key] = (counts[key] || 0) + 1; totalSelections++; });
     });
+    const items = Object.keys(counts).map(function(key) {
+      const count = counts[key];
+      return {label: normalizeDynamicMultipleItem_(key).label, normalizedLabel: key,
+        originalLabels: originalLabels[key] || [], count: count,
+        selectionRate: totalSelections ? round_(count / totalSelections * 100, 1) : 0,
+        respondentRate: source.respondentCount ? round_(count / source.respondentCount * 100, 1) : 0,
+        validRespondentRate: validRespondents ? round_(count / validRespondents * 100, 1) : 0};
+    }).sort(function(a,b) { return b.count - a.count || a.label.localeCompare(b.label, "ko"); });
+    return {columnNumber: mapping.columnNumber, questionId: "Q" + mapping.columnNumber,
+      question: mapping.originalHeader, type: "MULTIPLE", totalRespondentCount: source.respondentCount,
+      totalRespondents: source.respondentCount, validRespondentCount: validRespondents,
+      validRespondents: validRespondents, validResponses: validRespondents,
+      missingResponses: Math.max(source.respondentCount - validRespondents, 0),
+      totalSelectionCount: totalSelections, totalSelections: totalSelections,
+      averageSelections: validRespondents ? round_(totalSelections / validRespondents, 2) : 0,
+      averageSelectionsPerRespondent: validRespondents ? round_(totalSelections / validRespondents, 2) : 0,
+      items: items, denominator: {selectionRate: "전체 선택건수", respondentRate: "전체 응답자",
+        validRespondentRate: "해당 문항 유효 응답자"}};
+  });
 }
-
 
 /**
  * 만족도 척도 문항을 분석합니다.
@@ -511,234 +445,60 @@ function analyzeDynamicMultipleQuestions_(
  * @param {Object} source getDynamicSurveySource_() 결과
  * @return {Array<Object>}
  */
-function analyzeDynamicScaleQuestions_(
-  source
-) {
-  const results =
-    source.mappings
-      .filter(function(mapping) {
-        return (
-          mapping.selectedType
-          === "SCALE"
-        );
-      })
-      .map(function(mapping) {
-        const columnIndex =
-          mapping.columnNumber - 1;
-
-        const distribution = {
-          1: 0,
-          2: 0,
-          3: 0,
-          4: 0,
-          5: 0
-        };
-
-        const scores = [];
-
-
-        source.rows.forEach(function(row) {
-          const score =
-            dynamicScoreFromText_(
-              row[columnIndex]
-            );
-
-          if (
-            score < 1
-            || score > 5
-          ) {
-            return;
-          }
-
-          scores.push(
-            score
-          );
-
-          distribution[score]++;
-        });
-
-
-        const validCount =
-          scores.length;
-
-        const average =
-          validCount > 0
-            ? round_(
-                scores.reduce(function(
-                  sum,
-                  score
-                ) {
-                  return sum + score;
-                }, 0)
-                / validCount,
-                2
-              )
-            : 0;
-
-
-        const positiveCount =
-          distribution[4]
-          + distribution[5];
-
-        const neutralCount =
-          distribution[3];
-
-        const negativeCount =
-          distribution[1]
-          + distribution[2];
-
-
-        return {
-          columnNumber:
-            mapping.columnNumber,
-
-          question:
-            mapping.originalHeader,
-
-          type:
-            "SCALE",
-
-          validCount:
-            validCount,
-
-          average:
-            average,
-
-          converted100:
-            round_(
-              average
-              / 5
-              * 100,
-              1
-            ),
-
-          positiveRate:
-            validCount > 0
-              ? round_(
-                  positiveCount
-                  / validCount
-                  * 100,
-                  1
-                )
-              : 0,
-
-          neutralRate:
-            validCount > 0
-              ? round_(
-                  neutralCount
-                  / validCount
-                  * 100,
-                  1
-                )
-              : 0,
-
-          negativeRate:
-            validCount > 0
-              ? round_(
-                  negativeCount
-                  / validCount
-                  * 100,
-                  1
-                )
-              : 0,
-
-          distribution:
-            [
-              {
-                score: 5,
-                label: "5점",
-                count: distribution[5]
-              },
-              {
-                score: 4,
-                label: "4점",
-                count: distribution[4]
-              },
-              {
-                score: 3,
-                label: "3점",
-                count: distribution[3]
-              },
-              {
-                score: 2,
-                label: "2점",
-                count: distribution[2]
-              },
-              {
-                score: 1,
-                label: "1점",
-                count: distribution[1]
-              }
-            ]
-        };
-      });
-
-
-  // 평균을 기준으로 높은 순서대로 순위를 지정합니다.
-  const ranked =
-    results
-      .slice()
-      .sort(function(a, b) {
-        return (
-          b.average
-          - a.average
-        );
-      });
-
-
-  ranked.forEach(function(
-    item,
-    index
-  ) {
-    item.rank =
-      index + 1;
+function analyzeDynamicScaleQuestions_(source) {
+  const results = source.mappings.filter(function(mapping) {
+    return mapping.selectedType === "SCALE" && mapping.analysisTarget !== false;
+  }).map(function(mapping) {
+    const distribution = {1:0,2:0,3:0,4:0,5:0};
+    const scores = [];
+    const unmappedCounts = {};
+    let missingCount = 0;
+    source.rows.forEach(function(row) {
+      const raw = cleanText_(row[mapping.columnNumber - 1]);
+      if (!raw) { missingCount++; return; }
+      const score = dynamicMappedScore_(raw, mapping, false);
+      if (score === null || score < 1 || score > 5) {
+        unmappedCounts[raw] = (unmappedCounts[raw] || 0) + 1;
+        return;
+      }
+      scores.push(score); distribution[score]++;
+    });
+    const validCount = scores.length;
+    const sum = scores.reduce(function(total, score) { return total + score; }, 0);
+    const average = validCount ? round_(sum / validCount, 4) : null;
+    const positiveCount = distribution[4] + distribution[5];
+    const neutralCount = distribution[3];
+    const negativeCount = distribution[1] + distribution[2];
+    return {columnNumber: mapping.columnNumber, questionId: "Q" + mapping.columnNumber,
+      question: mapping.originalHeader, type: "SCALE", groupId: mapping.groupId || "",
+      matrixId: mapping.matrixId || "", validCount: validCount, validResponses: validCount,
+      missingCount: missingCount, missingResponses: missingCount,
+      unmappedCount: Object.keys(unmappedCounts).reduce(function(total,key){return total+unmappedCounts[key];},0),
+      unmappedValues: Object.keys(unmappedCounts).map(function(value){return {value:value,count:unmappedCounts[value]};}),
+      scoreSum: sum, scoreDistribution: distribution,
+      distribution: [5,4,3,2,1].map(function(score){return {score:score,label:score+"점",count:distribution[score],
+        rate:validCount?round_(distribution[score]/validCount*100,1):0};}),
+      average: average, median: dynamicMedian_(scores), standardDeviation: dynamicStandardDeviation_(scores),
+      minimum: validCount ? Math.min.apply(null,scores) : null,
+      maximum: validCount ? Math.max.apply(null,scores) : null,
+      converted100: average === null ? null : round_(average / 5 * 100, 1),
+      positiveCount: positiveCount, neutralCount: neutralCount, negativeCount: negativeCount,
+      positiveRate: validCount?round_(positiveCount/validCount*100,1):0,
+      neutralRate: validCount?round_(neutralCount/validCount*100,1):0,
+      negativeRate: validCount?round_(negativeCount/validCount*100,1):0,
+      topBoxRate: validCount?round_(distribution[5]/validCount*100,1):0,
+      topTwoBoxRate: validCount?round_(positiveCount/validCount*100,1):0,
+      bottomTwoBoxRate: validCount?round_(negativeCount/validCount*100,1):0,
+      denominator: "숫자로 변환된 유효 척도 응답", standardDeviationMethod: "population"};
   });
-
-
-  const overallAverage =
-    results.length > 0
-      ? round_(
-          results.reduce(function(
-            sum,
-            item
-          ) {
-            return (
-              sum
-              + item.average
-            );
-          }, 0)
-          / results.length,
-          2
-        )
-      : 0;
-
-
+  rankDynamicScaleResults_(results);
+  const summary = buildDynamicScaleSummary_(results);
   results.forEach(function(item) {
-    const rankedItem =
-      ranked.find(function(rankItem) {
-        return (
-          rankItem.columnNumber
-          === item.columnNumber
-        );
-      });
-
-    item.rank =
-      rankedItem
-        ? rankedItem.rank
-        : "";
-
-    item.deviation =
-      round_(
-        item.average
-        - overallAverage,
-        2
-      );
+    item.deviation = item.average === null || summary.weightedAverage === null ? null
+      : round_(item.average - summary.weightedAverage, 2);
   });
-
-
   return results;
 }
-
 
 /**
  * 재이용·추천 문항을 분석합니다.
@@ -748,163 +508,48 @@ function analyzeDynamicScaleQuestions_(
  * @param {Object} source getDynamicSurveySource_() 결과
  * @return {Array<Object>}
  */
-function analyzeDynamicRecommendationQuestions_(
-  source
-) {
-  return source.mappings
-    .filter(function(mapping) {
-      return (
-        mapping.selectedType
-        === "RECOMMENDATION"
-      );
-    })
-    .map(function(mapping) {
-      const columnIndex =
-        mapping.columnNumber - 1;
-
-      const distribution = {
-        1: 0,
-        2: 0,
-        3: 0,
-        4: 0,
-        5: 0
-      };
-
-      const scores = [];
-
-
-      source.rows.forEach(function(row) {
-        const score =
-          dynamicRecommendationScoreFromText_(
-            row[columnIndex]
-          );
-
-        if (
-          score < 1
-          || score > 5
-        ) {
-          return;
-        }
-
-        scores.push(
-          score
-        );
-
-        distribution[score]++;
-      });
-
-
-      const validCount =
-        scores.length;
-
-      const average =
-        validCount > 0
-          ? round_(
-              scores.reduce(function(
-                sum,
-                score
-              ) {
-                return sum + score;
-              }, 0)
-              / validCount,
-              2
-            )
-          : 0;
-
-
-      const positiveCount =
-        distribution[4]
-        + distribution[5];
-
-      const neutralCount =
-        distribution[3];
-
-      const negativeCount =
-        distribution[1]
-        + distribution[2];
-
-
-      return {
-        columnNumber:
-          mapping.columnNumber,
-
-        question:
-          mapping.originalHeader,
-
-        type:
-          "RECOMMENDATION",
-
-        validCount:
-          validCount,
-
-        average:
-          average,
-
-        converted100:
-          round_(
-            average
-            / 5
-            * 100,
-            1
-          ),
-
-        positiveRate:
-          validCount > 0
-            ? round_(
-                positiveCount
-                / validCount
-                * 100,
-                1
-              )
-            : 0,
-
-        neutralRate:
-          validCount > 0
-            ? round_(
-                neutralCount
-                / validCount
-                * 100,
-                1
-              )
-            : 0,
-
-        negativeRate:
-          validCount > 0
-            ? round_(
-                negativeCount
-                / validCount
-                * 100,
-                1
-              )
-            : 0,
-
-        distribution:
-          [
-            {
-              score: 5,
-              count: distribution[5]
-            },
-            {
-              score: 4,
-              count: distribution[4]
-            },
-            {
-              score: 3,
-              count: distribution[3]
-            },
-            {
-              score: 2,
-              count: distribution[2]
-            },
-            {
-              score: 1,
-              count: distribution[1]
-            }
-          ]
-      };
-    });
+function analyzeDynamicRecommendationQuestions_(source) {
+  return source.mappings.filter(function(mapping) {
+    return mapping.selectedType === "RECOMMENDATION" && mapping.analysisTarget !== false;
+  }).map(function(mapping) {
+    const scaleKind = cleanText_(mapping.scaleKind).toUpperCase();
+    const values = source.rows.map(function(row){return cleanText_(row[mapping.columnNumber-1]);});
+    if (scaleKind === "NPS_0_10") return analyzeDynamicNpsQuestion_(mapping, values, source.respondentCount);
+    return analyzeDynamicRecommendationFivePoint_(mapping, values, source.respondentCount,
+      scaleKind === "RECOMMENDATION_1_5" ? "RECOMMENDATION_1_5" : "INVALID_SCALE_KIND");
+  });
 }
 
+function analyzeDynamicNpsQuestion_(mapping, values, totalRespondents) {
+  const distribution = {}; for (let score=0; score<=10; score++) distribution[score]=0;
+  const invalidValues = {}; let missingCount=0; const scores=[];
+  values.forEach(function(raw){
+    if (!raw) {missingCount++;return;}
+    if (!/^\d+(?:\.0+)?$/.test(raw)) {invalidValues[raw]=(invalidValues[raw]||0)+1;return;}
+    const score=Number(raw);
+    if (score<0||score>10||Math.floor(score)!==score) {invalidValues[raw]=(invalidValues[raw]||0)+1;return;}
+    scores.push(score);distribution[score]++;
+  });
+  const valid=scores.length, promoters=scores.filter(function(v){return v>=9;}).length,
+    passives=scores.filter(function(v){return v>=7&&v<=8;}).length, detractors=scores.filter(function(v){return v<=6;}).length;
+  return {columnNumber:mapping.columnNumber,questionId:"Q"+mapping.columnNumber,question:mapping.originalHeader,
+    type:"RECOMMENDATION",scaleKind:"NPS_0_10",scaleMode:"NPS_0_10",totalRespondents:totalRespondents,
+    validCount:valid,validResponses:valid,missingCount:missingCount,missingResponses:missingCount,
+    unmappedCount:Object.keys(invalidValues).reduce(function(t,k){return t+invalidValues[k];},0),
+    unmappedValues:Object.keys(invalidValues).map(function(v){return {value:v,count:invalidValues[v]};}),
+    distribution:Object.keys(distribution).map(function(score){return {score:Number(score),count:distribution[score]};}),
+    promoterCount:promoters,passiveCount:passives,detractorCount:detractors,
+    promoterRate:valid?round_(promoters/valid*100,1):0,passiveRate:valid?round_(passives/valid*100,1):0,
+    detractorRate:valid?round_(detractors/valid*100,1):0,nps:valid?round_((promoters-detractors)/valid*100,1):null,
+    denominator:"0~10 범위의 유효 정수 응답"};
+}
+
+function analyzeDynamicRecommendationFivePoint_(mapping, values, totalRespondents, scaleKind) {
+  const source={respondentCount:totalRespondents,rows:values.map(function(v){return [v];}),mappings:[Object.assign({},mapping,{columnNumber:1,selectedType:"SCALE"})]};
+  const result=analyzeDynamicScaleQuestions_(source)[0];
+  return Object.assign({},result,{columnNumber:mapping.columnNumber,questionId:"Q"+mapping.columnNumber,
+    question:mapping.originalHeader,type:"RECOMMENDATION",scaleKind:scaleKind,scaleMode:scaleKind,nps:null});
+}
 
 /**
  * 주관식 문항의 유효 의견을 추출합니다.
@@ -929,6 +574,7 @@ function analyzeDynamicTextQuestions_(
         mapping.columnNumber - 1;
 
       const opinions = [];
+      const responses = [];
 
 
       source.rows.forEach(function(
@@ -940,20 +586,24 @@ function analyzeDynamicTextQuestions_(
             row[columnIndex]
           );
 
-        if (
-          !isValidDynamicOpinion_(
-            opinion
-          )
-        ) {
-          return;
-        }
+        const responseId = String(mapping.columnNumber) + "-" + String(rowIndex + 1);
+        const valid = isValidDynamicOpinion_(opinion);
+        const exclusionReason = !opinion ? "MISSING" : (valid ? "" : "MEANINGLESS_RESPONSE");
+        responses.push({responseId: responseId, questionId: "Q" + mapping.columnNumber,
+          responseNumber: String(rowIndex + 1), text: opinion,
+          maskedText: opinion ? maskDynamicPersonalInfo_(opinion) : "", valid: valid,
+          exclusionReason: exclusionReason});
+        if (!valid) return;
 
         opinions.push({
-          responseNumber:
-            rowIndex + 1,
+          responseNumber: String(rowIndex + 1),
 
           text:
-            opinion
+            opinion,
+
+          responseId: responseId,
+          questionId: "Q" + mapping.columnNumber,
+          maskedText: maskDynamicPersonalInfo_(opinion)
         });
       });
 
@@ -971,6 +621,13 @@ function analyzeDynamicTextQuestions_(
         validCount:
           opinions.length,
 
+        totalRespondents: source.respondentCount,
+        validResponses: opinions.length,
+        missingResponses: Math.max(source.respondentCount - opinions.length, 0),
+        missingCount: responses.filter(function(item){return item.exclusionReason === "MISSING";}).length,
+        excludedCount: responses.filter(function(item){return item.exclusionReason === "MEANINGLESS_RESPONSE";}).length,
+        responses: responses,
+
         opinions:
           opinions
       };
@@ -984,101 +641,28 @@ function analyzeDynamicTextQuestions_(
  * @param {Array<Object>} scaleResults 척도 분석 결과
  * @return {Object}
  */
-function buildDynamicScaleSummary_(
-  scaleResults
-) {
-  if (
-    !Array.isArray(scaleResults)
-    || scaleResults.length === 0
-  ) {
-    return {
-      questionCount: 0,
-      overallAverage: 0,
-      overallConverted100: 0,
-      overallPositiveRate: 0,
-      highest: null,
-      lowest: null
-    };
-  }
-
-
-  const overallAverage =
-    round_(
-      scaleResults.reduce(function(
-        sum,
-        item
-      ) {
-        return (
-          sum
-          + Number(
-              item.average
-              || 0
-            )
-        );
-      }, 0)
-      / scaleResults.length,
-      2
-    );
-
-
-  const overallPositiveRate =
-    round_(
-      scaleResults.reduce(function(
-        sum,
-        item
-      ) {
-        return (
-          sum
-          + Number(
-              item.positiveRate
-              || 0
-            )
-        );
-      }, 0)
-      / scaleResults.length,
-      1
-    );
-
-
-  const sorted =
-    scaleResults
-      .slice()
-      .sort(function(a, b) {
-        return (
-          b.average
-          - a.average
-        );
-      });
-
-
-  return {
-    questionCount:
-      scaleResults.length,
-
-    overallAverage:
-      overallAverage,
-
-    overallConverted100:
-      round_(
-        overallAverage
-        / 5
-        * 100,
-        1
-      ),
-
-    overallPositiveRate:
-      overallPositiveRate,
-
-    highest:
-      sorted[0],
-
-    lowest:
-      sorted[
-        sorted.length - 1
-      ]
-  };
+function buildDynamicScaleSummary_(scaleResults) {
+  const validItems=(scaleResults||[]).filter(function(item){return item.validCount>0;});
+  if (!validItems.length) return {questionCount:0,macroAverage:null,weightedAverage:null,overallAverage:null,
+    overallConverted100:null,overallPositiveRate:0,overallNeutralRate:0,overallNegativeRate:0,
+    totalValidResponses:0,totalScoreSum:0,highest:null,lowest:null};
+  const totalValid=validItems.reduce(function(t,i){return t+i.validCount;},0);
+  const totalScore=validItems.reduce(function(t,i){return t+i.scoreSum;},0);
+  const positive=validItems.reduce(function(t,i){return t+i.positiveCount;},0);
+  const neutral=validItems.reduce(function(t,i){return t+i.neutralCount;},0);
+  const negative=validItems.reduce(function(t,i){return t+i.negativeCount;},0);
+  const macro=validItems.reduce(function(t,i){return t+i.average;},0)/validItems.length;
+  const weighted=totalValid?totalScore/totalValid:null;
+  const sorted=validItems.slice().sort(compareDynamicScaleResults_);
+  return {questionCount:validItems.length,macroAverage:round_(macro,4),weightedAverage:round_(weighted,4),
+    overallAverage:round_(weighted,4),overallConverted100:round_(weighted/5*100,1),
+    overallPositiveRate:totalValid?round_(positive/totalValid*100,1):0,
+    overallNeutralRate:totalValid?round_(neutral/totalValid*100,1):0,
+    overallNegativeRate:totalValid?round_(negative/totalValid*100,1):0,
+    totalValidResponses:totalValid,totalScoreSum:totalScore,totalPositiveCount:positive,
+    totalNeutralCount:neutral,totalNegativeCount:negative,highest:sorted[0],lowest:sorted[sorted.length-1],
+    denominator:"전체 문항의 숫자로 변환된 유효 척도 응답"};
 }
-
 
 /**
  * 복수응답 문자열을 배열로 변환합니다.
@@ -1092,208 +676,34 @@ function buildDynamicScaleSummary_(
  * @param {string} value 원본 복수응답
  * @return {Array<string>}
  */
-function splitDynamicMultipleValue_(
-  value
-) {
-  const text =
-    cleanText_(
-      value
-    );
-
-  if (!text) {
-    return [];
+function splitDynamicMultipleValue_(value) {
+  const text=cleanText_(value); if(!text)return [];
+  const result=[];let current="",depth=0;
+  for(let i=0;i<text.length;i++){
+    const ch=text.charAt(i);
+    if(ch==="("||ch==="["||ch==="{")depth++;
+    if(ch===")"||ch==="]"||ch==="}")depth=Math.max(depth-1,0);
+    if((ch==="|"||ch===";"||ch==="\n"||(ch===","&&depth===0))){
+      if(cleanText_(current))result.push(cleanText_(current));current="";
+    }else current+=ch;
   }
-
-  return text
-    .split(
-      /\s*\|\s*|\s*;\s*|\r?\n|,\s*/
-    )
-    .map(function(item) {
-      return cleanText_(item);
-    })
-    .filter(function(item) {
-      return Boolean(item);
-    });
+  if(cleanText_(current))result.push(cleanText_(current));
+  return result;
 }
 
-
-/**
- * 만족도 문구를 1~5점으로 변환합니다.
- *
- * @param {*} value 원본 응답
- * @return {number}
- */
-function dynamicScoreFromText_(
-  value
-) {
-  const text =
-    normalizeHeader_(
-      cleanText_(
-        value
-      )
-    );
-
-  if (!text) {
-    return 0;
-  }
-
-
-  const numeric =
-    Number(text);
-
-  if (
-    !isNaN(numeric)
-    && numeric >= 1
-    && numeric <= 5
-  ) {
-    return numeric;
-  }
-
-
-  if (
-    text.includes("매우만족")
-    || text.includes("매우그렇다")
-    || text.includes("매우도움")
-    || text.includes("매우적절")
-  ) {
-    return 5;
-  }
-
-
-  if (
-    text === "만족"
-    || text === "그렇다"
-    || text.includes("도움됨")
-    || text === "도움"
-    || text === "적절"
-  ) {
-    return 4;
-  }
-
-
-  if (
-    text.includes("보통")
-    || text.includes("중립")
-  ) {
-    return 3;
-  }
-
-
-  if (
-    text.includes("매우불만족")
-    || text.includes("전혀그렇지않다")
-    || text.includes("전혀도움되지않")
-  ) {
-    return 1;
-  }
-
-
-  if (
-    text.includes("불만족")
-    || text.includes("그렇지않다")
-    || text.includes("도움되지않")
-    || text.includes("부적절")
-  ) {
-    return 2;
-  }
-
-
-  return 0;
+function normalizeDynamicMultipleItem_(value) {
+  let label=cleanText_(value).replace(/^\s*(?:\d+[.)]|[-*•·])\s*/,"").replace(/\s+/g," ");
+  const key=normalizeDynamicStatText_(label);
+  const synonyms={"홈페이지":"홈페이지","도서관홈페이지":"홈페이지","도서관누리집":"홈페이지","누리집":"홈페이지"};
+  const normalized=synonyms[key]||key;
+  return {key:normalized,label:normalized==="홈페이지"?"홈페이지":label};
 }
 
-
-/**
- * 재이용·추천 문구를 1~5점으로 변환합니다.
- *
- * @param {*} value 원본 응답
- * @return {number}
- */
-function dynamicRecommendationScoreFromText_(
-  value
-) {
-  const text =
-    normalizeHeader_(
-      cleanText_(
-        value
-      )
-    );
-
-  if (!text) {
-    return 0;
-  }
-
-
-  const numeric =
-    Number(text);
-
-  if (
-    !isNaN(numeric)
-    && numeric >= 1
-    && numeric <= 5
-  ) {
-    return numeric;
-  }
-
-
-  if (
-    text.includes("매우있다")
-    || text.includes("매우그렇다")
-    || text.includes("적극추천")
-    || text.includes("반드시")
-  ) {
-    return 5;
-  }
-
-
-  if (
-    text === "있다"
-    || text === "그렇다"
-    || text.includes("추천한다")
-    || text.includes("이용할의향이있")
-  ) {
-    return 4;
-  }
-
-
-  if (
-    text.includes("보통")
-    || text.includes("잘모르")
-  ) {
-    return 3;
-  }
-
-
-  if (
-    text.includes("전혀없다")
-    || text.includes("전혀그렇지않")
-    || text.includes("추천하지않")
-  ) {
-    return 1;
-  }
-
-
-  if (
-    text === "없다"
-    || text.includes("그렇지않")
-    || text.includes("별로없")
-  ) {
-    return 2;
-  }
-
-
-  // 기존 만족도 점수 변환 규칙도 보조적으로 사용합니다.
-  return dynamicScoreFromText_(
-    value
-  );
+function expandDynamicOtherSelection_(value) {
+  const text=cleanText_(value); const match=text.match(/^기타\s*(?:\([^)]*\))?\s*[:：]\s*(.+)$/i);
+  return match?["기타",cleanText_(match[1])]:[text];
 }
 
-
-/**
- * 유효한 주관식 의견인지 확인합니다.
- *
- * @param {string} value 원본 의견
- * @return {boolean}
- */
 /**
  * 유효한 주관식 의견인지 확인합니다.
  *
@@ -1348,6 +758,122 @@ function isValidDynamicOpinion_(value) {
   );
 }
 
+function dynamicMappedScore_(value, mapping, recommendation) {
+  const text = cleanText_(value);
+  if (!text) return null;
+  const scoreMap = mapping && mapping.scoreMap && typeof mapping.scoreMap === "object"
+    ? mapping.scoreMap : {};
+  if (Object.prototype.hasOwnProperty.call(scoreMap, text)) {
+    const mapped = Number(scoreMap[text]);
+    return !isNaN(mapped) && mapped >= 1 && mapped <= 5 ? mapped : null;
+  }
+  const normalizedText = normalizeDynamicStatText_(text);
+  const normalizedKeys = {};
+  Object.keys(scoreMap).forEach(function(key) {
+    normalizedKeys[normalizeDynamicStatText_(key)] = scoreMap[key];
+  });
+  if (Object.prototype.hasOwnProperty.call(normalizedKeys, normalizedText)) {
+    const normalizedMapped = Number(normalizedKeys[normalizedText]);
+    return !isNaN(normalizedMapped) && normalizedMapped >= 1 && normalizedMapped <= 5
+      ? normalizedMapped : null;
+  }
+  const defaultMap = {"매우만족":5,"매우그렇다":5,"매우도움됨":5,"매우적절":5,
+    "만족":4,"그렇다":4,"도움됨":4,"적절":4,"보통":3,"중립":3,
+    "불만족":2,"그렇지않다":2,"도움되지않음":2,"부적절":2,
+    "매우불만족":1,"전혀그렇지않다":1,"전혀도움되지않음":1};
+  if (Object.prototype.hasOwnProperty.call(defaultMap, normalizedText)) return defaultMap[normalizedText];
+  if (/^[1-5](?:\.0+)?$/.test(text)) return Number(text);
+  return null;
+}
+
+function normalizeDynamicStatText_(value) {
+  let text=String(value===null||value===undefined?"":value);
+  if (typeof text.normalize === "function") text=text.normalize("NFKC");
+  return text.trim().replace(/\s+/g," ").toLowerCase()
+    .replace(/[.,!?~ㆍ·…'"“”‘’()[\]{}:：]/g,"").replace(/\s/g,"");
+}
+
+function compareDynamicScaleResults_(left,right) {
+  return (right.average-left.average)||(right.positiveRate-left.positiveRate)
+    ||((right.scoreDistribution&&right.scoreDistribution[5]||0)-(left.scoreDistribution&&left.scoreDistribution[5]||0))
+    ||left.columnNumber-right.columnNumber;
+}
+
+function rankDynamicScaleResults_(results) {
+  const sorted=results.filter(function(item){return item.average!==null;}).slice().sort(compareDynamicScaleResults_);
+  let last=null,lastRank=0;
+  sorted.forEach(function(item,index){
+    const signature=[item.average,item.positiveRate,item.scoreDistribution[5]].join("|");
+    if(signature!==last){lastRank=index+1;last=signature;}
+    item.rank=lastRank;
+  });
+  results.forEach(function(item){if(item.average===null)item.rank=null;});
+}
+
+function dynamicMedian_(values) {
+  if (!values || values.length === 0) return null;
+  const sorted = values.slice().sort(function(a, b) { return a - b; });
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : round_((sorted[middle - 1] + sorted[middle]) / 2, 2);
+}
+
+function dynamicStandardDeviation_(values) {
+  if (!values || values.length === 0) return null;
+  const average = values.reduce(function(sum, value) { return sum + value; }, 0) / values.length;
+  const variance = values.reduce(function(sum, value) {
+    return sum + Math.pow(value - average, 2);
+  }, 0) / values.length;
+  return round_(Math.sqrt(variance), 2);
+}
+
+function buildDynamicGroupSummaries_(analysis, mappings) {
+  const groups = {};
+  (mappings || []).forEach(function(mapping) {
+    if (!mapping.groupId) return;
+    if (!groups[mapping.groupId]) groups[mapping.groupId] = [];
+    groups[mapping.groupId].push(mapping.columnNumber);
+  });
+  return Object.keys(groups).map(function(groupId) {
+    const scaleItems = (analysis.scale || []).filter(function(item) {
+      return groups[groupId].indexOf(item.columnNumber) !== -1;
+    });
+    const validItems = scaleItems.filter(function(item) { return item.validCount > 0; });
+    return {groupId: groupId, columnNumbers: groups[groupId], questionCount: groups[groupId].length,
+      validResponseCount: validItems.reduce(function(sum, item) { return sum + item.validCount; }, 0),
+      average: validItems.length ? round_(validItems.reduce(function(sum, item) { return sum + item.average; }, 0) / validItems.length, 2) : 0};
+  });
+}
+
+function buildDynamicMatrixSummaries_(scaleResults, mappings) {
+  const matrix = {};
+  (mappings || []).forEach(function(mapping) {
+    if (!mapping.matrixId) return;
+    if (!matrix[mapping.matrixId]) matrix[mapping.matrixId] = [];
+    matrix[mapping.matrixId].push(mapping.columnNumber);
+  });
+  return Object.keys(matrix).map(function(matrixId) {
+    const items = (scaleResults || []).filter(function(item) {
+      return matrix[matrixId].indexOf(item.columnNumber) !== -1;
+    });
+    return {matrixId: matrixId, items: items.map(function(item) {
+      return {columnNumber: item.columnNumber, question: item.question, average: item.average, validResponses: item.validCount};
+    })};
+  });
+}
+
+function buildDynamicAnalysisSummary_(analysis) {
+  const allQuestions = [].concat(analysis.respondent || [], analysis.single || [], analysis.multiple || [],
+    analysis.scale || [], analysis.recommendation || [], analysis.text || []);
+  const missing = allQuestions.reduce(function(sum, item) {
+    return sum + Number(item.missingCount !== undefined ? item.missingCount : (item.missingResponses || 0));
+  }, 0);
+  const possible = Number(analysis.respondentCount || 0) * allQuestions.length;
+  return {totalRespondents: analysis.respondentCount, analyzedQuestionCount: allQuestions.length,
+    opinionCount: (analysis.text || []).reduce(function(sum, item) { return sum + item.validCount; }, 0),
+    missingResponses: missing, missingRate: possible > 0 ? round_(missing / possible * 100, 1) : 0,
+    denominator: "문항별 유효응답; 복수응답 선택률은 전체/유효 응답자를 별도 제공"};
+}
+
 
 /**
  * ==========================================================================
@@ -1397,4 +923,30 @@ function testDynamicSurveyAnalysis() {
       2
     )
   );
+}
+
+function testDynamicSurveyPureCalculations() {
+  const source = {
+    respondentCount: 4,
+    rows: [["A", "x|y", "5", "10", "좋아요"], ["B", "x", "4", "9", "없음"],
+      ["", "", "3", "6", "test@example.com 개선"], ["A", "y", "", "", ""]],
+    mappings: [
+      {columnNumber: 1, originalHeader: "유형", selectedType: "SINGLE"},
+      {columnNumber: 2, originalHeader: "복수", selectedType: "MULTIPLE"},
+      {columnNumber: 3, originalHeader: "만족", selectedType: "SCALE", scoreMap: {}},
+      {columnNumber: 4, originalHeader: "추천", selectedType: "RECOMMENDATION", scaleKind: "NPS_0_10", scoreMap: {}},
+      {columnNumber: 5, originalHeader: "의견", selectedType: "TEXT"}
+    ]
+  };
+  const single = analyzeDynamicSingleQuestions_(source, "SINGLE")[0];
+  const multiple = analyzeDynamicMultipleQuestions_(source)[0];
+  const scale = analyzeDynamicScaleQuestions_(source)[0];
+  const recommendation = analyzeDynamicRecommendationQuestions_(source)[0];
+  const text = analyzeDynamicTextQuestions_(source)[0];
+  if (single.validResponses !== 3 || single.missingResponses !== 1) throw new Error("SINGLE 분모 테스트 실패");
+  if (multiple.totalSelectionCount !== 4 || multiple.validResponses !== 3) throw new Error("MULTIPLE 합계 테스트 실패");
+  if (scale.average !== 4 || scale.median !== 4 || scale.positiveCount !== 2) throw new Error("SCALE 통계 테스트 실패");
+  if (recommendation.nps !== 33.3 || recommendation.promoterCount !== 2) throw new Error("NPS 테스트 실패");
+  if (text.validCount !== 2 || text.opinions[1].maskedText.indexOf("test@example.com") !== -1) throw new Error("TEXT 테스트 실패");
+  return {success: true, testCount: 5};
 }

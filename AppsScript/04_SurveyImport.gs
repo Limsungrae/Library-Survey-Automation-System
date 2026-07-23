@@ -1,410 +1,6 @@
-function promptImportNaverSurvey() {
-  const ui = SpreadsheetApp.getUi();
-  const response = ui.prompt(
-    "네이버폼 원자료 가져오기",
-    "네이버폼 Excel을 Google Drive에 업로드한 뒤 'Google 스프레드시트로 열기'를 선택하고, 열린 파일의 URL 또는 스프레드시트 ID를 입력해 주세요.",
-    ui.ButtonSet.OK_CANCEL
-  );
-  if (response.getSelectedButton() !== ui.Button.OK) return;
+/** Dynamic survey Excel inspection and generic raw-sheet creation. */
 
-  try {
-    const sourceId = extractSpreadsheetId_(response.getResponseText());
-    if (!sourceId) throw new Error("URL 또는 스프레드시트 ID를 확인해 주세요.");
-    const result = importNaverSurveyBySpreadsheetId_(sourceId);
-    ui.alert("가져오기 완료",`${result.rowCount}건을 09_원자료로 가져왔습니다.\n원본 시트: ${result.sourceSheet}`,ui.ButtonSet.OK);
-  } catch (error) {
-    ui.alert("가져오기 실패",error.message||String(error),ui.ButtonSet.OK);
-  }
-}
-
-function importNaverSurveyBySpreadsheetId_(sourceId) {
-  const current = SpreadsheetApp.getActiveSpreadsheet();
-  if (sourceId === current.getId()) throw new Error("현재 파일이 아닌 네이버폼 원본 파일 URL을 입력해 주세요.");
-
-  const source = SpreadsheetApp.openById(sourceId);
-  const sourceSheet = findSurveySourceSheet_(source);
-  if (!sourceSheet) throw new Error("설문 원자료 컬럼을 포함한 시트를 찾지 못했습니다.");
-
-  const values = sourceSheet.getDataRange().getDisplayValues();
-  if (values.length < 2) throw new Error("원본 시트에 응답 데이터가 없습니다.");
-
-  const standardized = standardizeSurveyRows_(values);
-  const target = getOrCreateSheet_(APP_CONFIG.SOURCE_SHEET);
-  removeAllCharts_(target);
-  target.clear();
-  target.getRange(1,1,standardized.length,APP_CONFIG.RAW_HEADERS.length).setValues(standardized);
-  formatRawSheet_(target);
-  moveReportSheetsInOrder_();
-
-  return {rowCount:standardized.length-1,sourceSheet:sourceSheet.getName()};
-}
-
-function findSurveySourceSheet_(spreadsheet) {
-  const required = ["이용자 유형","이용 공간·서비스(복수)","Q1 공간·시설 편의성","재이용·추천"];
-  for (const sheet of spreadsheet.getSheets()) {
-    if (!sheet.getLastColumn()) continue;
-    const headers = sheet.getRange(1,1,1,sheet.getLastColumn()).getDisplayValues()[0].map(normalizeHeader_);
-    if (required.every(req=>headers.includes(normalizeHeader_(req)))) return sheet;
-  }
-  return null;
-}
-
-function standardizeSurveyRows_(values) {
-  const sourceHeaders = values[0].map(v=>String(v||"").trim());
-  const normalized = sourceHeaders.map(normalizeHeader_);
-  const indexMap = {};
-  APP_CONFIG.RAW_HEADERS.forEach(h=>indexMap[h]=normalized.indexOf(normalizeHeader_(h)));
-
-  const missing = APP_CONFIG.RAW_HEADERS.slice(0,14).filter(h=>indexMap[h]===-1);
-  if (missing.length) throw new Error("필수 컬럼 누락:\n- "+missing.join("\n- "));
-
-  const output=[APP_CONFIG.RAW_HEADERS.slice()];
-
-  values.slice(1).forEach((row,rowIndex)=>{
-    const get = h => indexMap[h] >= 0 ? row[indexMap[h]] : "";
-    const qTexts=[
-      get("Q1 공간·시설 편의성"),get("Q2 체험·창작 공간 적합성"),
-      get("Q3 콘텐츠 흥미·유익성"),get("Q4 디지털 기술 이해 도움"),
-      get("Q5 직원·강사 안내"),get("Q6 전반적 만족도")
-    ].map(cleanText_);
-
-    const scores=qTexts.map((text,i)=>validScore_(get(APP_CONFIG.SCORE_HEADERS[i]))||scoreFromText_(text));
-    const validScores=scores.filter(s=>s>=1&&s<=5);
-    const recommendationText=cleanText_(get("재이용·추천"));
-    const recommendationScore=validScore_(get("추천점수"))||scoreFromText_(recommendationText);
-    const services=normalizeMultiValue_(get("이용 공간·서비스(복수)"));
-    const channels=normalizeMultiValue_(get("인지 경로(복수)"));
-    const improvements=normalizeMultiValue_(get("개선 필요사항(복수)"));
-    const future=normalizeMultiValue_(get("향후 희망 서비스(복수)"));
-    const comment=cleanText_(get("자유의견"));
-    const userType=cleanText_(get("이용자 유형"));
-
-    output.push([
-      get("참여자 번호")||rowIndex+1,userType,services,channels,...qTexts,
-      recommendationText,improvements,future,comment,...scores,
-      validScores.length?round_(average_(validScores),2):"",
-      recommendationScore||"",
-      splitMultiValue_(services).length,splitMultiValue_(channels).length,
-      splitMultiValue_(improvements).length,splitMultiValue_(future).length,
-      normalizeUserType_(userType),isValidOpinion_(comment)?"유효":"무효"
-    ]);
-  });
-  return output;
-}
-
-function validateRawSheetFromMenu() {
-  try {
-    const result=validateRawSheet_();
-    SpreadsheetApp.getUi().alert("원자료 검사 완료",`응답 ${result.rowCount}건과 필수 컬럼을 확인했습니다.`,SpreadsheetApp.getUi().ButtonSet.OK);
-  } catch(error) {
-    SpreadsheetApp.getUi().alert("원자료 검사 실패",error.message||String(error),SpreadsheetApp.getUi().ButtonSet.OK);
-  }
-}
-
-function validateRawSheet_() {
-  const sheet=SpreadsheetApp.getActiveSpreadsheet().getSheetByName(APP_CONFIG.SOURCE_SHEET);
-  if (!sheet) throw new Error("09_원자료 시트가 없습니다.");
-  if (sheet.getLastRow()<2) throw new Error("09_원자료에 응답 데이터가 없습니다.");
-  const headers=sheet.getRange(1,1,1,sheet.getLastColumn()).getDisplayValues()[0].map(normalizeHeader_);
-  const missing=APP_CONFIG.RAW_HEADERS.filter(h=>!headers.includes(normalizeHeader_(h)));
-  if (missing.length) throw new Error("누락된 컬럼:\n- "+missing.join("\n- "));
-  return {rowCount:sheet.getLastRow()-1,headerCount:APP_CONFIG.RAW_HEADERS.length};
-}
-
-function formatRawSheet_(sheet) {
-  const c=APP_CONFIG.COLORS;
-  const rows=sheet.getLastRow(), cols=APP_CONFIG.RAW_HEADERS.length;
-  sheet.setFrozenRows(1);
-  sheet.getRange(1,1,1,cols).setBackground(c.NAVY).setFontColor(c.WHITE)
-    .setFontWeight("bold").setHorizontalAlignment("center").setWrap(true);
-  if (rows>1) sheet.getRange(2,1,rows-1,cols).setVerticalAlignment("top").setWrap(true);
-  sheet.autoResizeColumns(1,cols);
-  [3,4,12,13].forEach(col=>sheet.setColumnWidth(col,240));
-  sheet.setColumnWidth(14,320);
-  sheet.getDataRange().setBorder(true,true,true,true,true,true,c.BORDER,SpreadsheetApp.BorderStyle.SOLID);
-}
-
-/**
- * ==========================================================================
- * 웹페이지용 네이버폼 Excel 업로드 처리
- * ==========================================================================
- *
- * survey-dashboard.html에서 전달한 Excel 파일을 임시로 Drive에 저장한 뒤,
- * Google 스프레드시트로 변환하고 09_원자료 시트로 가져옵니다.
- */
-
-
-/**
- * 웹페이지에서 업로드한 Excel 파일을 처리합니다.
- *
- * @param {Object} fileData
- * {
- *   fileName: "설문결과.xlsx",
- *   mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
- *   base64Data: "..."
- * }
- *
- * @return {Object} 처리 결과
- */
-function uploadSurveyExcelFromWeb(fileData) {
-  let uploadedFileId = null;
-  let convertedFileId = null;
-
-  try {
-    if (!fileData || !fileData.base64Data) {
-      throw new Error(
-        "업로드된 Excel 파일 데이터가 없습니다."
-      );
-    }
-
-    const fileName =
-      cleanText_(fileData.fileName)
-      || "네이버폼_설문결과.xlsx";
-
-    const lowerFileName =
-      fileName.toLowerCase();
-
-    if (
-      !lowerFileName.endsWith(".xlsx")
-      && !lowerFileName.endsWith(".xls")
-    ) {
-      throw new Error(
-        "Excel 파일(.xlsx 또는 .xls)만 업로드할 수 있습니다."
-      );
-    }
-
-// 브라우저가 보내주는 flaky한 mimeType 대신, 확장자를 기준으로 정확한 MIME 타입을 강제 지정합니다.
-let mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"; // 기본값 (.xlsx)
-
-if (lowerFileName.endsWith(".xls")) {
-  mimeType = "application/vnd.ms-excel"; // 구형 엑셀 파일 대응
-}
-// ----------------------------------------------------------------------
-    // 🔥 [수정] 웹용 Base64 접두어(data:...;base64,)가 있다면 안전하게 제거
-    // ----------------------------------------------------------------------
-    let pureBase64Data = fileData.base64Data;
-    if (pureBase64Data.indexOf(",") !== -1) {
-      pureBase64Data = pureBase64Data.split(",")[1];
-    }
-    const binaryData =
-      Utilities.base64Decode(
-        fileData.base64Data
-      );
-
-    const blob =
-      Utilities.newBlob(
-        binaryData,
-        mimeType,
-        fileName
-      );
-
-    // ----------------------------------------------------------------------
-    // 1. 원본 Excel 파일을 Drive에 임시 저장
-    // ----------------------------------------------------------------------
-
-    const uploadedFile =
-      DriveApp.createFile(
-        blob
-      );
-
-    uploadedFileId =
-      uploadedFile.getId();
-
-    // ----------------------------------------------------------------------
-    // 2. Excel 파일을 Google 스프레드시트로 변환
-    // ----------------------------------------------------------------------
-
-    const resource = {
-      name:
-        "TEMP_CONVERTED_"
-        + Date.now()
-        + "_"
-        + fileName.replace(
-          /\.(xlsx|xls)$/i,
-          ""
-        ),
-
-      mimeType:
-        "application/vnd.google-apps.spreadsheet"
-    };
-
-    const convertedFile =
-      Drive.Files.create(
-        resource,
-        blob,
-        {
-          fields:
-            "id,name,mimeType"
-        }
-      );
-
-    convertedFileId =
-      convertedFile.id;
-
-    if (!convertedFileId) {
-      throw new Error(
-        "Excel 파일을 Google 스프레드시트로 변환하지 못했습니다."
-      );
-    }
-
-    // 변환 직후 파일이 준비될 시간을 약간 기다립니다.
-    Utilities.sleep(
-      1500
-    );
-
-    // ----------------------------------------------------------------------
-    // 3. 기존 원자료 가져오기 로직 재사용
-    // ----------------------------------------------------------------------
-
-    const importResult =
-      importNaverSurveyBySpreadsheetId_(
-        convertedFileId
-      );
-
-    return {
-      success:
-        true,
-
-      message:
-        "Excel 파일을 성공적으로 가져왔습니다.",
-
-      fileName:
-        fileName,
-
-      rowCount:
-        importResult.rowCount,
-
-      sourceSheet:
-        importResult.sourceSheet
-    };
-
-  } catch (error) {
-    return {
-      success:
-        false,
-
-      error:
-        error && error.message
-          ? error.message
-          : String(error)
-    };
-
-  } finally {
-    // ----------------------------------------------------------------------
-    // 4. 임시 파일 정리
-    // ----------------------------------------------------------------------
-
-    if (uploadedFileId) {
-      try {
-        DriveApp
-          .getFileById(
-            uploadedFileId
-          )
-          .setTrashed(
-            true
-          );
-      } catch (ignored) {
-        // 임시 원본 파일 삭제 실패는 결과에 영향을 주지 않습니다.
-      }
-    }
-
-    if (convertedFileId) {
-      try {
-        DriveApp
-          .getFileById(
-            convertedFileId
-          )
-          .setTrashed(
-            true
-          );
-      } catch (ignored) {
-        // 임시 변환 파일 삭제 실패는 결과에 영향을 주지 않습니다.
-      }
-    }
-  }
-}
-
-
-/**
- * 웹페이지에서 원자료 구조를 검사합니다.
- *
- * @return {Object} 검사 결과
- */
-function validateRawSheetFromWeb() {
-  try {
-    const result =
-      validateRawSheet_();
-
-    return {
-      success:
-        true,
-
-      rowCount:
-        result.rowCount,
-
-      headerCount:
-        result.headerCount,
-
-      message:
-        "응답 "
-        + result.rowCount
-        + "건과 필수 컬럼 "
-        + result.headerCount
-        + "개를 확인했습니다."
-    };
-
-  } catch (error) {
-    return {
-      success:
-        false,
-
-      error:
-        error && error.message
-          ? error.message
-          : String(error)
-    };
-  }
-}
-/**
- * Google Drive 권한 승인을 위한 임시 테스트 함수
- * 권한 승인과 테스트가 끝나면 삭제해도 됩니다.
- */
-function authorizeDriveAccessTest_() {
-  const testBlob = Utilities.newBlob(
-    "Drive 권한 테스트",
-    "text/plain",
-    "drive_authorization_test.txt"
-  );
-
-  const testFile = DriveApp.createFile(testBlob);
-
-  console.log("Drive 테스트 파일 생성 성공: " + testFile.getId());
-
-  // 테스트 파일은 바로 휴지통으로 이동
-  testFile.setTrashed(true);
-}
-/**
- * ==========================================================================
- * 범용 설문 문항 분석용 Excel 미리보기
- * ==========================================================================
- *
- * 기존 uploadSurveyExcelFromWeb() 함수와 별도로 동작합니다.
- *
- * 이 함수는:
- * 1. Excel 파일을 임시 Google 스프레드시트로 변환하고
- * 2. 설문 응답이 가장 많아 보이는 시트를 선택한 뒤
- * 3. 문항명과 예시 응답을 추출하고
- * 4. 11_SurveyMapping.gs의 문항 유형 추천 기능을 호출합니다.
- *
- * 중요:
- * - 09_원자료를 생성하거나 수정하지 않습니다.
- * - 기존 보고서 시트도 수정하지 않습니다.
- * - 기존 Excel 업로드 기능에 영향을 주지 않습니다.
- *
- * @param {Object} fileData 웹페이지에서 전달받은 Excel 파일 정보
- * @return {Object} 문항 분석 결과
- */
-function inspectSurveyExcelForMappingFromWeb(fileData) {
+function inspectSurveyExcelForMappingFromWeb(fileData, options) {
   let convertedFileId = null;
 
   try {
@@ -475,6 +71,7 @@ function inspectSurveyExcelForMappingFromWeb(fileData) {
       Utilities.base64Decode(
         pureBase64Data
       );
+    validateSurveyExcelBinary_(binaryData, lowerFileName);
 
     const blob =
       Utilities.newBlob(
@@ -554,11 +151,19 @@ function inspectSurveyExcelForMappingFromWeb(fileData) {
         surveySheet
       );
 
+    // 규칙 엔진 결과를 안전망으로 유지하면서 Column Profile을 Gemini에
+    // 전달합니다. Gemini 호출이나 검증이 실패하면 이 함수 내부에서
+    // 기존 규칙 기반 매핑으로 정상 복구합니다.
+    const ruleOnly = options && options.ruleOnly === true;
+    const ruleMappings = buildSurveyQuestionMappings_(structure.headers, structure.sampleRow);
+    const mappingResult = ruleOnly
+      ? {mappings: ruleMappings, surveyStructure: {title: "", description: "",
+          respondentColumnNumber: null, confidence: 0, reason: ""}, mappingSource: "RULE",
+          fallbackUsed: false, fallbackReason: "", aiWarnings: []}
+      : buildSurveyQuestionMappingsWithAI_(structure.headers, structure.sampleRow, structure.responseRows);
+
     const mappings =
-      buildSurveyQuestionMappings_(
-        structure.headers,
-        structure.sampleRow
-      );
+      mappingResult.mappings;
 
     const validation =
       validateSurveyMappings_(
@@ -586,6 +191,21 @@ function inspectSurveyExcelForMappingFromWeb(fileData) {
 
       mappings:
         mappings,
+
+      surveyStructure:
+        mappingResult.surveyStructure,
+
+      mappingSource:
+        mappingResult.mappingSource,
+
+      fallbackUsed:
+        mappingResult.fallbackUsed,
+
+      fallbackReason:
+        mappingResult.fallbackReason,
+
+      aiWarnings:
+        mappingResult.aiWarnings || [],
 
       validation:
         validation,
@@ -791,6 +411,27 @@ function readSurveySheetStructureForMapping_(
         .getDisplayValues()[0];
   }
 
+  // 프로파일 통계는 실행 시간과 개인정보 노출을 제한하기 위해 최대
+  // 200개 응답만 읽습니다. Gemini에는 이 중 열별 최대 3개 샘플만
+  // 마스킹하여 전달합니다.
+  const profileRowCount =
+    Math.min(
+      Math.max(lastRow - headerRow, 0),
+      200
+    );
+
+  const responseRows =
+    profileRowCount > 0
+      ? sheet
+          .getRange(
+            headerRow + 1,
+            1,
+            profileRowCount,
+            lastColumn
+          )
+          .getDisplayValues()
+      : [];
+
   return {
     headerRow:
       headerRow,
@@ -800,6 +441,9 @@ function readSurveySheetStructureForMapping_(
 
     sampleRow:
       sampleRow,
+
+    responseRows:
+      responseRows,
 
     responseCount:
       Math.max(
@@ -829,8 +473,8 @@ function createGenericRawSheetFromWeb(fileData) {
       SpreadsheetApp.getActiveSpreadsheet();
 
     // 문항 유형을 먼저 저장했는지 확인합니다.
-    const mappingSheet =
-      spreadsheet.getSheetByName("10_문항매핑");
+    const mappingSheet = spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.MAPPING)
+      || spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.LEGACY_MAPPING);
 
     if (!mappingSheet || mappingSheet.getLastRow() < 2) {
       throw new Error(
@@ -869,7 +513,7 @@ function createGenericRawSheetFromWeb(fileData) {
 
     const blob =
       Utilities.newBlob(
-        Utilities.base64Decode(pureBase64Data),
+        validateSurveyExcelBase64_(pureBase64Data, lowerFileName),
         mimeType,
         fileName
       );
@@ -932,8 +576,22 @@ function createGenericRawSheetFromWeb(fileData) {
         .getDataRange()
         .getDisplayValues();
 
-    const targetSheetName =
-      "09_범용원자료";
+    if (values.length > 20001 || values[0].length > 300
+        || values.length * values[0].length > 2000000) {
+      throw new Error("설문 데이터가 처리 한도를 초과했습니다(최대 20,000행, 300열, 2,000,000셀).");
+    }
+    const normalizedHeaders = {};
+    values[0].forEach(function(header, index) {
+      const normalized = normalizeHeader_(header);
+      if (!normalized) throw new Error((index + 1) + "번 열의 헤더가 비어 있습니다.");
+      if (normalizedHeaders[normalized]) throw new Error("중복 문항 헤더가 있습니다: " + cleanText_(header));
+      normalizedHeaders[normalized] = true;
+    });
+    const nonEmptyValues = [values[0]].concat(values.slice(1).filter(function(row) {
+      return row.some(function(value) { return cleanText_(value) !== ""; });
+    }));
+
+    const targetSheetName = DYNAMIC_SURVEY_CONFIG.SHEETS.RAW;
 
     let targetSheet =
       spreadsheet.getSheetByName(
@@ -965,13 +623,22 @@ removeAllCharts_(targetSheet);
       .getRange(
         1,
         1,
-        values.length,
-        values[0].length
+        nonEmptyValues.length,
+        nonEmptyValues[0].length
       )
-      .setValues(values);
+      .setValues(nonEmptyValues);
+    targetSheet.getRange(1, 1).setNote(JSON.stringify({
+      sourceFileName: fileName, sourceSheetName: sourceSheet.getName(), importedAt: new Date().toISOString(),
+      blankRowsRemoved: values.length - nonEmptyValues.length
+    }));
 
     // 기본 서식
     targetSheet.setFrozenRows(1);
+    if (targetSheet.getFilter()) targetSheet.getFilter().remove();
+    targetSheet.getRange(1,1,nonEmptyValues.length,nonEmptyValues[0].length).createFilter();
+    targetSheet.getBandings().forEach(function(banding){banding.remove();});
+    targetSheet.getRange(1,1,nonEmptyValues.length,nonEmptyValues[0].length)
+      .applyRowBanding(SpreadsheetApp.BandingTheme.LIGHT_GREY,true,false);
 
     targetSheet
       .getRange(
@@ -1002,16 +669,22 @@ removeAllCharts_(targetSheet);
       1,
       values[0].length
     );
+    const savedMappings=getSavedSurveyMappingsFromWeb();
+    if(savedMappings.success&&savedMappings.exists){
+      targetSheet.showColumns(1,targetSheet.getMaxColumns());
+      savedMappings.mappings.filter(function(mapping){return mapping.selectedType==="PERSONAL_INFO";})
+        .forEach(function(mapping){if(mapping.columnNumber<=targetSheet.getMaxColumns())targetSheet.hideColumns(mapping.columnNumber);});
+    }
 
     return {
       success: true,
       sheetName: targetSheetName,
       sourceSheet: sourceSheet.getName(),
-      rowCount: values.length - 1,
+      rowCount: nonEmptyValues.length - 1,
       columnCount: values[0].length,
       message:
-        "09_범용원자료 시트에 응답 "
-        + (values.length - 1)
+        targetSheetName + " 시트에 응답 "
+        + (nonEmptyValues.length - 1)
         + "건과 문항 "
         + values[0].length
         + "개를 저장했습니다."
@@ -1036,5 +709,33 @@ removeAllCharts_(targetSheet);
         // 임시 파일 삭제 실패는 무시합니다.
       }
     }
+  }
+}
+
+function validateSurveyExcelBase64_(pureBase64Data, lowerFileName) {
+  const encoded = String(pureBase64Data || "").replace(/\s/g, "");
+  if (!encoded) throw new Error("Excel 파일 데이터가 비어 있습니다.");
+  if (encoded.length > 16 * 1024 * 1024) {
+    throw new Error("업로드 파일이 너무 큽니다. 최대 12MB의 Excel 파일만 지원합니다.");
+  }
+  let bytes;
+  try { bytes = Utilities.base64Decode(encoded); }
+  catch (ignored) { throw new Error("Excel 파일의 Base64 데이터가 올바르지 않습니다."); }
+  if (bytes.length > 12 * 1024 * 1024) {
+    throw new Error("업로드 파일이 너무 큽니다. 최대 12MB의 Excel 파일만 지원합니다.");
+  }
+  validateSurveyExcelBinary_(bytes, lowerFileName);
+  return bytes;
+}
+
+function validateSurveyExcelBinary_(bytes, lowerFileName) {
+  if (!bytes || bytes.length < 8) throw new Error("Excel 파일이 비어 있거나 손상되었습니다.");
+  const unsigned = function(index) { return (Number(bytes[index]) + 256) % 256; };
+  const isXlsx = unsigned(0) === 0x50 && unsigned(1) === 0x4B;
+  const isXls = unsigned(0) === 0xD0 && unsigned(1) === 0xCF
+    && unsigned(2) === 0x11 && unsigned(3) === 0xE0;
+  if ((lowerFileName.endsWith(".xlsx") && !isXlsx)
+      || (lowerFileName.endsWith(".xls") && !isXls)) {
+    throw new Error("파일 확장자와 실제 Excel 파일 형식이 일치하지 않습니다.");
   }
 }

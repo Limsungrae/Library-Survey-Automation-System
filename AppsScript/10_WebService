@@ -1,147 +1,5 @@
-/**
- * ==========================================================================
- * 성남시중원도서관 만족도 조사 자동화 시스템
- * 웹페이지 전용 서비스
- * ==========================================================================
- *
- * 담당 기능
- * 1. 웹페이지에서 원자료 상태 조회
- * 2. 통계 보고서 생성
- * 3. AI 포함 전체 보고서 생성
- * 4. AI 보고서만 다시 생성
- * 5. 대시보드 요약 데이터 반환
- * 6. Excel 보고서 생성 및 다운로드 URL 반환
- *
- * 주의
- * - saveSurveySettingsFromWeb(), getSurveySettingsForWeb()는
- *   07_SurveyReport.gs에 이미 있으므로 이 파일에서 다시 선언하지 않습니다.
- * - uploadSurveyExcelFromWeb(), validateRawSheetFromWeb()는
- *   04_SurveyImport.gs에 이미 있으므로 다시 선언하지 않습니다.
- */
+/** Dynamic survey web services. */
 
-
-// ==========================================================================
-// 원자료 및 시스템 상태 조회
-// ==========================================================================
-
-/**
- * 웹페이지가 처음 열릴 때 현재 시스템 상태를 반환합니다.
- *
- * @return {Object}
- */
-function getSurveySystemStatusFromWeb() {
-  try {
-    const spreadsheet =
-      SpreadsheetApp.getActiveSpreadsheet();
-
-    const rawSheet =
-      spreadsheet.getSheetByName(
-        APP_CONFIG.SOURCE_SHEET
-      );
-
-    const settingsSheetName =
-      APP_CONFIG.SETTINGS_SHEET
-      || "00_설정";
-
-    const settingsSheet =
-      spreadsheet.getSheetByName(
-        settingsSheetName
-      );
-
-
-    let rowCount = 0;
-    let rawSheetValid = false;
-    let rawSheetMessage =
-      "원자료가 아직 등록되지 않았습니다.";
-
-
-    if (
-      rawSheet
-      && rawSheet.getLastRow() > 1
-    ) {
-      try {
-        const validation =
-          validateRawSheet_();
-
-        rowCount =
-          validation.rowCount;
-
-        rawSheetValid =
-          true;
-
-        rawSheetMessage =
-          "응답 "
-          + rowCount
-          + "건이 등록되어 있습니다.";
-
-      } catch (error) {
-        rawSheetMessage =
-          error && error.message
-            ? error.message
-            : String(error);
-      }
-    }
-
-
-    const existingReportSheets =
-      APP_CONFIG.REPORT_SHEETS
-        .filter(function(sheetName) {
-          return Boolean(
-            spreadsheet.getSheetByName(
-              sheetName
-            )
-          );
-        });
-
-
-    return {
-      success:
-        true,
-
-      settingsExists:
-        Boolean(settingsSheet),
-
-      rawSheetExists:
-        Boolean(rawSheet),
-
-      rawSheetValid:
-        rawSheetValid,
-
-      rowCount:
-        rowCount,
-
-      rawSheetMessage:
-        rawSheetMessage,
-
-      reportSheetCount:
-        existingReportSheets.length,
-
-      reportSheets:
-        existingReportSheets,
-
-      allReportSheetsExist:
-        APP_CONFIG.REPORT_SHEETS
-          .every(function(sheetName) {
-            return Boolean(
-              spreadsheet.getSheetByName(
-                sheetName
-              )
-            );
-          })
-    };
-
-  } catch (error) {
-    return {
-      success:
-        false,
-
-      error:
-        getWebErrorMessage_(
-          error
-        )
-    };
-  }
-}
 /**
  * 범용 만족도 조사 시스템의 현재 상태를 반환합니다.
  *
@@ -165,28 +23,37 @@ function getDynamicSurveySystemStatusFromWeb() {
         "00_설정"
       );
 
-    const mappingSheet =
-      spreadsheet.getSheetByName(
-        "10_문항매핑"
-      );
+    const qualitySheet = spreadsheet.getSheetByName(
+      DYNAMIC_SURVEY_CONFIG.SHEETS.QUALITY
+    );
+    const qualityStatus = qualitySheet
+      ? cleanText_(qualitySheet.getRange("B5").getDisplayValue())
+      : "NOT_RUN";
+    const qualityAiAllowed = qualitySheet
+      ? qualitySheet.getRange("B8").getDisplayValue() === "가능"
+      : false;
 
-    const rawSheet =
-      spreadsheet.getSheetByName(
-        "09_범용원자료"
-      );
+    const mappingSheet = spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.MAPPING)
+      || spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.LEGACY_MAPPING);
+
+    const rawSheet = spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.RAW)
+      || spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.LEGACY_RAW);
 
     const statisticalSheetNames = [
       "01_조사개요",
+      "00_품질검사",
       "02_대시보드",
       "03_응답자특성",
-      "04_복수응답분석",
-      "05_만족도분석",
-      "06_주관식분석"
+      "04_단일응답분석",
+      "05_복수응답분석",
+      "06_척도분석",
+      "07_추천의향분석",
+      "08_주관식분석"
     ];
 
     const aiSheetNames = [
-      "07_AI총평",
-      "08_향후계획"
+      "09_AI총평",
+      "10_향후계획"
     ];
 
     const statisticalSheetCount =
@@ -248,7 +115,8 @@ function getDynamicSurveySystemStatusFromWeb() {
       settingsExists
       && mappingExists
       && rawSheetExists
-      && statisticsComplete;
+      && statisticsComplete
+      && qualityStatus !== "FAIL";
 
     return {
       success: true,
@@ -292,6 +160,9 @@ function getDynamicSurveySystemStatusFromWeb() {
       exportReady:
         exportReady,
 
+      qualityStatus: qualityStatus,
+      qualityAiAllowed: qualityAiAllowed,
+
       message:
         "범용 시스템 상태를 확인했습니다."
     };
@@ -315,511 +186,6 @@ function getDynamicSurveySystemStatusFromWeb() {
 // ==========================================================================
 
 /**
- * AI 기능을 제외한 01~05 통계 시트를 생성합니다.
- *
- * @return {Object}
- */
-function generateStatisticalSheetsFromWeb() {
-  const lock =
-    LockService.getScriptLock();
-
-  try {
-    lock.waitLock(
-      30000
-    );
-
-
-    const settings =
-      getSurveySettings_();
-
-    const data =
-      getRawSurveyObjects_();
-
-    const analysis =
-      calculateSurveyAnalysis_(
-        data
-      );
-
-
-    createOverviewSheet_(
-      analysis,
-      settings
-    );
-
-    createDashboardSheet_(
-      analysis,
-      settings
-    );
-
-    createRespondentSheet_(
-      analysis,
-      settings
-    );
-
-    createMultipleAnalysisSheet_(
-      analysis,
-      settings
-    );
-
-    createSatisfactionSheet_(
-      analysis,
-      settings
-    );
-
-
-    moveReportSheetsInOrder_();
-
-    SpreadsheetApp.flush();
-
-
-    return {
-      success:
-        true,
-
-      message:
-        "통계 보고서 생성이 완료되었습니다.",
-
-      generatedSheets: [
-        "01_조사개요",
-        "02_대시보드",
-        "03_응답자특성",
-        "04_복수응답분석",
-        "05_만족도분석"
-      ],
-
-      summary:
-        buildSurveyDashboardSummary_(
-          analysis
-        )
-    };
-
-  } catch (error) {
-    return {
-      success:
-        false,
-
-      error:
-        getWebErrorMessage_(
-          error
-        )
-    };
-
-  } finally {
-    try {
-      lock.releaseLock();
-    } catch (ignored) {
-      // 잠금이 획득되지 않은 경우 무시합니다.
-    }
-  }
-}
-
-
-// ==========================================================================
-// AI 포함 전체 보고서 생성
-// ==========================================================================
-
-/**
- * 01~08 시트를 모두 생성합니다.
- *
- * @return {Object}
- */
-function generateFullSurveyReportFromWeb() {
-  const lock =
-    LockService.getScriptLock();
-
-  try {
-    lock.waitLock(
-      30000
-    );
-
-
-    const settings =
-      getSurveySettings_();
-
-    const data =
-      getRawSurveyObjects_();
-
-    const analysis =
-      calculateSurveyAnalysis_(
-        data
-      );
-
-
-    // ----------------------------------------------------------------------
-    // 통계 시트
-    // ----------------------------------------------------------------------
-
-    createOverviewSheet_(
-      analysis,
-      settings
-    );
-
-    createRespondentSheet_(
-      analysis,
-      settings
-    );
-
-    createMultipleAnalysisSheet_(
-      analysis,
-      settings
-    );
-
-    createSatisfactionSheet_(
-      analysis,
-      settings
-    );
-
-
-    // ----------------------------------------------------------------------
-    // 주관식 AI 분석
-    // ----------------------------------------------------------------------
-
-    const opinion =
-      analyzeOpinionsWithAI_(
-        data
-      );
-
-
-    createOpinionSheet_(
-      data,
-      opinion,
-      settings
-    );
-
-
-    // ----------------------------------------------------------------------
-    // AI 총평 및 향후계획
-    // ----------------------------------------------------------------------
-
-    const context =
-      buildAnalysisContext_(
-        analysis,
-        opinion
-      );
-
-
-    context.survey = {
-      name:
-        settings["조사명"],
-
-      purpose:
-        settings["조사목적"],
-
-      period:
-        settings["조사기간"],
-
-      target:
-        settings["조사대상"],
-
-      method:
-        settings["조사방법"],
-
-      department:
-        settings["담당부서"],
-
-      contact:
-        settings["문의처"],
-
-      organization:
-        settings["생성기관"]
-    };
-
-
-    const summaryText =
-      generateAISummaryText_(
-        context
-      );
-
-
-    const futurePlanText =
-      generateFuturePlanText_(
-        context,
-        summaryText
-      );
-
-
-    createAISummarySheet_(
-      summaryText,
-      settings
-    );
-
-    createFuturePlanSheet_(
-      futurePlanText,
-      settings
-    );
-
-
-    // 대시보드는 최종 통계값을 바탕으로 마지막에 생성합니다.
-    createDashboardSheet_(
-      analysis,
-      settings
-    );
-
-
-    moveReportSheetsInOrder_();
-
-    SpreadsheetApp.flush();
-
-
-    return {
-      success:
-        true,
-
-      message:
-        "AI 총평과 향후계획을 포함한 전체 보고서가 생성되었습니다.",
-
-      generatedSheets: [
-        "01_조사개요",
-        "02_대시보드",
-        "03_응답자특성",
-        "04_복수응답분석",
-        "05_만족도분석",
-        "06_주관식분석",
-        "07_AI총평",
-        "08_향후계획"
-      ],
-
-      summary:
-        buildSurveyDashboardSummary_(
-          analysis
-        ),
-
-      opinionValidCount:
-        opinion.validCount
-        || 0
-    };
-
-  } catch (error) {
-    return {
-      success:
-        false,
-
-      error:
-        getWebErrorMessage_(
-          error
-        )
-    };
-
-  } finally {
-    try {
-      lock.releaseLock();
-    } catch (ignored) {
-      // 잠금이 획득되지 않은 경우 무시합니다.
-    }
-  }
-}
-
-
-// ==========================================================================
-// AI 보고서만 다시 생성
-// ==========================================================================
-
-/**
- * 06_주관식분석, 07_AI총평, 08_향후계획만 다시 생성합니다.
- *
- * @return {Object}
- */
-function generateAIReportSheetsFromWeb() {
-  const lock =
-    LockService.getScriptLock();
-
-  try {
-    lock.waitLock(
-      30000
-    );
-
-
-    const settings =
-      getSurveySettings_();
-
-    const data =
-      getRawSurveyObjects_();
-
-    const analysis =
-      calculateSurveyAnalysis_(
-        data
-      );
-
-    const opinion =
-      analyzeOpinionsWithAI_(
-        data
-      );
-
-
-    createOpinionSheet_(
-      data,
-      opinion,
-      settings
-    );
-
-
-    const context =
-      buildAnalysisContext_(
-        analysis,
-        opinion
-      );
-
-
-    context.survey = {
-      name:
-        settings["조사명"],
-
-      purpose:
-        settings["조사목적"],
-
-      period:
-        settings["조사기간"],
-
-      target:
-        settings["조사대상"],
-
-      method:
-        settings["조사방법"],
-
-      department:
-        settings["담당부서"],
-
-      contact:
-        settings["문의처"],
-
-      organization:
-        settings["생성기관"]
-    };
-
-
-    const summaryText =
-      generateAISummaryText_(
-        context
-      );
-
-
-    const futurePlanText =
-      generateFuturePlanText_(
-        context,
-        summaryText
-      );
-
-
-    createAISummarySheet_(
-      summaryText,
-      settings
-    );
-
-    createFuturePlanSheet_(
-      futurePlanText,
-      settings
-    );
-
-
-    moveReportSheetsInOrder_();
-
-    SpreadsheetApp.flush();
-
-
-    return {
-      success:
-        true,
-
-      message:
-        "주관식 분석, AI 총평 및 향후계획이 생성되었습니다.",
-
-      generatedSheets: [
-        "06_주관식분석",
-        "07_AI총평",
-        "08_향후계획"
-      ],
-
-      opinionValidCount:
-        opinion.validCount
-        || 0
-    };
-
-  } catch (error) {
-    return {
-      success:
-        false,
-
-      error:
-        getWebErrorMessage_(
-          error
-        )
-    };
-
-  } finally {
-    try {
-      lock.releaseLock();
-    } catch (ignored) {
-      // 잠금이 획득되지 않은 경우 무시합니다.
-    }
-  }
-}
-
-
-// ==========================================================================
-// 대시보드 데이터 조회
-// ==========================================================================
-
-/**
- * 웹 대시보드에 표시할 전체 분석 결과를 반환합니다.
- *
- * @return {Object}
- */
-function getSurveyDashboardDataFromWeb() {
-  try {
-    const data =
-      getRawSurveyObjects_();
-
-    const analysis =
-      calculateSurveyAnalysis_(
-        data
-      );
-
-
-    const settingsResult =
-      getSurveySettingsForWeb();
-
-
-    return {
-      success:
-        true,
-
-      settings:
-        settingsResult
-        && settingsResult.success
-          ? settingsResult.settings
-          : {},
-
-      summary:
-        buildSurveyDashboardSummary_(
-          analysis
-        ),
-
-      userTypes:
-        analysis.userTypes,
-
-      satisfaction:
-        analysis.satisfaction,
-
-      recommendation:
-        analysis.recommendation,
-
-      multiple:
-        analysis.multiple
-    };
-
-  } catch (error) {
-    return {
-      success:
-        false,
-
-      error:
-        getWebErrorMessage_(
-          error
-        )
-    };
-  }
-}
-/**
  * 범용 만족도 조사 대시보드 데이터를 웹페이지로 반환합니다.
  *
  * 기준 데이터:
@@ -830,14 +196,11 @@ function getSurveyDashboardDataFromWeb() {
  */
 function getDynamicSurveyDashboardDataFromWeb() {
   try {
-    const analysis =
-      calculateDynamicSurveyAnalysis_();
-
-    const recommendation =
-      analysis.recommendation
-      && analysis.recommendation.length > 0
-        ? analysis.recommendation[0]
-        : null;
+    const source=getDynamicSurveySource_();
+    const analysis=calculateDynamicSurveyAnalysis_(source);
+    const quality=validateDynamicSurveyQuality_(analysis,source);
+    const npsItems=(analysis.recommendation||[]).filter(function(item){return item.scaleKind==="NPS_0_10";});
+    const fivePointItems=(analysis.recommendation||[]).filter(function(item){return item.scaleKind==="RECOMMENDATION_1_5";});
 
     return {
       success: true,
@@ -847,7 +210,7 @@ function getDynamicSurveyDashboardDataFromWeb() {
           analysis.respondentCount,
 
         overallAverage:
-          analysis.scaleSummary.overallAverage,
+          analysis.scaleSummary.weightedAverage,
 
         overallConverted100:
           analysis.scaleSummary.overallConverted100,
@@ -856,14 +219,18 @@ function getDynamicSurveyDashboardDataFromWeb() {
           analysis.scaleSummary.overallPositiveRate,
 
         recommendationAverage:
-          recommendation
-            ? recommendation.average
-            : 0,
+          fivePointItems.length ? fivePointItems[0].average : null,
 
         recommendationPositiveRate:
-          recommendation
-            ? recommendation.positiveRate
-            : 0
+          fivePointItems.length ? fivePointItems[0].positiveRate : null,
+
+        analyzedQuestionCount: analysis.summary.analyzedQuestionCount,
+        opinionCount: analysis.summary.opinionCount,
+        missingRate: analysis.summary.missingRate,
+        nps: npsItems.length ? npsItems[0].nps : null,
+        npsStatus: npsItems.length ? "산출" : "NPS 문항 없음",
+        qualityStatus: quality.status,
+        aiAllowed: quality.aiAllowed
       },
 
       satisfaction:
@@ -915,6 +282,18 @@ function getDynamicSurveyDashboardDataFromWeb() {
                 })
           };
         }),
+
+      respondent: (analysis.respondent || []).map(function(question) {
+        return {question: question.question, items: (question.items || []).slice(0, 10)};
+      }),
+
+      composition: (analysis.scale || []).map(function(item) {
+        return {label: item.question, positiveRate: item.positiveRate,
+          neutralRate: item.neutralRate, negativeRate: item.negativeRate};
+      }),
+
+      recommendations: analysis.recommendation || [],
+      quality: quality,
 
       message:
         "범용 대시보드 데이터를 불러왔습니다."
@@ -1054,273 +433,6 @@ function getLowestSatisfactionItem_(
 // ==========================================================================
 // 웹페이지용 Excel 내보내기
 // ==========================================================================
-
-/**
- * 웹페이지에서 보고서 Excel을 생성하고 파일 URL을 반환합니다.
- *
- * @param {string=} requestedFileName 사용자가 입력한 파일명
- * @return {Object}
- */
-function exportSurveyReportFromWeb(
-  requestedFileName
-) {
-  let temporarySpreadsheet = null;
-
-  const lock =
-    LockService.getScriptLock();
-
-
-  try {
-    lock.waitLock(
-      30000
-    );
-
-
-    const sourceSpreadsheet =
-      SpreadsheetApp.getActiveSpreadsheet();
-
-
-    const missingSheets =
-      APP_CONFIG.REPORT_SHEETS
-        .filter(function(sheetName) {
-          return !sourceSpreadsheet
-            .getSheetByName(
-              sheetName
-            );
-        });
-
-
-    if (
-      missingSheets.length > 0
-    ) {
-      throw new Error(
-        "다음 시트가 없습니다.\n- "
-        + missingSheets.join(
-          "\n- "
-        )
-        + "\n먼저 전체 보고서를 생성해 주세요."
-      );
-    }
-
-
-    let fileName =
-      cleanText_(
-        requestedFileName
-      )
-      || buildReportFileName_();
-
-
-    if (
-      !fileName
-        .toLowerCase()
-        .endsWith(
-          ".xlsx"
-        )
-    ) {
-      fileName +=
-        ".xlsx";
-    }
-
-
-    fileName =
-      sanitizeFileName_(
-        fileName
-      );
-
-
-    temporarySpreadsheet =
-      SpreadsheetApp.create(
-        "TEMP_SURVEY_EXPORT_"
-        + Date.now()
-      );
-
-
-    APP_CONFIG.REPORT_SHEETS
-      .forEach(function(sheetName) {
-        const sourceSheet =
-          sourceSpreadsheet
-            .getSheetByName(
-              sheetName
-            );
-
-
-        sourceSheet
-          .copyTo(
-            temporarySpreadsheet
-          )
-          .setName(
-            sheetName
-          );
-      });
-
-
-    temporarySpreadsheet
-      .getSheets()
-      .forEach(function(sheet) {
-        if (
-          !APP_CONFIG.REPORT_SHEETS
-            .includes(
-              sheet.getName()
-            )
-        ) {
-          temporarySpreadsheet
-            .deleteSheet(
-              sheet
-            );
-        }
-      });
-
-
-    APP_CONFIG.REPORT_SHEETS
-      .forEach(function(
-        sheetName,
-        index
-      ) {
-        const sheet =
-          temporarySpreadsheet
-            .getSheetByName(
-              sheetName
-            );
-
-
-        if (!sheet) {
-          return;
-        }
-
-
-        temporarySpreadsheet
-          .setActiveSheet(
-            sheet
-          );
-
-
-        temporarySpreadsheet
-          .moveActiveSheet(
-            index + 1
-          );
-      });
-
-
-    SpreadsheetApp.flush();
-
-    Utilities.sleep(
-      1500
-    );
-
-
-    const exportUrl =
-      "https://docs.google.com/spreadsheets/d/"
-      + temporarySpreadsheet.getId()
-      + "/export?format=xlsx&exportFormat=xlsx";
-
-
-    const response =
-      UrlFetchApp.fetch(
-        exportUrl,
-        {
-          method:
-            "get",
-
-          headers: {
-            Authorization:
-              "Bearer "
-              + ScriptApp.getOAuthToken()
-          },
-
-          muteHttpExceptions:
-            true
-        }
-      );
-
-
-    if (
-      response.getResponseCode()
-      !== 200
-    ) {
-      throw new Error(
-        "Excel 변환에 실패했습니다. HTTP "
-        + response.getResponseCode()
-      );
-    }
-
-
-    const blob =
-      response
-        .getBlob()
-        .setName(
-          fileName
-        )
-        .setContentType(
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        );
-
-
-const savedFile =
-  DriveApp.createFile(blob);
-
-savedFile.setSharing(
-  DriveApp.Access.ANYONE_WITH_LINK,
-  DriveApp.Permission.VIEW
-);
-
-return {
-  success: true,
-
-  message:
-    "보고서 Excel 파일을 생성했습니다.",
-
-  fileName:
-    savedFile.getName(),
-
-  fileId:
-    savedFile.getId(),
-
-  fileUrl: "",
-
-  downloadUrl:
-    "https://drive.google.com/uc"
-    + "?export=download"
-    + "&id="
-    + savedFile.getId()
-};
-
-  } catch (error) {
-    return {
-      success:
-        false,
-
-      error:
-        getWebErrorMessage_(
-          error
-        )
-    };
-
-  } finally {
-    if (
-      temporarySpreadsheet
-    ) {
-      try {
-        DriveApp
-          .getFileById(
-            temporarySpreadsheet.getId()
-          )
-          .setTrashed(
-            true
-          );
-      } catch (ignored) {
-        // 임시 파일 삭제 실패는 무시합니다.
-      }
-    }
-
-
-    try {
-      lock.releaseLock();
-    } catch (ignored) {
-      // 잠금이 획득되지 않은 경우 무시합니다.
-    }
-  }
-}
-
 
 // ==========================================================================
 // 공통 오류 처리
