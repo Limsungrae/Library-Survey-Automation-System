@@ -21,25 +21,40 @@
  */
 function generateDynamicStatisticalReportFromWeb() {
   const lock = LockService.getScriptLock();
+  let currentStage = "분석 잠금 획득";
 
   try {
     lock.waitLock(30000);
 
+    currentStage = "조사 설정 조회";
     const settings = getSurveySettings_();
+    currentStage = "문항 매핑 및 범용 원자료 조회";
     const source = getDynamicSurveySource_();
+    currentStage = "동적 통계 계산";
     const analysis = calculateDynamicSurveyAnalysis_(source);
+    currentStage = "통계 품질검사";
     const quality = validateDynamicSurveyQuality_(analysis, source);
 
+    currentStage = "품질검사 시트 생성";
     createDynamicQualitySheet_(analysis, quality);
+    currentStage = "조사개요 시트 생성";
     createDynamicOverviewSheet_(analysis, settings);
+    currentStage = "대시보드 시트 생성";
     createDynamicDashboardSheet_(analysis, settings);
+    currentStage = "응답자특성 시트 생성";
     createDynamicRespondentSheet_(analysis);
+    currentStage = "단일응답 시트 생성";
     createDynamicSingleSheet_(analysis);
+    currentStage = "복수응답 시트 생성";
     createDynamicMultipleSheet_(analysis);
+    currentStage = "척도분석 시트 생성";
     createDynamicSatisfactionSheet_(analysis);
+    currentStage = "추천의향 시트 생성";
     createDynamicRecommendationSheet_(analysis);
+    currentStage = "주관식 시트 생성";
     createDynamicOpinionRawSheet_(analysis);
 
+    currentStage = "통계 시트 정렬 및 저장";
     moveDynamicStatisticalSheetsInOrder_();
     SpreadsheetApp.flush();
 
@@ -62,11 +77,11 @@ function generateDynamicStatisticalReportFromWeb() {
     };
 
   } catch (error) {
+    const errorMessage = getWebErrorMessage_(error);
+    console.error("Dynamic Survey Analysis 실패 [" + currentStage + "]: " + errorMessage);
     return {
       success: false,
-      error: error && error.message
-        ? error.message
-        : String(error)
+      error: "통계 분석 실패 (" + currentStage + "): " + errorMessage
     };
 
   } finally {
