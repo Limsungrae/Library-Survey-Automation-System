@@ -81,6 +81,48 @@ function cleanText_(value) {
 
 
 /**
+ * Dynamic Survey 원문에서 AI·품질검사에 전달할 개인정보를 비식별 처리합니다.
+ * 빈 값과 개인정보가 아닌 문자열은 그대로 유지합니다.
+ *
+ * @param {*} value 원본 문자열
+ * @return {string} 비식별 처리된 문자열
+ */
+function maskDynamicPersonalInfo_(value) {
+  let text = cleanText_(value);
+
+  if (!text) {
+    return "";
+  }
+
+  text = text.replace(
+    /\b(0\d{1,2})[-\s]?\d{3,4}[-\s]?(\d{4})\b/g,
+    "$1-****-$2"
+  );
+
+  text = text.replace(
+    /\b([A-Z0-9])[A-Z0-9._%+-]*@([A-Z0-9.-]+\.[A-Z]{2,})\b/gi,
+    "$1***@$2"
+  );
+
+  text = text.replace(
+    /\b(\d{6})[-\s]?[1-4]\d{6}\b/g,
+    "$1-*******"
+  );
+
+  text = text.replace(
+    /((?:이름|성명)\s*[:：]?\s*)([가-힣])([가-힣]+)([가-힣])/g,
+    "$1$2*$4"
+  );
+
+  if (/^[가-힣]{3}$/.test(text)) {
+    text = text.charAt(0) + "*" + text.charAt(2);
+  }
+
+  return text;
+}
+
+
+/**
  * 정규식 특수문자를 안전하게 이스케이프합니다.
  */
 function escapeRegex_(value) {
@@ -404,10 +446,20 @@ function saveSurveySettingsFromWeb(settingsData) {
       APP_CONFIG.SETTINGS_SHEET
       || "00_설정";
 
-    const sheet =
-      getOrCreateSheet_(
+    const spreadsheet =
+      SpreadsheetApp.getActiveSpreadsheet();
+
+    let sheet =
+      spreadsheet.getSheetByName(
         sheetName
       );
+
+    if (!sheet) {
+      sheet =
+        spreadsheet.insertSheet(
+          sheetName
+        );
+    }
 
     removeAllCharts_(
       sheet

@@ -36,8 +36,13 @@ function testDynamicSurveyV2RegressionSuite() {
     equal_(rows[0].rank,rows[1].rank,"공동순위");});
   test_("Critical 품질 오류 AI 차단",function(){const r=scale_(["알 수 없음"]),q=validateDynamicSurveyQuality_({respondentCount:1,respondent:[],single:[],multiple:[],scale:[r],recommendation:[],text:[]},null);
     equal_(q.aiAllowed,false,"AI 차단");});
-  test_("개인정보 마스킹",function(){const masked=maskDynamicPersonalInfo_("010-1234-5678 test@example.com");
-    equal_(containsDynamicPersonalInfo_(masked),false,"개인정보 잔존");});
+  test_("개인정보 마스킹",function(){
+    equal_(maskDynamicPersonalInfo_("010-1234-5678"),"010-****-5678","전화번호");
+    equal_(maskDynamicPersonalInfo_("abc@test.com"),"a***@test.com","이메일");
+    equal_(maskDynamicPersonalInfo_("900101-1234567"),"900101-*******","주민번호");
+    equal_(maskDynamicPersonalInfo_("홍길동"),"홍*동","이름");
+    equal_(maskDynamicPersonalInfo_(""),"","빈 문자열");
+    equal_(containsDynamicPersonalInfo_(maskDynamicPersonalInfo_("010-1234-5678 test@example.com")),false,"개인정보 잔존");});
   test_("결측과 미매핑 분리",function(){const r=scale_(["","알 수 없음"]);equal_(r.missingCount,1,"결측");equal_(r.unmappedCount,1,"미매핑");});
   test_("동일 응답자 중복 선택 제거",function(){const r=analyzeDynamicMultipleQuestions_({respondentCount:1,rows:[["AI교육, AI교육, 독서모임"]],mappings:[{columnNumber:1,originalHeader:"복수",selectedType:"MULTIPLE",analysisTarget:true}]})[0];
     equal_(r.totalSelections,2,"중복 제거");});
