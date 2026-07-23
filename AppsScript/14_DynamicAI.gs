@@ -32,82 +32,61 @@
  *
  * @return {Object} 생성 결과 리포트 오브젝트
  */
-function generateDynamicAIReport() {
-  // 동시에 여러 사람이 실행했을 때 데이터가 꼬이지 않도록 스크립트 잠금(Lock)을 가져옵니다.
-  const lock = LockService.getScriptLock();
-
+function generateDynamicAIReport(onStage) {
+  let lock=null;
+  const updateStage = typeof onStage === "function"
+    ? onStage
+    : function() {};
   try {
-    // 다른 프로세스가 끝나기를 최대 30초(30000ms) 동안 기다립니다.
-    lock.waitLock(30000);
-
-    // 설문조사 기본 설정 데이터(조사명, 기간 등)를 가져옵니다.
-    const settings = getSurveySettings_();
-
-    // 스프레드시트에서 객관식/주관식 통계 분석 기초 데이터를 계산하여 가져옵니다.
-    const analysis = calculateDynamicSurveyAnalysis_();
-
-    // 주관식 의견 데이터를 AI(Gemini)에 보내 의미별로 범주화(분류)하고 검증합니다.
-    const opinionAnalysis = analyzeDynamicOpinionsWithAI_(analysis, settings);
-
-    // 총평과 향후계획 작성을 위해 통계 데이터와 AI 분석 결과를 하나의 컨텍스트로 결합합니다.
-    const context = buildDynamicAIContext_(analysis, opinionAnalysis, settings);
-
-    // 결합된 데이터를 바탕으로 AI에게 'AI 총평' 텍스트 초안 작성을 요청합니다.
-    const summaryText = generateDynamicAISummaryText_(context);
-
-    // 총평 내용과 데이터를 참고하여 AI에게 '향후 계획' 텍스트 초안 작성을 요청합니다.
-    const futurePlanText = generateDynamicFuturePlanText_(context, summaryText);
-
-    // 1단계: 06_주관식분석 시트를 생성하고 AI가 분류한 카테고리 및 상세 표를 기록합니다.
-    createDynamicAIOpinionSheet_(analysis, opinionAnalysis);
-
-    // 2단계: 07_AI총평 시트를 생성하고 가독성 있게 디자인된 양식에 AI 총평을 기록합니다.
-    createDynamicAITextSheet_(
-      "07_AI총평",
-      "AI 총평",
-      summaryText,
-      "※ 본 문안은 설문 통계와 주관식 의견을 바탕으로 Gemini가 작성한 초안이며, 담당자의 최종 검토가 필요합니다."
-    );
-
-    // 3단계: 08_향후계획 시트를 생성하고 가독성 있게 디자인된 양식에 향후 계획을 기록합니다.
-    createDynamicAITextSheet_(
-      "08_향후계획",
-      "향후계획",
-      futurePlanText,
-      "※ 본 문안은 조사 결과에 근거한 검토용 초안이며, 확정된 정책·예산·일정을 의미하지 않습니다."
-    );
-
-    // 생성된 시트들(06, 07, 08)을 보고서 순서(7, 8, 9번째 탭)에 맞게 정렬합니다.
-    moveDynamicAISheetsInOrder_();
-
-    // 스프레드시트에 변경된 모든 서식과 데이터를 즉시 반영(새로고침)합니다.
-    SpreadsheetApp.flush();
-
-    // 성공 메시지와 요약 정보를 반환합니다.
-    return {
-      success: true,
-      message: "범용 AI 주관식 분석, 총평 및 향후계획 생성이 완료되었습니다.",
-      generatedSheets: ["06_주관식분석", "07_AI총평", "08_향후계획"],
-      summary: {
-        validOpinionCount: opinionAnalysis.validCount, // 유효한 주관식 의견 총 개수
-        categoryCount: opinionAnalysis.categories.length // AI가 분류해 낸 카테고리 총 개수
-      }
-    };
-
-  } catch (error) {
-    // 에러 발생 시 예외 처리를 통해 구체적인 에러 메시지를 던집니다.
-    throw new Error(error && error.message ? error.message : String(error));
-
-  } finally {
-    // 작업이 정상 종료되거나 에러가 나더라도 반드시 스크립트 잠금을 해제합니다.
-    try {
-      lock.releaseLock();
-    } catch (ignored) {
-      // 잠금을 애초에 획득하지 못했을 경우 발생하는 에러는 무시합니다.
+    updateStage("조사 설정 조회");
+    const settings=getSurveySettings_();
+    updateStage("동적 분석 결과 조회");
+    const source=getDynamicSurveySource_();
+    const analysis=calculateDynamicSurveyAnalysis_(source);
+    updateStage("통계 품질검사");
+    const quality=validateDynamicSurveyQuality_(analysis,source);
+    if(!quality.aiAllowed){
+      updateStage("AI 차단 결과 시트 생성");
+      createDynamicAIBlockedSheet_(quality);
+      return {success:false,message:"통계 품질검사 실패로 AI 보고서 생성을 중단했습니다.",
+        error:"품질검사 오류를 먼저 해결해 주세요.",quality:quality,generatedSheets:["09_AI총평"]};
     }
-  }
+    // 외부 호출 중에는 ScriptLock을 보유하지 않습니다.
+    const opinionAnalysis=analyzeDynamicOpinionsWithAI_(analysis,settings,updateStage);
+    updateStage("검증된 AI 컨텍스트 생성");
+    const context=buildDynamicAIContext_(analysis,opinionAnalysis,settings,quality);
+    updateStage("Gemini 총평 요청");
+    const summaryText=generateDynamicAISummaryText_(context);
+    updateStage("Gemini 총평 응답 처리");
+    updateStage("Gemini 향후계획 요청");
+    const futurePlanText=generateDynamicFuturePlanText_(context,summaryText);
+    updateStage("Gemini 향후계획 응답 처리");
+    updateStage("보고서 저장 잠금 획득");
+    lock=LockService.getScriptLock();lock.waitLock(30000);
+    updateStage("08_주관식분석 시트 생성");
+    createDynamicAIOpinionSheet_(analysis,opinionAnalysis);
+    updateStage("09_AI총평 시트 생성");
+    createDynamicAITextSheet_("09_AI총평","AI 총평",summaryText,
+      "※ 품질검사를 통과한 집계와 비식별 의견만 사용한 Gemini 초안입니다. 담당자 검토가 필요합니다.");
+    updateStage("10_향후계획 시트 생성");
+    createDynamicAITextSheet_("10_향후계획","향후계획",futurePlanText,
+      "※ 확정 정책·예산·일정이 아닌 검토용 초안입니다.");
+    updateStage("AI 보고서 시트 정렬 및 저장");
+    moveDynamicAISheetsInOrder_();SpreadsheetApp.flush();
+    const generatedSheets=["08_주관식분석","09_AI총평","10_향후계획"];
+    const summary={validOpinionCount:opinionAnalysis.validCount,categoryCount:opinionAnalysis.categories.length};
+    return {success:true,message:"범용 AI 보고서 생성이 완료되었습니다.",
+      generatedSheets:generatedSheets,quality:quality,summary:summary};
+  } catch(error){throw new Error(error&&error.message?error.message:String(error));}
+  finally{if(lock){try{lock.releaseLock();}catch(ignored){}}}
 }
 
+function createDynamicAIBlockedSheet_(quality) {
+  const sheet=getOrResetDynamicAISheet_("09_AI총평");setDynamicAISheetTitle_(sheet,"AI 총평 생성 차단",8);
+  const rows=[["수준","코드","문항","오류"]].concat((quality.errors||[]).map(function(item){return [item.level,item.code,item.questionId,item.message];}));
+  sheet.getRange(4,1,rows.length,4).setValues(rows);styleDynamicAIHeader_(sheet.getRange(4,1,1,4));
+  if(rows.length>1)styleDynamicAITable_(sheet.getRange(4,1,rows.length,4));
+}
 
 /**
  * 웹페이지(UI) 단에서 범용 AI 보고서 생성 요청이 올 때 호출하는 안전한 실행 함수입니다.
@@ -115,14 +94,31 @@ function generateDynamicAIReport() {
  * @return {Object} 성공 또는 에러 객체 반환
  */
 function generateDynamicAIReportFromWeb() {
+  let currentStage = "AI 보고서 요청 시작";
   try {
-    // 메인 로직 함수를 실행하고 결과를 그대로 웹에 전달합니다.
-    return generateDynamicAIReport();
+    const result = generateDynamicAIReport(function(stage) {
+      currentStage = stage;
+      console.log("Dynamic AI 단계:", currentStage);
+    });
+
+    if (result && result.success === true) {
+      console.log("Dynamic AI 반환 직전", {
+        generatedSheets: result.generatedSheets,
+        summary: result.summary
+      });
+    }
+
+    return result;
   } catch (error) {
-    // 웹 프론트엔드에서 처리할 수 있도록 에러 포맷을 정돈하여 반환합니다.
+    console.error(
+      "Dynamic AI 실패 단계:",
+      currentStage,
+      error && error.stack ? error.stack : error
+    );
     return {
       success: false,
-      error: error && error.message ? error.message : String(error)
+      error: "AI 보고서 생성 실패 (" + currentStage + "): "
+        + (error && error.message ? error.message : String(error))
     };
   }
 }
@@ -136,7 +132,11 @@ function generateDynamicAIReportFromWeb() {
  * @param {Object} settings 조사 설정
  * @return {Object} AI 분석 및 검증이 완료된 데이터 구조
  */
-function analyzeDynamicOpinionsWithAI_(analysis, settings) {
+function analyzeDynamicOpinionsWithAI_(analysis, settings, onStage) {
+  const updateStage = typeof onStage === "function"
+    ? onStage
+    : function() {};
+  updateStage("주관식 의견 수집 및 개인정보 마스킹");
   const opinions = []; // AI에게 보낼 정돈된 의견들을 담을 배열
 
   // 분석 데이터 내 텍스트 문항 배열을 순회합니다.
@@ -181,6 +181,7 @@ ${surveyName}
 - 구체적인 개선 요구가 없는 긍정 표현을 개선 요구로 확대 해석하지 않는다.
 - 한 의견에 여러 의미가 있으면 최대 2개 범주에 중복 배정할 수 한다.
 - categoryName은 짧고 공공기관 보고서에 적합한 명사형 문구로 작성한다.
+- sentiment는 POSITIVE, NEGATIVE, SUGGESTION, INCONVENIENCE, OTHER 중 하나로 작성한다.
 - opinionIds에는 아래 입력에 존재하는 ID만 사용한다.
 - 존재하지 않는 ID를 만들지 않는다.
 - 대표 의견은 원문을 길게 복사하지 말고 핵심 의미를 1문장으로 요약한다.
@@ -202,6 +203,7 @@ ${opinions
   "categories": [
     {
       "categoryName": "범주명",
+      "sentiment": "SUGGESTION",
       "opinionIds": ["11-4", "11-7"],
       "representativeOpinions": [
         "대표 의견 요약"
@@ -211,7 +213,10 @@ ${opinions
 }`;
 
   // 공통 라이브러리 함수를 호출하여 AI로부터 규칙에 맞는 JSON 답변을 받아옵니다.
-  const result = callGeminiJson_(prompt, schemaText);
+  updateStage("Gemini 주관식 분류 요청");
+  const result = callGeminiJson_(prompt, schemaText, function() {
+    updateStage("Gemini 주관식 분류 응답 파싱");
+  });
 
   // 데이터 검증을 위해 원본 의견들의 고유 ID를 key로 가지는 맵(Map)을 생성합니다.
   const validOpinionMap = {};
@@ -252,12 +257,17 @@ ${opinions
 
     // AI가 작성한 카테고리별 요약 대표 의견을 최대 3개까지만 가져옵니다.
     const representativeOpinions = Array.isArray(categoryItem.representativeOpinions)
-      ? categoryItem.representativeOpinions.map(cleanText_).filter(Boolean).slice(0, 3)
+      ? categoryItem.representativeOpinions.map(function(value) {
+          return maskDynamicPersonalInfo_(cleanText_(value));
+        }).filter(Boolean).slice(0, 3)
       : [];
 
     // 검증된 정보와 실제 매핑된 데이터 건수를 기반으로 최종 카테고리 객체를 생성하여 배열에 추가합니다.
     categories.push({
       category: categoryName,
+      sentiment: ["POSITIVE", "NEGATIVE", "SUGGESTION", "INCONVENIENCE", "OTHER"]
+        .indexOf(cleanText_(categoryItem.sentiment).toUpperCase()) >= 0
+          ? cleanText_(categoryItem.sentiment).toUpperCase() : "OTHER",
       count: opinionIds.length, // AI가 준 값이 아닌, 실제 유효 필터링을 거친 건수를 기록!
       opinionIds: opinionIds,
       responseNumbers: opinionIds.map(function(id) {
@@ -271,6 +281,20 @@ ${opinions
   categories.sort(function(a, b) {
     return b.count - a.count || a.category.localeCompare(b.category, "ko");
   });
+
+  const assignedIds = {};
+  categories.forEach(function(category) {
+    category.opinionIds.forEach(function(id) { assignedIds[id] = true; });
+  });
+  const unassignedIds = opinions.map(function(item) { return item.id; }).filter(function(id) {
+    return !assignedIds[id];
+  });
+  if (unassignedIds.length > 0) {
+    categories.push({category: "미분류 의견", sentiment: "OTHER", count: unassignedIds.length,
+      opinionIds: unassignedIds, responseNumbers: unassignedIds.map(function(id) {
+        return validOpinionMap[id].responseNumber;
+      }), representativeOpinions: []});
+  }
 
   // 역으로, 원본 의견별로 본인이 어떤 카테고리들에 매핑되었는지 정리(역인덱싱)합니다.
   const opinionAssignments = opinions.map(function(opinion) {
@@ -308,7 +332,7 @@ ${opinions
  * @param {Object} settings 조사 설정
  * @return {Object} AI에 주입할 정제된 팩트 데이터 셋
  */
-function buildDynamicAIContext_(analysis, opinionAnalysis, settings) {
+function buildDynamicAIContext_(analysis, opinionAnalysis, settings, quality) {
   return {
     // 1. 설문조사 기본 개요 정보
     survey: {
@@ -319,6 +343,7 @@ function buildDynamicAIContext_(analysis, opinionAnalysis, settings) {
       method: getDynamicAISetting_(settings, "조사방법", "surveyMethod")
     },
 
+    quality: quality || null,
     respondentCount: analysis.respondentCount, // 총 응답자 수
     satisfactionSummary: analysis.scaleSummary, // 척도(만족도) 문항 종합 요약 점수
 
@@ -333,7 +358,7 @@ function buildDynamicAIContext_(analysis, opinionAnalysis, settings) {
         neutralRate: item.neutralRate,   // 보통 응답률 (%)
         negativeRate: item.negativeRate, // 부정 응답률 (%)
         rank: item.rank,                 // 전체 만족도 문항 중 순위
-        deviation: item.deviation        // 표준편차 (의견 분산 정도)
+        deviation: item.deviation        // 전체 가중평균 대비 차이
       };
     }),
 
@@ -347,6 +372,8 @@ function buildDynamicAIContext_(analysis, opinionAnalysis, settings) {
         positiveRate: item.positiveRate,
         neutralRate: item.neutralRate,
         negativeRate: item.negativeRate
+        ,scaleKind: item.scaleKind
+        ,nps: item.nps
       };
     }),
 
@@ -393,6 +420,7 @@ function generateDynamicAISummaryText_(context) {
 아래 검증된 조사자료만 근거로 "총평" 초안을 작성한다.
 
 작성 규칙:
+${buildDynamicAIInterpretationRules_()}
 - 각 항목은 "○ "로 시작한다.
 - 총 5개 이상 7개 이하의 항목으로 작성한다.
 - 전체 응답자 수를 포함한다.
@@ -440,6 +468,7 @@ function generateDynamicFuturePlanText_(context, summaryText) {
 아래 검증된 조사자료와 총평 초안만 근거로 "향후계획" 초안을 작성한다.
 
 작성 규칙:
+${buildDynamicAIInterpretationRules_()}
 - 각 항목은 "○ "로 시작한다.
 - 총 4개 이상 6개 이하의 항목으로 작성한다.
 - 주관식 의견과 복수응답에서 실제로 확인된 요구에 대응한다.
@@ -471,6 +500,15 @@ ${summaryText}
   });
 }
 
+function buildDynamicAIInterpretationRules_() {
+  return [
+    "- 제공된 수치를 다시 계산하거나 새로운 수치를 만들지 않는다.",
+    "- 전년도 자료가 없으므로 증가·감소·전년 대비 표현을 사용하지 않는다.",
+    "- 원인을 언급해야 하면 확인된 사실이 아니라 추론임을 명시한다.",
+    "- 근거 없는 인과관계, 정책, 예산, 일정은 생성하지 않는다."
+  ].join("\n");
+}
+
 
 /**
  * '06_주관식분석' 시트를 초기화하고 AI 분류 통계 데이터와 원문 매핑 상세 표를 그려줍니다.
@@ -480,7 +518,7 @@ ${summaryText}
  */
 function createDynamicAIOpinionSheet_(analysis, opinionAnalysis) {
   // 시트가 이미 있다면 깨끗이 밀어버리고(초기화) 새로 가져옵니다.
-  const sheet = getOrResetDynamicAISheet_("06_주관식분석");
+  const sheet = getOrResetDynamicAISheet_("08_주관식분석");
 
   // 시트 맨 상단에 제목(1~2행 병합)을 배치합니다. 총 7개 열 크기입니다.
   setDynamicAISheetTitle_(sheet, "주관식 의견 AI 분석", 7);
@@ -524,6 +562,16 @@ function createDynamicAIOpinionSheet_(analysis, opinionAnalysis) {
     
     // 테이블 전체 영역에 회색 테두리 등의 기본 격자 서식을 적용합니다.
     styleDynamicAITable_(sheet.getRange(4, 1, categoryRows.length + 1, 7));
+
+    try {
+      const chart = sheet.newChart().setChartType(Charts.ChartType.BAR)
+        .addRange(sheet.getRange(4, 2, categoryRows.length + 1, 2))
+        .setOption("title", "AI 의견 범주별 건수")
+        .setOption("legend", {position: "none"}).setPosition(4, 9, 0, 0).build();
+      sheet.insertChart(chart);
+    } catch (chartError) {
+      console.warn("주관식 차트 생성 건너뜀: " + chartError.message);
+    }
 
   } else {
     // 데이터가 아예 없을 때 예외적으로 출력할 안내 문구 세팅입니다.
@@ -680,31 +728,6 @@ function splitDynamicAIParagraphs_(text) {
 
 
 /**
- * 주관식 답변 내용 중 외부 유출 위험이 있는 개인정보(휴대폰, 유선번호, 이메일)를 정규식으로 탐지해 비식별 마스킹 처리합니다.
- * 이 처리는 Gemini AI API로 데이터를 전송하기 직전에 수행되어 보안을 강화합니다.
- *
- * @param {*} value 원본 주관식 답변 데이터
- * @return {string} 개인정보가 마스킹된 안전한 텍스트
- */
-function maskDynamicPersonalInfo_(value) {
-  let text = cleanText_(value); // 기본 텍스트 트림 및 정리
-
-  if (!text) return "";
-
-  // 1. 휴대폰 번호 패턴 탐지 및 치환 (예: 010-1234-5678, 010 1234 5678, 01012345678 모두 대응)
-  text = text.replace(/\b01[016789][-\s]?\d{3,4}[-\s]?\d{4}\b/g, "[연락처 비식별]");
-
-  // 2. 일반 지역번호 또는 인터넷 전화번호 패턴 탐지 및 치환 (예: 02-123-4567, 031-1234-5678 등)
-  text = text.replace(/\b0\d{1,2}[-\s]?\d{3,4}[-\s]?\d{4}\b/g, "[연락처 비식별]");
-
-  // 3. 이메일 주소 표준 규격 패턴 탐지 및 치환 (예: user@domain.com 등)
-  text = text.replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "[이메일 비식별]");
-
-  return text; // 마스킹 완료된 안전한 문자열 반환
-}
-
-
-/**
  * 설정 딕셔너리(Object)에서 한국어 키 또는 영문 웹 매핑 키를 사용해 설정값을 안전하게 추출합니다.
  *
  * @param {Object} settings '00_설정' 시트 기반 설정 맵
@@ -814,7 +837,7 @@ function moveDynamicAISheetsInOrder_() {
   const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
 
   // 정렬 순서 정의
-  ["06_주관식분석", "07_AI총평", "08_향후계획"].forEach(function(sheetName, index) {
+  ["08_주관식분석", "09_AI총평", "10_향후계획"].forEach(function(sheetName, index) {
     const sheet = spreadsheet.getSheetByName(sheetName);
 
     if (!sheet) return; // 혹시라도 시트가 없으면 패스합니다.
@@ -823,7 +846,7 @@ function moveDynamicAISheetsInOrder_() {
 
     // 00_설정 탭(1번째) 및 01~05 통계 탭(2~6번째)이 앞에 고정되어 있다고 전제하므로,
     // 활성화된 탭을 순서대로 각각 7번째, 8번째, 9번째 탭 위치로 명시적 이동시킵니다.
-    spreadsheet.moveActiveSheet(index + 7);
+    spreadsheet.moveActiveSheet(index + 9);
   });
 }
 
