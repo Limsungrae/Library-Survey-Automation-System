@@ -500,19 +500,28 @@ response data are not persisted in browser storage.
 | Order | Sheet | Purpose | Required/conditional |
 |---:|---|---|---|
 | 1 | `00_설정` | Survey configuration | Required |
-| 2 | `00_품질검사` | Validation summary/messages | Generated with statistics |
-| 3 | `01_조사개요` | Survey overview | Generated |
-| 4 | `02_대시보드` | KPIs and charts | Generated |
-| 5 | `03_응답자특성` | Respondent distributions | Generated |
-| 6 | `04_단일응답분석` | Single-response analysis | Generated |
-| 7 | `05_복수응답분석` | Multiple-response analysis | Generated |
-| 8 | `06_척도분석` | Scale analysis | Generated |
-| 9 | `07_추천의향분석` | NPS/5-point recommendation | Generated |
-| 10 | `08_주관식분석` | Opinion raw/AI categories | Generated; updated by AI |
-| 11 | `09_AI총평` | AI summary or AI-block reason | Conditional |
-| 12 | `10_향후계획` | AI future plan | Conditional |
-| 13 | `11_범용원자료` | Current generic raw responses | Required for dynamic analysis |
-| 14 | `12_문항매핑` | Current mapping persistence | Required for dynamic analysis |
+| 2 | `01_조사개요` | Survey overview | Generated |
+| 3 | `02_대시보드` | KPIs and table-based visual summaries | Generated |
+| 4 | `03_응답자특성` | Respondent distributions | Generated |
+| 5 | `04_단일응답분석` | Single-response analysis | Generated |
+| 6 | `05_복수응답분석` | Multiple-response analysis | Generated |
+| 7 | `06_척도분석` | Scale analysis | Generated |
+| 8 | `07_추천의향분석` | NPS/5-point recommendation | Generated |
+| 9 | `08_주관식분석` | Opinion raw/AI categories | Generated; updated by AI |
+| 10 | `09_AI총평` | AI summary or AI-block reason | Conditional |
+| 11 | `10_향후계획` | AI future plan | Conditional |
+| 12 | `11_범용원자료` | Current generic raw responses | Required for dynamic analysis |
+| 13 | `12_문항매핑` | Current mapping persistence | Required for dynamic analysis |
+
+Quality validation remains an internal in-memory gate and is not generated or
+exported as a user-facing report sheet.
+
+Generated report tables use a separate `시각화` column containing SPARKLINE bar
+formulas. Each question uses its own response-count MAX range, tied maxima remain
+highlighted with `#FFF2CC`, and report generation does not create EmbeddedChart
+objects. The final XLSX includes report/AI sheets through `11_범용원자료`; the
+operational `12_문항매핑` sheet remains in the source spreadsheet but is not part
+of the user-facing report export.
 
 ## 13.2 Legacy compatibility sheets
 

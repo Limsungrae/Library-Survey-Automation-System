@@ -520,14 +520,15 @@ function createDynamicAIOpinionSheet_(analysis, opinionAnalysis) {
   // 시트가 이미 있다면 깨끗이 밀어버리고(초기화) 새로 가져옵니다.
   const sheet = getOrResetDynamicAISheet_("08_주관식분석");
 
-  // 시트 맨 상단에 제목(1~2행 병합)을 배치합니다. 총 7개 열 크기입니다.
-  setDynamicAISheetTitle_(sheet, "주관식 의견 AI 분석", 7);
+  // 시트 맨 상단에 제목(1~2행 병합)을 배치합니다.
+  setDynamicAISheetTitle_(sheet, "주관식 의견 AI 분석", 8);
 
   // 4행에 카테고리 요약 통계 테이블의 머리글(헤더)을 작성합니다.
-  sheet.getRange(4, 1, 1, 7).setValues([[
+  sheet.getRange(4, 1, 1, 8).setValues([[
     "순위",
     "의미 범주",
     "분류 건수",
+    "시각화",
     "유효 의견 대비 비율(%)",
     "응답 번호",
     "대표 의견 1",
@@ -535,7 +536,7 @@ function createDynamicAIOpinionSheet_(analysis, opinionAnalysis) {
   ]]);
 
   // 머리글 영역에 배경색, 정렬 등 공공기관 스타일 서식을 입힙니다.
-  styleDynamicAIHeader_(sheet.getRange(4, 1, 1, 7));
+  styleDynamicAIHeader_(sheet.getRange(4, 1, 1, 8));
 
   // 2차원 배열 형태로 시트에 입력할 카테고리별 요약 행 데이터를 가공합니다.
   const categoryRows = opinionAnalysis.categories.map(function(category, index) {
@@ -543,6 +544,7 @@ function createDynamicAIOpinionSheet_(analysis, opinionAnalysis) {
       index + 1,                   // 순위 (1등부터 시작)
       category.category,            // AI가 명사형으로 정한 의미 범주명
       category.count,               // 검증 완료된 소속 답변 개수
+      "",
       opinionAnalysis.validCount > 0
         ? round_(category.count / opinionAnalysis.validCount * 100, 1) // 비율 소수점 첫째자리 계산
         : 0,
@@ -555,13 +557,15 @@ function createDynamicAIOpinionSheet_(analysis, opinionAnalysis) {
   // 뿌려줄 카테고리 데이터가 하나 이상 존재한다면
   if (categoryRows.length > 0) {
     // 5행부터 데이터 길이만큼 영역을 잡아 표 데이터를 채워넣습니다.
-    sheet.getRange(5, 1, categoryRows.length, 7).setValues(categoryRows);
+    sheet.getRange(5, 1, categoryRows.length, 8).setValues(categoryRows);
     
     // 4번째 열(비율)에 소수점 첫째자리 서식("0.0")을 일괄 적용합니다.
-    sheet.getRange(5, 4, categoryRows.length, 1).setNumberFormat("0.0");
+    sheet.getRange(5, 5, categoryRows.length, 1).setNumberFormat("0.0");
     
     // 테이블 전체 영역에 회색 테두리 등의 기본 격자 서식을 적용합니다.
-    styleDynamicAITable_(sheet.getRange(4, 1, categoryRows.length + 1, 7));
+    styleDynamicAITable_(sheet.getRange(4, 1, categoryRows.length + 1, 8));
+    setDynamicBarSparklines_(sheet,5,categoryRows.length,3,4);
+    highlightDynamicMaximums_(sheet,5,categoryRows.length,[3,5]);
 
     try {
       const chart = sheet.newChart().setChartType(Charts.ChartType.BAR)
@@ -575,7 +579,7 @@ function createDynamicAIOpinionSheet_(analysis, opinionAnalysis) {
 
   } else {
     // 데이터가 아예 없을 때 예외적으로 출력할 안내 문구 세팅입니다.
-    sheet.getRange(5, 1, 1, 7)
+    sheet.getRange(5, 1, 1, 8)
       .merge()
       .setValue("AI로 분류할 유효한 주관식 의견이 없습니다.")
       .setHorizontalAlignment("center");
