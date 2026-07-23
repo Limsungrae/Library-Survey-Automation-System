@@ -114,6 +114,7 @@ function sanitizeFileName_(
  */
 function getDynamicExportSheetNames_() {
   return [
+    "00_품질검사",
     "01_조사개요",
     "02_대시보드",
     "03_응답자특성",
@@ -158,6 +159,7 @@ function createDynamicSurveyReportXlsx_(
 
     const requiredSheets = [
       "01_조사개요",
+      "00_품질검사",
       "02_대시보드",
       "03_응답자특성",
       "04_단일응답분석",

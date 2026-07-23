@@ -567,6 +567,16 @@ function createDynamicAIOpinionSheet_(analysis, opinionAnalysis) {
     setDynamicBarSparklines_(sheet,5,categoryRows.length,3,4);
     highlightDynamicMaximums_(sheet,5,categoryRows.length,[3,5]);
 
+    try {
+      const chart = sheet.newChart().setChartType(Charts.ChartType.BAR)
+        .addRange(sheet.getRange(4, 2, categoryRows.length + 1, 2))
+        .setOption("title", "AI 의견 범주별 건수")
+        .setOption("legend", {position: "none"}).setPosition(4, 9, 0, 0).build();
+      sheet.insertChart(chart);
+    } catch (chartError) {
+      console.warn("주관식 차트 생성 건너뜀: " + chartError.message);
+    }
+
   } else {
     // 데이터가 아예 없을 때 예외적으로 출력할 안내 문구 세팅입니다.
     sheet.getRange(5, 1, 1, 8)

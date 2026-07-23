@@ -41,6 +41,7 @@ function getDynamicSurveySystemStatusFromWeb() {
 
     const statisticalSheetNames = [
       "01_조사개요",
+      "00_품질검사",
       "02_대시보드",
       "03_응답자특성",
       "04_단일응답분석",
