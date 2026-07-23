@@ -32,33 +32,51 @@
  *
  * @return {Object} 생성 결과 리포트 오브젝트
  */
-function generateDynamicAIReport() {
+function generateDynamicAIReport(onStage) {
   let lock=null;
+  const updateStage = typeof onStage === "function"
+    ? onStage
+    : function() {};
   try {
+    updateStage("조사 설정 조회");
     const settings=getSurveySettings_();
+    updateStage("동적 분석 결과 조회");
     const source=getDynamicSurveySource_();
     const analysis=calculateDynamicSurveyAnalysis_(source);
+    updateStage("통계 품질검사");
     const quality=validateDynamicSurveyQuality_(analysis,source);
     if(!quality.aiAllowed){
+      updateStage("AI 차단 결과 시트 생성");
       createDynamicAIBlockedSheet_(quality);
       return {success:false,message:"통계 품질검사 실패로 AI 보고서 생성을 중단했습니다.",
         error:"품질검사 오류를 먼저 해결해 주세요.",quality:quality,generatedSheets:["09_AI총평"]};
     }
     // 외부 호출 중에는 ScriptLock을 보유하지 않습니다.
-    const opinionAnalysis=analyzeDynamicOpinionsWithAI_(analysis,settings);
+    const opinionAnalysis=analyzeDynamicOpinionsWithAI_(analysis,settings,updateStage);
+    updateStage("검증된 AI 컨텍스트 생성");
     const context=buildDynamicAIContext_(analysis,opinionAnalysis,settings,quality);
+    updateStage("Gemini 총평 요청");
     const summaryText=generateDynamicAISummaryText_(context);
+    updateStage("Gemini 총평 응답 처리");
+    updateStage("Gemini 향후계획 요청");
     const futurePlanText=generateDynamicFuturePlanText_(context,summaryText);
+    updateStage("Gemini 향후계획 응답 처리");
+    updateStage("보고서 저장 잠금 획득");
     lock=LockService.getScriptLock();lock.waitLock(30000);
+    updateStage("08_주관식분석 시트 생성");
     createDynamicAIOpinionSheet_(analysis,opinionAnalysis);
+    updateStage("09_AI총평 시트 생성");
     createDynamicAITextSheet_("09_AI총평","AI 총평",summaryText,
       "※ 품질검사를 통과한 집계와 비식별 의견만 사용한 Gemini 초안입니다. 담당자 검토가 필요합니다.");
+    updateStage("10_향후계획 시트 생성");
     createDynamicAITextSheet_("10_향후계획","향후계획",futurePlanText,
       "※ 확정 정책·예산·일정이 아닌 검토용 초안입니다.");
+    updateStage("AI 보고서 시트 정렬 및 저장");
     moveDynamicAISheetsInOrder_();SpreadsheetApp.flush();
+    const generatedSheets=["08_주관식분석","09_AI총평","10_향후계획"];
+    const summary={validOpinionCount:opinionAnalysis.validCount,categoryCount:opinionAnalysis.categories.length};
     return {success:true,message:"범용 AI 보고서 생성이 완료되었습니다.",
-      generatedSheets:["08_주관식분석","09_AI총평","10_향후계획"],quality:quality,
-      summary:{validOpinionCount:opinionAnalysis.validCount,categoryCount:opinionAnalysis.categories.length}};
+      generatedSheets:generatedSheets,quality:quality,summary:summary};
   } catch(error){throw new Error(error&&error.message?error.message:String(error));}
   finally{if(lock){try{lock.releaseLock();}catch(ignored){}}}
 }
@@ -76,14 +94,31 @@ function createDynamicAIBlockedSheet_(quality) {
  * @return {Object} 성공 또는 에러 객체 반환
  */
 function generateDynamicAIReportFromWeb() {
+  let currentStage = "AI 보고서 요청 시작";
   try {
-    // 메인 로직 함수를 실행하고 결과를 그대로 웹에 전달합니다.
-    return generateDynamicAIReport();
+    const result = generateDynamicAIReport(function(stage) {
+      currentStage = stage;
+      console.log("Dynamic AI 단계:", currentStage);
+    });
+
+    if (result && result.success === true) {
+      console.log("Dynamic AI 반환 직전", {
+        generatedSheets: result.generatedSheets,
+        summary: result.summary
+      });
+    }
+
+    return result;
   } catch (error) {
-    // 웹 프론트엔드에서 처리할 수 있도록 에러 포맷을 정돈하여 반환합니다.
+    console.error(
+      "Dynamic AI 실패 단계:",
+      currentStage,
+      error && error.stack ? error.stack : error
+    );
     return {
       success: false,
-      error: error && error.message ? error.message : String(error)
+      error: "AI 보고서 생성 실패 (" + currentStage + "): "
+        + (error && error.message ? error.message : String(error))
     };
   }
 }
@@ -97,7 +132,11 @@ function generateDynamicAIReportFromWeb() {
  * @param {Object} settings 조사 설정
  * @return {Object} AI 분석 및 검증이 완료된 데이터 구조
  */
-function analyzeDynamicOpinionsWithAI_(analysis, settings) {
+function analyzeDynamicOpinionsWithAI_(analysis, settings, onStage) {
+  const updateStage = typeof onStage === "function"
+    ? onStage
+    : function() {};
+  updateStage("주관식 의견 수집 및 개인정보 마스킹");
   const opinions = []; // AI에게 보낼 정돈된 의견들을 담을 배열
 
   // 분석 데이터 내 텍스트 문항 배열을 순회합니다.
@@ -174,7 +213,10 @@ ${opinions
 }`;
 
   // 공통 라이브러리 함수를 호출하여 AI로부터 규칙에 맞는 JSON 답변을 받아옵니다.
-  const result = callGeminiJson_(prompt, schemaText);
+  updateStage("Gemini 주관식 분류 요청");
+  const result = callGeminiJson_(prompt, schemaText, function() {
+    updateStage("Gemini 주관식 분류 응답 파싱");
+  });
 
   // 데이터 검증을 위해 원본 의견들의 고유 ID를 key로 가지는 맵(Map)을 생성합니다.
   const validOpinionMap = {};

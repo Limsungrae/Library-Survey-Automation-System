@@ -66,6 +66,12 @@ function callGeminiText_(payload) {
 
     try {
 
+      console.log("Gemini API 요청 시작", {
+        model: model,
+        attempt: attempt,
+        maxAttempts: maxAttempts
+      });
+
       response =
         UrlFetchApp.fetch(
           url,
@@ -104,6 +110,13 @@ function callGeminiText_(payload) {
 
     const body =
       response.getContentText();
+
+    console.log("Gemini API 응답 수신", {
+      model: model,
+      attempt: attempt,
+      status: status,
+      bodyLength: body ? body.length : 0
+    });
 
 
     // ----------------------------------------------------------------------
@@ -249,7 +262,8 @@ function callGeminiText_(payload) {
     // ----------------------------------------------------------------------
 
     let errorMessage =
-      body;
+      body
+      || "응답 본문 없음";
 
 
     try {
@@ -301,7 +315,8 @@ function callGeminiText_(payload) {
  */
 function callGeminiJson_(
   prompt,
-  schemaText
+  schemaText,
+  beforeParse
 ) {
 
   const payload = {
@@ -347,6 +362,10 @@ function callGeminiJson_(
     callGeminiText_(
       payload
     );
+
+  if (typeof beforeParse === "function") {
+    beforeParse();
+  }
 
 
   const cleaned =
