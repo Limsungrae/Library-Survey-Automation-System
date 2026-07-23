@@ -1256,11 +1256,6 @@ window.addEventListener(
             refreshDashboard();
           }
 
-          // if (
-          //   result.rawSheetValid
-          // ) {
-          //   refreshDashboard();
-          // }
         })
         .withFailureHandler(handleFailure)
         .secureGetDynamicSurveySystemStatusFromWeb(
@@ -1496,94 +1491,6 @@ window.addEventListener(
 
       reader.readAsDataURL(file);
     }
-
-
-    function uploadSurveyExcel() {
-      if (!selectedExcelData) {
-        showStatus(
-          "먼저 Excel 파일을 선택해 주세요.",
-          "warning"
-        );
-
-        return;
-      }
-
-      setLoading(
-        true,
-        "Excel 파일을 변환하고 원자료를 생성하고 있습니다."
-      );
-
-      google.script.run
-        .withSuccessHandler(function(result) {
-          setLoading(false);
-
-          if (
-            !result
-            || !result.success
-          ) {
-            showStatus(
-              result && result.error
-                ? result.error
-                : "업로드에 실패했습니다.",
-              "danger"
-            );
-
-            return;
-          }
-
-          showStatus(
-            result.message
-            + "\n응답 건수: "
-            + result.rowCount
-            + "건",
-            "success"
-          );
-
-          loadSystemStatus();
-        })
-        .withFailureHandler(handleFailure)
-        .secureUploadSurveyExcelFromWeb(
-          selectedExcelData,
-          getWebAccessToken_()
-        );
-    }
-
-
-    function validateRawSheet() {
-      setLoading(
-        true,
-        "원자료 구조를 검사하고 있습니다."
-      );
-
-      google.script.run
-        .withSuccessHandler(function(result) {
-          setLoading(false);
-
-          if (
-            !result
-            || !result.success
-          ) {
-            showStatus(
-              result && result.error
-                ? result.error
-                : "검사에 실패했습니다.",
-              "danger"
-            );
-
-            return;
-          }
-
-          showStatus(
-            result.message,
-            "success"
-          );
-
-          loadSystemStatus();
-        })
-        .withFailureHandler(handleFailure)
-        .secureValidateRawSheetFromWeb(getWebAccessToken_());
-    }
-
 /**
  * 범용 문항 매핑과 범용 원자료를 기준으로
  * 01_조사개요부터 06_주관식분석까지 생성합니다.
@@ -1674,87 +1581,7 @@ function generateDynamicStatistics() {
       getWebAccessToken_()
     );
 }
-    function generateStatistics() {
-      setLoading(
-        true,
-        "통계 시트를 생성하고 있습니다."
-      );
-
-      google.script.run
-        .withSuccessHandler(
-          handleGenerationResult
-        )
-        .withFailureHandler(handleFailure)
-        .secureGenerateStatisticalSheetsFromWeb(getWebAccessToken_());
-    }
-
-
-    function generateAIReport() {
-      setLoading(
-        true,
-        "AI 총평과 향후계획을 생성하고 있습니다."
-      );
-
-      google.script.run
-        .withSuccessHandler(
-          handleGenerationResult
-        )
-        .withFailureHandler(handleFailure)
-        .secureGenerateAIReportSheetsFromWeb(getWebAccessToken_());
-    }
-
-
-    function generateFullReport() {
-      setLoading(
-        true,
-        "전체 보고서를 생성하고 있습니다."
-      );
-
-      google.script.run
-        .withSuccessHandler(
-          handleGenerationResult
-        )
-        .withFailureHandler(handleFailure)
-        .secureGenerateFullSurveyReportFromWeb(getWebAccessToken_());
-    }
-
-
-    function handleGenerationResult(result) {
-      setLoading(false);
-
-      if (
-        !result
-        || !result.success
-      ) {
-        showStatus(
-          result && result.error
-            ? result.error
-            : "보고서 생성에 실패했습니다.",
-          "danger"
-        );
-
-        return;
-      }
-
-      showStatus(
-        result.message,
-        "success"
-      );
-
-      if (
-        result.summary
-      ) {
-        renderSummary(
-          result.summary
-        );
-      }
-
-      refreshDashboard();
-      loadSystemStatus();
-    }
-
-
-    function refreshDashboard() {
+function refreshDashboard() {
       google.script.run
         .withSuccessHandler(function(result) {
           if (
@@ -2316,7 +2143,6 @@ function renderSystemStatus(result) {
      * 3. 분석된 문항 목록을 화면에 표시
      *
      * 중요:
-     * - 기존 uploadSurveyExcel() 함수와 별도로 동작합니다.
      * - 09_원자료를 생성하거나 수정하지 않습니다.
      */
     function inspectSurveyQuestions() {

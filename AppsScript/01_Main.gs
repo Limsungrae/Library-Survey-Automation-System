@@ -30,35 +30,6 @@ function onOpen() {
     .addToUi();
 
 
-  // 신규 만족도 보고서 자동화 메뉴
-  ui.createMenu("📊 만족도 보고서")
-    .addItem(
-      "1. 네이버폼 원자료 가져오기",
-      "promptImportNaverSurvey"
-    )
-    .addSeparator()
-    .addItem(
-      "2. 보고서 전체 생성",
-      "generateFullSurveyReport"
-    )
-    .addItem(
-      "3. 통계 시트만 다시 생성",
-      "generateStatisticalSheets"
-    )
-    .addItem(
-      "4. AI 총평·향후계획 다시 생성",
-      "generateAIReportSheets"
-    )
-    .addSeparator()
-    .addItem(
-      "5. 보고서 Excel(.xlsx) 저장",
-      "exportSurveyReportToXlsx"
-    )
-    .addItem(
-      "원자료 구조 검사",
-      "validateRawSheetFromMenu"
-    )
-    .addToUi();
 }
 
 

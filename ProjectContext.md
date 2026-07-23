@@ -73,7 +73,7 @@ flowchart LR
 
 ## Primary system qualities
 
-- Backward compatibility with the fixed-format legacy survey path.
+- Backward compatibility with legacy dynamic sheet-name fallbacks where still used.
 - Rule-based recovery when Gemini mapping fails.
 - Separation of missing and unmapped scale values.
 - Explicit statistical denominators.
@@ -98,7 +98,8 @@ There is no confirmed semantic application version in the repository.
 
 The current baseline includes dynamic mapping, dynamic statistics, quality
 validation, quality-gated AI reporting, secure web wrappers, and dynamic XLSX
-export. The fixed-format survey path remains present for compatibility.
+export. The fixed-format survey implementation has been removed; only the
+mapping-driven dynamic path remains supported.
 
 ---
 
@@ -155,8 +156,7 @@ flowchart TB
 - All GAS files share one global Apps Script namespace; there are no JavaScript
   imports or exports.
 - `16_SecureWebApi.gs` is an authentication façade, not the business layer.
-- `10_WebService` coordinates both legacy fixed-format functions and dynamic
-  survey functions.
+- `10_WebService` exposes dynamic survey status and dashboard services.
 - `12_DynamicAnalysis` is the central calculation layer for the dynamic path.
 - `17_QualityValidator.gs` is the safety boundary between calculated results and
   AI interpretation/export policy.
@@ -164,18 +164,12 @@ flowchart TB
   state, event handlers, server calls, and rendering logic.
 - Spreadsheet sheets are both persistence and report output surfaces.
 
-## 3.3 Legacy coexistence
+## 3.3 Legacy compatibility boundary
 
-The following legacy path is still reachable and must not be treated as dead:
-
-```mermaid
-flowchart LR
-  UI[Legacy client functions retained] --> SEC[secureGenerate* wrappers]
-  SEC --> WS[10_WebService]
-  WS --> SA[05_SurveyAnalysis.gs]
-  WS --> SR[07_SurveyReport.gs]
-  WS --> OA[06_SurveyOpinionAI.gs]
-```
+The fixed-format survey workflow and its menu/API entry points have been
+removed. Legacy dynamic sheet-name fallbacks remain where documented, and the
+promotion subsystem remains unchanged. The empty fixed-format responsibility files `05_SurveyAnalysis.gs`,
+`06_SurveyOpinionAI.gs`, and `07_SurveyReport.gs` have been removed.
 
 ---
 
@@ -189,10 +183,7 @@ Library-Survey-Automation-System/
 │   ├── 02_GeminiService.gs         # Shared Gemini transport; promotion-sensitive
 │   ├── 03_PromoService.gs          # Promotion subsystem; out of survey scope
 │   ├── 04_SurveyImport.gs          # Excel import, inspection, raw data
-│   ├── 05_SurveyAnalysis.gs        # Legacy fixed-format analysis
-│   ├── 06_SurveyOpinionAI.gs       # Legacy opinion AI
-│   ├── 07_SurveyReport.gs          # Legacy fixed-format report
-│   ├── 08_ExcelExport.gs           # Legacy and dynamic XLSX export
+│   ├── 08_ExcelExport.gs           # Dynamic XLSX export
 │   ├── 09_Utils.gs                 # Shared helpers
 │   ├── 10_WebService               # Web orchestration; extensionless GAS source
 │   ├── 11_SurveyMapping            # Mapping engine/persistence; extensionless
@@ -448,11 +439,6 @@ current survey dashboard.
 - `secureGetSavedSurveyMappingsFromWeb(accessToken)`
 - `secureDeleteSavedSurveyMappingsFromWeb(accessToken)`
 - `secureCreateGenericRawSheetFromWeb(fileData, accessToken)`
-- `secureUploadSurveyExcelFromWeb(fileData, accessToken)`
-- `secureValidateRawSheetFromWeb(accessToken)`
-- `secureGenerateStatisticalSheetsFromWeb(accessToken)`
-- `secureGenerateAIReportSheetsFromWeb(accessToken)`
-- `secureGenerateFullSurveyReportFromWeb(accessToken)`
 - `secureGenerateDynamicStatisticalReportFromWeb(accessToken)`
 - `secureGetDynamicSurveyDashboardDataFromWeb(accessToken)`
 - `secureGetDynamicSurveyQualityFromWeb(accessToken)`
@@ -463,7 +449,8 @@ current survey dashboard.
 
 - Do not rename these functions without retaining global wrappers.
 - Do not reorder their arguments.
-- Do not remove legacy secure generation functions while the client retains calls.
+- Remove a secure wrapper only after every client reference has been removed and
+  the underlying workflow is no longer supported.
 - Preserve current top-level fields used by the frontend even if a new `data`
   envelope is introduced.
 - `error` is not yet uniform across all APIs; normalization requires a dedicated
@@ -827,7 +814,8 @@ is introduced.
 
 ## High
 
-- Treating legacy functions as dead code can break still-exposed secure APIs.
+- Removing a dynamic function without checking HtmlService and secure-wrapper
+  references can break the active workflow.
 - Reordering mapping rows/controls can associate a type, scaleKind, or scoreMap
   with the wrong column.
 - Altering temporary Drive cleanup can leak files or remove output prematurely.
@@ -993,8 +981,8 @@ Verification**.
 2. State the intended compatibility impact before implementation.
 3. Do not rebuild the project or replace stable architecture wholesale.
 4. Preserve promotion automation unless the Sprint explicitly targets it.
-5. Preserve fixed-format survey features until usage is verified and a migration
-   is approved.
+5. Do not reintroduce the removed fixed-format survey workflow; preserve the
+   active dynamic path and documented legacy sheet-name fallbacks.
 6. Keep the dynamic pipeline as the primary survey path.
 7. Public function changes require compatibility wrappers.
 8. Sheet changes require a migration and rollback plan.

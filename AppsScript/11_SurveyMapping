@@ -17,8 +17,7 @@
  *
  * 기존 파일과의 관계
  * - Excel 업로드 및 변환: 04_SurveyImport.gs
- * - 기존 고정형 통계 분석: 05_SurveyAnalysis.gs
- * - 보고서 생성: 07_SurveyReport.gs
+ * - 동적 통계 및 보고서: 12_DynamicAnalysis, 13_DynamicReport.gs
  * - 웹 서비스: 10_WebService.gs
  *
  * 주의
@@ -1322,32 +1321,6 @@ function validateSurveyMappings_(
 }
 
 
-/**
- * 웹페이지에 전달할 문항 유형 선택 목록을 반환합니다.
- *
- * 향후 survey-dashboard.html에서 드롭다운 항목을 직접 하드코딩하지 않고
- * 서버의 유형 목록을 사용할 때 활용할 수 있습니다.
- *
- * @return {Object}
- */
-function getSurveyQuestionTypesForWeb() {
-  try {
-    return {
-      success: true,
-      questionTypes:
-        getSurveyQuestionTypeOptions_()
-    };
-
-  } catch (error) {
-    return {
-      success: false,
-      error:
-        error && error.message
-          ? error.message
-          : String(error)
-    };
-  }
-}
 /**
  * 웹페이지에서 전달받은 문항 매핑 결과를 저장합니다.
  *

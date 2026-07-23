@@ -79,31 +79,6 @@ function generateDynamicStatisticalReportFromWeb() {
 }
 
 
-/**
- * 스프레드시트 메뉴에서 실행할 때 사용합니다.
- */
-function generateDynamicStatisticalReport() {
-  const ui = SpreadsheetApp.getUi();
-  const result = generateDynamicStatisticalReportFromWeb();
-
-  if (result.success) {
-    ui.alert(
-      "통계 보고서 생성 완료",
-      result.message,
-      ui.ButtonSet.OK
-    );
-  } else {
-    ui.alert(
-      "통계 보고서 생성 실패",
-      result.error,
-      ui.ButtonSet.OK
-    );
-  }
-
-  return result;
-}
-
-
 function buildDynamicReportSummary_(analysis) {
   const recommendations = analysis.recommendation || [];
   const npsItems = recommendations.filter(function(item){return item.scaleKind === "NPS_0_10";});
