@@ -717,6 +717,13 @@ Quality message:
 The web quality endpoint currently returns the same quality object in both
 `data` and `quality` for compatibility.
 
+Five-point scale analysis uses `normalizeScaleValue_()` for statistical totals,
+averages, mapping candidates, and the quality input derived from those results.
+Finite numbers `1` through `5`, their trimmed string forms, and strings ending in
+`점` are valid alongside the existing Korean labels. Blank values are missing;
+numeric values below `1` or above `5` are reported as `SCALE_OUT_OF_RANGE`, while
+other non-empty unknown labels remain `SCALE_UNMAPPED_VALUE`.
+
 ## 14.7 Common web result pattern
 
 ```json

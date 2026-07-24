@@ -452,16 +452,22 @@ function analyzeDynamicScaleQuestions_(source) {
     const distribution = {1:0,2:0,3:0,4:0,5:0};
     const scores = [];
     const unmappedCounts = {};
+    const outOfRangeCounts = {};
     let missingCount = 0;
     source.rows.forEach(function(row) {
-      const raw = cleanText_(row[mapping.columnNumber - 1]);
+      const rawValue = row[mapping.columnNumber - 1];
+      const raw = cleanText_(rawValue);
       if (!raw) { missingCount++; return; }
-      const score = dynamicMappedScore_(raw, mapping, false);
-      if (score === null || score < 1 || score > 5) {
+      const score = dynamicMappedScore_(rawValue, mapping, false);
+      if (score === null) {
+        if (isDynamicScaleOutOfRange_(raw)) {
+          outOfRangeCounts[raw] = (outOfRangeCounts[raw] || 0) + 1;
+          return;
+        }
         unmappedCounts[raw] = (unmappedCounts[raw] || 0) + 1;
         return;
       }
-      scores.push(score); distribution[score]++;
+      scores.push(score); distribution[score] = (distribution[score] || 0) + 1;
     });
     const validCount = scores.length;
     const sum = scores.reduce(function(total, score) { return total + score; }, 0);
@@ -475,6 +481,8 @@ function analyzeDynamicScaleQuestions_(source) {
       missingCount: missingCount, missingResponses: missingCount,
       unmappedCount: Object.keys(unmappedCounts).reduce(function(total,key){return total+unmappedCounts[key];},0),
       unmappedValues: Object.keys(unmappedCounts).map(function(value){return {value:value,count:unmappedCounts[value]};}),
+      outOfRangeCount: Object.keys(outOfRangeCounts).reduce(function(total,key){return total+outOfRangeCounts[key];},0),
+      outOfRangeValues: Object.keys(outOfRangeCounts).map(function(value){return {value:value,count:outOfRangeCounts[value]};}),
       scoreSum: sum, scoreDistribution: distribution,
       distribution: [5,4,3,2,1].map(function(score){return {score:score,label:score+"점",count:distribution[score],
         rate:validCount?round_(distribution[score]/validCount*100,1):0};}),
@@ -777,13 +785,37 @@ function dynamicMappedScore_(value, mapping, recommendation) {
     return !isNaN(normalizedMapped) && normalizedMapped >= 1 && normalizedMapped <= 5
       ? normalizedMapped : null;
   }
-  const defaultMap = {"매우만족":5,"매우그렇다":5,"매우도움됨":5,"매우적절":5,
-    "만족":4,"그렇다":4,"도움됨":4,"적절":4,"보통":3,"중립":3,
-    "불만족":2,"그렇지않다":2,"도움되지않음":2,"부적절":2,
-    "매우불만족":1,"전혀그렇지않다":1,"전혀도움되지않음":1};
-  if (Object.prototype.hasOwnProperty.call(defaultMap, normalizedText)) return defaultMap[normalizedText];
-  if (/^[1-5](?:\.0+)?$/.test(text)) return Number(text);
-  return null;
+  return normalizeScaleValue_(value);
+}
+
+/** 숫자·숫자 문자열·한글 응답을 공통 5점 척도 값으로 정규화합니다. */
+function normalizeScaleValue_(value) {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "number") {
+    return Number.isFinite(value) && value >= 1 && value <= 5 ? value : null;
+  }
+  const text = String(value).trim();
+  if (!text) return null;
+  const numericText = text.replace(/점$/, "").trim();
+  const numericValue = Number(numericText);
+  if (Number.isFinite(numericValue) && numericValue >= 1 && numericValue <= 5) return numericValue;
+  const normalizedText = normalizeDynamicStatText_(text);
+  const scaleMap = {"매우만족":5,"매우그렇다":5,"매우좋음":5,"매우도움됨":5,"매우적절":5,
+    "만족":4,"그렇다":4,"좋음":4,"도움됨":4,"적절":4,"보통":3,"보통이다":3,"중립":3,
+    "불만족":2,"그렇지않다":2,"나쁨":2,"도움되지않음":2,"부적절":2,
+    "매우불만족":1,"전혀그렇지않다":1,"매우나쁨":1,"전혀도움되지않음":1};
+  return Object.prototype.hasOwnProperty.call(scaleMap, normalizedText) ? scaleMap[normalizedText] : null;
+}
+
+/** 정규화 실패값 중 숫자로 표현된 5점 범위 초과값만 구분합니다. */
+function isDynamicScaleOutOfRange_(value) {
+  if (value === null || value === undefined || value === "") return false;
+  const text = String(value).trim();
+  if (!text) return false;
+  const numericText = text.replace(/점$/, "").trim();
+  if (!/^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/.test(numericText)) return false;
+  const numericValue = Number(numericText);
+  return Number.isFinite(numericValue) && (numericValue < 1 || numericValue > 5);
 }
 
 function normalizeDynamicStatText_(value) {

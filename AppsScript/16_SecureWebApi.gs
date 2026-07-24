@@ -98,7 +98,10 @@ function secureGenerateFullSurveyReportFromWeb(accessToken) {
 /**
  * 범용 통계 보고서 생성
  */
-// (참고: 함수명이 너무 길어 에러가 날 경우 함수명 길이를 줄여서 원본과 맞춰주세요)
+function generateDynamicStatisticalReportFromWeb() {
+  return generateDynamicStatisticalReport_();
+}
+
 function secureGenerateDynamicStatisticalReportFromWeb(accessToken) {
   requireWebAccessToken_(accessToken);
   return generateDynamicStatisticalReportFromWeb();

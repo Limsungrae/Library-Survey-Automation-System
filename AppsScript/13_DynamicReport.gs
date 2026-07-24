@@ -16,7 +16,7 @@
  *
  * @return {Object}
  */
-function generateDynamicStatisticalReportFromWeb() {
+function generateDynamicStatisticalReport_() {
   const lock = LockService.getScriptLock();
   let currentStage = "분석 잠금 획득";
 

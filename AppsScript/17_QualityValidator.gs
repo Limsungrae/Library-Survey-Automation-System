@@ -38,11 +38,14 @@ function validateDynamicSurveyQuality_(analysis, source) {
     (analysis.scale || []).forEach(function(question) {
       const distributionSum=Object.keys(question.scoreDistribution||{}).reduce(function(sum,key){return sum+question.scoreDistribution[key];},0);
       questionStats.push({questionId:question.questionId,type:"SCALE",validCount:question.validCount,
-        missingCount:question.missingCount,unmappedCount:question.unmappedCount});
+        missingCount:question.missingCount,unmappedCount:question.unmappedCount,
+        outOfRangeCount:Number(question.outOfRangeCount||0)});
       if(distributionSum!==question.validCount)
         add_("ERROR","SCALE_DISTRIBUTION_MISMATCH","척도 분포 합계가 유효응답 수와 다릅니다.",question.questionId,{distributionSum:distributionSum});
       if(question.unmappedCount>0)
         add_("ERROR","SCALE_UNMAPPED_VALUE","척도 문항에 변환되지 않은 응답이 있습니다.",question.questionId,{values:question.unmappedValues});
+      if(Number(question.outOfRangeCount||0)>0)
+        add_("ERROR","SCALE_OUT_OF_RANGE","척도 문항에 1~5 범위를 벗어난 숫자 응답이 있습니다.",question.questionId,{values:question.outOfRangeValues});
       const denominator=total||1;
       if(question.missingCount/denominator*100>=DYNAMIC_SURVEY_CONFIG.QUALITY.HIGH_MISSING_RATE)
         add_("WARNING","HIGH_MISSING_RATE","문항 결측률이 50% 이상입니다.",question.questionId,{missingRate:question.missingCount/denominator*100});
