@@ -57,6 +57,7 @@ function generateDynamicStatisticalReport_() {
       success: true,
       message: "범용 통계 보고서 생성이 완료되었습니다.",
       generatedSheets: [
+        "00_품질검사",
         "01_조사개요",
         "02_대시보드",
         "03_응답자특성",
@@ -244,7 +245,7 @@ function createDynamicMultipleSheet_(analysis) {
   }
 
   questions.forEach(function(question) {
-    sheet.getRange(row, 1, 1, 6)
+    sheet.getRange(row, 1, 1, 5)
       .merge()
       .setValue(question.question)
       .setBackground("#EAF2F8")
@@ -291,8 +292,8 @@ function createDynamicMultipleSheet_(analysis) {
   });
 
   sheet.setColumnWidth(1, 380);
-  sheet.setColumnWidths(2, 5, 125);
-  finishDynamicReportSheet_(sheet, row, 6);
+  sheet.setColumnWidths(2, 4, 125);
+  finishDynamicReportSheet_(sheet, row, 5);
 }
 
 function buildDynamicMultipleTotalRow_(question) {
@@ -523,6 +524,7 @@ function moveDynamicStatisticalSheetsInOrder_() {
   const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
   const order = [
     "00_설정",
+    "00_품질검사",
     "01_조사개요",
     "02_대시보드",
     "03_응답자특성",
