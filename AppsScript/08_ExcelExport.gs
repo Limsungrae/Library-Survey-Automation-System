@@ -297,6 +297,22 @@ function createDynamicSurveyReportXlsx_(
       );
     });
 
+    // Google Sheets 전용 수식은 임시 사본에서만 제거합니다.
+    // 원본 보고서의 SPARKLINE 보조열과 통계 숫자는 변경하지 않습니다.
+    const compatibilityResult =
+      prepareDynamicSpreadsheetForXlsx_(
+        temporarySpreadsheet
+      );
+
+    assertDynamicSpreadsheetXlsxCompatible_(
+      temporarySpreadsheet
+    );
+
+    console.log(
+      "Dynamic XLSX 호환성 정리 완료: "
+      + JSON.stringify(compatibilityResult)
+    );
+
 
     SpreadsheetApp.flush();
 
@@ -361,6 +377,10 @@ function createDynamicSurveyReportXlsx_(
         );
     if(excelBlob.getBytes().length===0)throw new Error("생성된 Excel 파일이 비어 있습니다.");
 
+    assertDynamicXlsxBlobCompatible_(
+      excelBlob
+    );
+
 
     // ----------------------------------------------------------------------
     // 최종 Excel 파일을 Google Drive에 저장
@@ -413,6 +433,107 @@ function createDynamicSurveyReportXlsx_(
       }
     }
   }
+}
+
+
+/**
+ * XLSX에서 깨지는 Google Sheets 전용/오류 수식을 임시 사본에서 제거합니다.
+ * 정확한 숫자표를 우선하므로 SPARKLINE 보조 셀은 빈 값으로 대체합니다.
+ *
+ * @param {GoogleAppsScript.Spreadsheet.Spreadsheet} spreadsheet 임시 내보내기 문서
+ * @return {{removedFormulaCount:number, affectedSheets:Array<string>}}
+ */
+function prepareDynamicSpreadsheetForXlsx_(spreadsheet) {
+  const affectedSheets = [];
+  let removedFormulaCount = 0;
+
+  spreadsheet.getSheets().forEach(function(sheet) {
+    const range = sheet.getDataRange();
+    const formulas = range.getFormulas();
+    const displayValues = range.getDisplayValues();
+    let sheetChanged = false;
+
+    formulas.forEach(function(row, rowIndex) {
+      row.forEach(function(formula, columnIndex) {
+        if (!isDynamicXlsxIncompatibleFormula_(formula, displayValues[rowIndex][columnIndex])) {
+          return;
+        }
+        range.getCell(rowIndex + 1, columnIndex + 1).clearContent();
+        removedFormulaCount++;
+        sheetChanged = true;
+      });
+    });
+
+    if (sheetChanged) affectedSheets.push(sheet.getName());
+  });
+
+  SpreadsheetApp.flush();
+  return {removedFormulaCount:removedFormulaCount, affectedSheets:affectedSheets};
+}
+
+
+/** Google Sheets 전용 함수 또는 계산 오류가 있는 수식인지 판별합니다. */
+function isDynamicXlsxIncompatibleFormula_(formula, displayValue) {
+  const normalizedFormula = String(formula || "").toUpperCase();
+  if (!normalizedFormula) return false;
+  if (["SPARKLINE", "__XLUDF", "DUMMYFUNCTION"].some(function(token) {
+    return normalizedFormula.indexOf(token) !== -1;
+  })) return true;
+  return /^#(?:NAME\?|REF!|VALUE!|ERROR!|N\/A|DIV\/0!|NUM!|NULL!)$/i
+    .test(String(displayValue || "").trim());
+}
+
+
+/** 정리 후에도 XLSX 비호환 수식이 남아 있으면 내보내기를 중단합니다. */
+function assertDynamicSpreadsheetXlsxCompatible_(spreadsheet) {
+  const violations = [];
+  spreadsheet.getSheets().forEach(function(sheet) {
+    const range = sheet.getDataRange();
+    const formulas = range.getFormulas();
+    const displayValues = range.getDisplayValues();
+    formulas.forEach(function(row, rowIndex) {
+      row.forEach(function(formula, columnIndex) {
+        if (isDynamicXlsxIncompatibleFormula_(formula, displayValues[rowIndex][columnIndex])) {
+          violations.push(sheet.getName() + "!" + range.getCell(rowIndex + 1, columnIndex + 1).getA1Notation());
+        }
+      });
+    });
+  });
+  if (violations.length) {
+    throw new Error("Excel 비호환 수식을 제거하지 못했습니다: " + violations.slice(0, 20).join(", "));
+  }
+  return true;
+}
+
+
+/** 변환된 XLSX ZIP 내부 XML에도 금지 토큰이 없는지 최종 확인합니다. */
+function assertDynamicXlsxBlobCompatible_(excelBlob) {
+  let entries;
+  try {
+    entries = Utilities.unzip(excelBlob.copyBlob());
+  } catch (error) {
+    throw new Error("생성된 Excel 파일의 호환성 검사를 수행하지 못했습니다: " + (error && error.message ? error.message : String(error)));
+  }
+  const violations = [];
+  entries.forEach(function(entry) {
+    const name = String(entry.getName() || "");
+    if (!/\.(?:xml|rels)$/i.test(name)) return;
+    const token = findDynamicXlsxForbiddenToken_(entry.getDataAsString());
+    if (token) violations.push(name + " (" + token + ")");
+  });
+  if (violations.length) {
+    throw new Error("생성된 Excel 파일에 비호환 수식이 남아 있습니다: " + violations.slice(0, 20).join(", "));
+  }
+  return true;
+}
+
+
+/** XLSX XML에서 금지된 함수/오류 토큰을 반환합니다. */
+function findDynamicXlsxForbiddenToken_(content) {
+  const normalized = String(content || "").toUpperCase();
+  return ["SPARKLINE", "__XLUDF", "DUMMYFUNCTION", "#NAME?"].find(function(token) {
+    return normalized.indexOf(token) !== -1;
+  }) || "";
 }
 
 

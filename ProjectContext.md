@@ -523,6 +523,12 @@ objects. The final XLSX includes report/AI sheets through `11_범용원자료`; 
 operational `12_문항매핑` sheet remains in the source spreadsheet but is not part
 of the user-facing report export.
 
+Before XLSX conversion, the temporary export copy removes SPARKLINE and any
+formula displaying an Excel-style calculation error. The source Google Sheet is
+not modified, and numeric/statistical columns remain intact. Export aborts if a
+second scan still finds `SPARKLINE`, `__xludf`, `DUMMYFUNCTION`, `#NAME?`, or
+another broken formula.
+
 ## 13.2 Legacy compatibility sheets
 
 - `09_원자료`: fixed-format legacy survey raw data.

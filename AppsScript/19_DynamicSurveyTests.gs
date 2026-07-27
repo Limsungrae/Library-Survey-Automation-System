@@ -61,6 +61,15 @@ function testDynamicSurveyV2RegressionSuite() {
     equal_(calls[0].formulas[0][0].indexOf("MAX($B$5:$B$7)")>=0,true,"첫 문항 MAX 범위");
     equal_(calls[1].formulas[0][0].indexOf("MAX($B$12:$B$13)")>=0,true,"둘째 문항 MAX 범위");
     equal_(calls[0].formulas[0][0].indexOf("#4F81BD")>=0,true,"막대 색상");});
+  test_("XLSX 비호환 수식 탐지",function(){
+    equal_(isDynamicXlsxIncompatibleFormula_('=SPARKLINE(B5,{"charttype","bar"})',""),true,"SPARKLINE");
+    equal_(isDynamicXlsxIncompatibleFormula_("=__xludf.DUMMYFUNCTION(B5)","#NAME?"),true,"xludf");
+    equal_(isDynamicXlsxIncompatibleFormula_("=UNKNOWN(B5)","#NAME?"),true,"NAME 오류");
+    equal_(isDynamicXlsxIncompatibleFormula_("=SUM(B5:B10)","82"),false,"호환 수식 유지");
+    equal_(isDynamicXlsxIncompatibleFormula_("","#NAME?"),false,"일반 텍스트 유지");
+    equal_(findDynamicXlsxForbiddenToken_("<f>_xlfn.SPARKLINE(B5)</f>"),"SPARKLINE","XLSX SPARKLINE");
+    equal_(findDynamicXlsxForbiddenToken_("<f>__xludf.DUMMYFUNCTION(B5)</f>"),"__XLUDF","XLSX xludf");
+    equal_(findDynamicXlsxForbiddenToken_("<v>82</v>"),"","정상 XLSX XML");});
   return {success:results.every(function(r){return r.status==="PASS";}),passed:results.filter(function(r){return r.status==="PASS";}).length,
     failed:results.filter(function(r){return r.status==="FAIL";}).length,results:results};
 }
