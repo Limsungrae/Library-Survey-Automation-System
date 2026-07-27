@@ -299,6 +299,23 @@ function createDynamicSurveyReportXlsx_(
       );
     });
 
+    // Google Sheets 전용 수식은 임시 사본에서만 제거합니다.
+    // 원본 보고서의 SPARKLINE 보조열과 통계 숫자는 변경하지 않습니다.
+    const compatibilityResult =
+      prepareDynamicSpreadsheetForXlsx_(
+        temporarySpreadsheet,
+        options
+      );
+
+    assertDynamicSpreadsheetXlsxCompatible_(
+      temporarySpreadsheet
+    );
+
+    console.log(
+      "Dynamic XLSX 호환성 정리 완료: "
+      + JSON.stringify(compatibilityResult)
+    );
+
 
     SpreadsheetApp.flush();
 
@@ -352,7 +369,7 @@ function createDynamicSurveyReportXlsx_(
     }
 
 
-    const excelBlob =
+    let excelBlob =
       exportResponse
         .getBlob()
         .setName(
@@ -362,6 +379,14 @@ function createDynamicSurveyReportXlsx_(
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         );
     if(excelBlob.getBytes().length===0)throw new Error("생성된 Excel 파일이 비어 있습니다.");
+
+    excelBlob = applyDynamicXlsxPrintLayout_(excelBlob, exportSheets)
+      .setName(fileName)
+      .setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+
+    assertDynamicXlsxBlobCompatible_(
+      excelBlob
+    );
 
 
     // ----------------------------------------------------------------------
@@ -415,6 +440,193 @@ function createDynamicSurveyReportXlsx_(
       }
     }
   }
+}
+
+
+/**
+ * XLSX에서 깨지는 Google Sheets 전용/오류 수식을 임시 사본에서 제거합니다.
+ * 정확한 숫자표를 우선하므로 SPARKLINE 보조 셀은 빈 값으로 대체합니다.
+ *
+ * @param {GoogleAppsScript.Spreadsheet.Spreadsheet} spreadsheet 임시 내보내기 문서
+ * @param {Object=} options 내보내기 옵션
+ * @return {{removedFormulaCount:number, affectedSheets:Array<string>, sheets:Array<Object>}}
+ */
+function prepareDynamicSpreadsheetForXlsx_(spreadsheet, options) {
+  const affectedSheets = [];
+  const sheetResults = [];
+  let removedFormulaCount = 0;
+
+  spreadsheet.getSheets().forEach(function(sheet) {
+    const range = sheet.getDataRange();
+    const formulas = range.getFormulas();
+    const displayValues = range.getDisplayValues();
+    const functionKinds = {};
+    let sheetRemovedCount = 0;
+
+    formulas.forEach(function(row, rowIndex) {
+      row.forEach(function(formula, columnIndex) {
+        const kinds = getDynamicXlsxIncompatibleFormulaKinds_(formula, displayValues[rowIndex][columnIndex]);
+        if (!kinds.length) {
+          return;
+        }
+        range.getCell(rowIndex + 1, columnIndex + 1).clearContent();
+        removedFormulaCount++;
+        sheetRemovedCount++;
+        kinds.forEach(function(kind) { functionKinds[kind] = true; });
+      });
+    });
+
+    SpreadsheetApp.flush();
+    const hiddenVisualizationColumns = options && options.hideEmptyVisualizationColumns === false
+      ? [] : hideEmptyDynamicVisualizationColumns_(sheet);
+    if (sheetRemovedCount) affectedSheets.push(sheet.getName());
+    const result = {sheetName:sheet.getName(),removedCellCount:sheetRemovedCount,
+      removedFunctionKinds:Object.keys(functionKinds),hiddenVisualizationColumns:hiddenVisualizationColumns};
+    sheetResults.push(result);
+    console.log(result.sheetName + "\n" + (result.removedFunctionKinds.join(", ") || "NONE")
+      + "\n" + result.removedCellCount + " cells");
+  });
+
+  SpreadsheetApp.flush();
+  return {removedFormulaCount:removedFormulaCount, affectedSheets:affectedSheets, sheets:sheetResults};
+}
+
+
+/** Google Sheets 전용 함수 또는 계산 오류가 있는 수식인지 판별합니다. */
+function isDynamicXlsxIncompatibleFormula_(formula, displayValue) {
+  return getDynamicXlsxIncompatibleFormulaKinds_(formula, displayValue).length > 0;
+}
+
+
+/** 제거 대상 수식의 함수/오류 종류를 반환합니다. */
+function getDynamicXlsxIncompatibleFormulaKinds_(formula, displayValue) {
+  const normalizedFormula = String(formula || "").toUpperCase();
+  if (!normalizedFormula) return [];
+  const kinds = [];
+  ["SPARKLINE", "__XLUDF", "DUMMYFUNCTION", "_XLFN."].forEach(function(token) {
+    if (normalizedFormula.indexOf(token) !== -1) kinds.push(token);
+  });
+  ["LET", "LAMBDA", "FILTER", "UNIQUE", "SORT", "SORTN", "TOCOL", "TOROW"].forEach(function(name) {
+    if (new RegExp("(?:^|[^A-Z0-9_])" + name + "\\s*\\(", "i").test(normalizedFormula)) kinds.push(name);
+  });
+  if (/^#(?:NAME\?|REF!|VALUE!|ERROR!|N\/A|DIV\/0!|NUM!|NULL!)$/i
+    .test(String(displayValue || "").trim())) kinds.push("FORMULA_ERROR");
+  return kinds.filter(function(kind, index) { return kinds.indexOf(kind) === index; });
+}
+
+
+/** SPARKLINE 제거 뒤 시각화 전용열이 완전히 비면 임시 XLSX 사본에서만 숨깁니다. */
+function hideEmptyDynamicVisualizationColumns_(sheet) {
+  const range = sheet.getDataRange();
+  const values = range.getDisplayValues();
+  const hiddenColumns = [];
+  if (!values.length) return hiddenColumns;
+  const columnCount = values.reduce(function(max, row) { return Math.max(max, row.length); }, 0);
+  for (let columnIndex = 0; columnIndex < columnCount; columnIndex++) {
+    const columnValues = values.map(function(row) { return String(row[columnIndex] || "").trim(); });
+    if (columnValues.indexOf("시각화") === -1) continue;
+    const hasNonVisualizationValue = columnValues.some(function(value) { return value && value !== "시각화"; });
+    if (!hasNonVisualizationValue) {
+      sheet.hideColumns(columnIndex + 1);
+      hiddenColumns.push(columnIndex + 1);
+    }
+  }
+  return hiddenColumns;
+}
+
+
+/** 정리 후에도 XLSX 비호환 수식이 남아 있으면 내보내기를 중단합니다. */
+function assertDynamicSpreadsheetXlsxCompatible_(spreadsheet) {
+  const violations = [];
+  spreadsheet.getSheets().forEach(function(sheet) {
+    const range = sheet.getDataRange();
+    const formulas = range.getFormulas();
+    const displayValues = range.getDisplayValues();
+    formulas.forEach(function(row, rowIndex) {
+      row.forEach(function(formula, columnIndex) {
+        if (isDynamicXlsxIncompatibleFormula_(formula, displayValues[rowIndex][columnIndex])) {
+          violations.push(sheet.getName() + "!" + range.getCell(rowIndex + 1, columnIndex + 1).getA1Notation());
+        }
+      });
+    });
+  });
+  if (violations.length) {
+    throw new Error("Excel 비호환 수식을 제거하지 못했습니다: " + violations.slice(0, 20).join(", "));
+  }
+  return true;
+}
+
+
+/** 변환된 XLSX ZIP 내부 XML에도 금지 토큰이 없는지 최종 확인합니다. */
+function assertDynamicXlsxBlobCompatible_(excelBlob) {
+  let entries;
+  try {
+    entries = Utilities.unzip(excelBlob.copyBlob());
+  } catch (error) {
+    throw new Error("생성된 Excel 파일의 호환성 검사를 수행하지 못했습니다: " + (error && error.message ? error.message : String(error)));
+  }
+  const violations = [];
+  entries.forEach(function(entry) {
+    const name = String(entry.getName() || "");
+    if (!/\.(?:xml|rels)$/i.test(name)) return;
+    const token = findDynamicXlsxForbiddenToken_(entry.getDataAsString());
+    if (token) violations.push(name + " (" + token + ")");
+  });
+  if (violations.length) {
+    throw new Error("생성된 Excel 파일에 비호환 수식이 남아 있습니다: " + violations.slice(0, 20).join(", "));
+  }
+  return true;
+}
+
+
+/** XLSX XML에서 금지된 함수/오류 토큰을 반환합니다. */
+function findDynamicXlsxForbiddenToken_(content) {
+  const normalized = String(content || "").toUpperCase();
+  return ["SPARKLINE", "__XLUDF", "DUMMYFUNCTION", "_XLFN.", "LET(", "LAMBDA(", "FILTER(",
+    "UNIQUE(", "SORT(", "SORTN(", "TOCOL(", "TOROW(", "#NAME?"].find(function(token) {
+    return normalized.indexOf(token) !== -1;
+  }) || "";
+}
+
+
+/** XLSX XML에 A4 가로·한 페이지 너비·좁은 여백·1~4행 반복 인쇄 설정을 적용합니다. */
+function applyDynamicXlsxPrintLayout_(excelBlob, sheetNames) {
+  let entries;
+  try { entries=Utilities.unzip(excelBlob.copyBlob()); }
+  catch(error){throw new Error("Excel 인쇄 설정을 적용하지 못했습니다: "+(error&&error.message?error.message:String(error)));}
+  const updated=entries.map(function(entry){
+    const name=String(entry.getName()||"");
+    if(!/^xl\/worksheets\/sheet\d+\.xml$/i.test(name)&&name!=="xl/workbook.xml")return entry;
+    let content=entry.getDataAsString();
+    if(/^xl\/worksheets\/sheet\d+\.xml$/i.test(name)) content=applyDynamicWorksheetPrintSettingsXml_(content);
+    else content=applyDynamicWorkbookPrintTitlesXml_(content,sheetNames||[]);
+    return Utilities.newBlob(content,entry.getContentType(),name);
+  });
+  return Utilities.zip(updated,excelBlob.getName());
+}
+
+
+function applyDynamicWorksheetPrintSettingsXml_(content) {
+  let xml=String(content||"");
+  if(xml.indexOf("<pageSetUpPr")===-1){
+    if(/<sheetPr\b[^>]*\/>/.test(xml))xml=xml.replace(/<sheetPr\b([^>]*)\/>/,'<sheetPr$1><pageSetUpPr fitToPage="1"/></sheetPr>');
+    else if(xml.indexOf("<sheetPr")!==-1)xml=xml.replace(/<sheetPr([^>]*)>/,'<sheetPr$1><pageSetUpPr fitToPage="1"/>');
+    else xml=xml.replace(/(<worksheet[^>]*>)/,'$1<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>');
+  }
+  xml=xml.replace(/<pageMargins\b[^>]*\/>/g,"").replace(/<pageSetup\b[^>]*\/>/g,"");
+  return xml.replace("</worksheet>",'<pageMargins left="0.25" right="0.25" top="0.5" bottom="0.5" header="0.2" footer="0.2"/><pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/></worksheet>');
+}
+
+
+function applyDynamicWorkbookPrintTitlesXml_(content, sheetNames) {
+  let xml=String(content||"").replace(/<definedName\b[^>]*name="_xlnm\.Print_Titles"[^>]*>[\s\S]*?<\/definedName>/g,"");
+  const names=(sheetNames||[]).map(function(sheetName,index){
+    const escaped=String(sheetName).replace(/&/g,"&amp;").replace(/'/g,"&apos;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    return '<definedName name="_xlnm.Print_Titles" localSheetId="'+index+'">&apos;'+escaped+'&apos;!$1:$4</definedName>';
+  }).join("");
+  if(!names)return xml;
+  if(xml.indexOf("<definedNames")!==-1)return xml.replace("</definedNames>",names+"</definedNames>");
+  return xml.replace("</workbook>","<definedNames>"+names+"</definedNames></workbook>");
 }
 
 

@@ -523,6 +523,31 @@ objects. The final XLSX includes report/AI sheets through `11_범용원자료`; 
 operational `12_문항매핑` sheet remains in the source spreadsheet but is not part
 of the user-facing report export.
 
+Before XLSX conversion, the temporary export copy removes SPARKLINE and any
+formula displaying an Excel-style calculation error. The source Google Sheet is
+not modified, and numeric/statistical columns remain intact. Export aborts if a
+second scan still finds `SPARKLINE`, `__xludf`, `DUMMYFUNCTION`, `#NAME?`, or
+another broken formula.
+Empty visualization-only columns are hidden in the temporary XLSX copy by
+default; callers may preserve them with `hideEmptyVisualizationColumns:false`.
+The compatibility log records every sheet, removed-cell count, detected function
+kinds, and hidden visualization columns.
+
+Generated report and AI sheets share a public-sector presentation baseline:
+`맑은 고딕`, 10pt body text, 17pt merged titles, dark-navy title bars, blue table
+headers, light-blue question headings, light-gray total rows, thin borders,
+right-aligned numeric cells, wrapped long text, and content-sized row heights.
+Sheet titles use Roman-numeral report sections, question titles separate their
+`Q` code from the text, and adaptive widths are capped to avoid excessive blank
+space. The exported XLSX applies A4 landscape, fit-to-width, narrow margins, and
+rows 1–4 as repeating print titles without modifying the Google Sheets source.
+
+Report highlighting is calculated only within each question's item rows. Tied
+maxima are all yellow (`#FFF2CC`), total rows are excluded, scale maxima are
+yellow, and distinct scale minima are light red (`#FCE4D6`). Zero-valid-response
+scale questions are excluded. Dashboard extreme labels join tied question names
+instead of selecting an arbitrary winner.
+
 ## 13.2 Legacy compatibility sheets
 
 - `09_원자료`: fixed-format legacy survey raw data.

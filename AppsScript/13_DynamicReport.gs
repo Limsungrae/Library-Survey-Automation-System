@@ -125,13 +125,7 @@ function buildDynamicReportSummary_(analysis) {
 function createDynamicOverviewSheet_(analysis, settings) {
   const sheet = resetDynamicReportSheet_("01_조사개요");
 
-  setDynamicReportTitle_(
-    sheet,
-    "A1:H2",
-    getDynamicSettingValue_(settings, "보고서 제목", "reportTitle")
-      || getDynamicSettingValue_(settings, "조사명", "surveyName")
-      || "만족도 조사 결과 보고"
-  );
+  setDynamicReportTitle_(sheet, "A1:H2", "Ⅰ. 조사 개요");
 
   const rows = [
     ["구분", "내용"],
@@ -142,6 +136,7 @@ function createDynamicOverviewSheet_(analysis, settings) {
     ["조사방법", getDynamicSettingDisplay_(settings, "조사방법", "surveyMethod")],
     ["분석방법", getDynamicSettingDisplay_(settings, "분석방법", "analysisMethod")],
     ["표본 수", Number(analysis.respondentCount || 0) + "명"],
+    ["분석 문항 수", Number(analysis.summary && analysis.summary.analyzedQuestionCount || 0) + "개"],
     ["담당부서", getDynamicSettingValue_(settings, "담당부서", "department")],
     ["문의처", getDynamicSettingValue_(settings, "문의처", "contact")],
     ["생성기관", getDynamicSettingDisplay_(settings, "생성기관", "organization")],
@@ -167,14 +162,14 @@ function createDynamicOverviewSheet_(analysis, settings) {
 function createDynamicDashboardSheet_(analysis, settings) {
   const sheet=resetDynamicReportSheet_(DYNAMIC_SURVEY_CONFIG.SHEETS.DASHBOARD);
   const summary=buildDynamicReportSummary_(analysis);
-  setDynamicReportTitle_(sheet,"A1:H2",getDynamicSettingValue_(settings,"대시보드 제목","dashboardTitle")||"만족도 조사 대시보드");
+  setDynamicReportTitle_(sheet,"A1:H2","Ⅱ. 대시보드");
   const npsText=summary.nps===null?"NPS 문항 없음":summary.nps.toFixed(1);
-  const top=analysis.scaleSummary.highest, low=analysis.scaleSummary.lowest;
+  const topNames=getDynamicScaleExtremeNames_(analysis.scale||[],"max"),lowNames=getDynamicScaleExtremeNames_(analysis.scale||[],"min");
   const cards=[
     ["전체 응답자",summary.respondentCount+"명","가중평균",summary.overallAverage===null?"산출 불가":summary.overallAverage.toFixed(2)+"점"],
     ["전체 긍정률",summary.overallPositiveRate.toFixed(1)+"%","추천/NPS",npsText],
     ["유효 주관식",summary.opinionCount+"건","결측률",summary.missingRate.toFixed(1)+"%"],
-    ["최고 만족",top?top.question:"산출 불가","개선 우선",low?low.question:"산출 불가"]
+    ["최고 만족",topNames||"산출 불가","개선 우선",lowNames||"산출 불가"]
   ];
   sheet.getRange(4,1,4,4).setValues(cards);
   sheet.getRange(4,1,4,4).setBorder(true,true,true,true,true,true,"#D9E2EC",SpreadsheetApp.BorderStyle.SOLID);
@@ -187,16 +182,15 @@ function createDynamicDashboardSheet_(analysis, settings) {
   sheet.getRange(10,1,rows.length,6).setValues(rows);styleDynamicReportHeader_(sheet.getRange(10,1,1,6));
   if(rows.length>1){sheet.getRange(11,3,rows.length-1,1).setNumberFormat("0.00");sheet.getRange(11,5,rows.length-1,1).setNumberFormat("0.0%");}
   setDynamicBarSparklines_(sheet,11,rows.length-1,3,4);
-  highlightDynamicMaximums_(sheet,11,rows.length-1,[3,5]);
   finishDynamicReportSheet_(sheet,rows.length+11,8);
 }
 
 function createDynamicRespondentSheet_(analysis) {
-  createDynamicCategoricalSheet_("03_응답자특성", "응답자 특성", analysis.respondent || []);
+  createDynamicCategoricalSheet_("03_응답자특성", "Ⅲ. 응답자 특성", analysis.respondent || []);
 }
 
 function createDynamicSingleSheet_(analysis) {
-  createDynamicCategoricalSheet_("04_단일응답분석", "단일응답 분석", analysis.single || []);
+  createDynamicCategoricalSheet_("04_단일응답분석", "Ⅳ. 단일응답 분석", analysis.single || []);
 }
 
 function createDynamicCategoricalSheet_(sheetName, title, questions) {
@@ -208,9 +202,8 @@ function createDynamicCategoricalSheet_(sheetName, title, questions) {
     finishDynamicReportSheet_(sheet, row + 2, 6);
     return;
   }
-  questions.forEach(function(question) {
-    sheet.getRange(row, 1, 1, 6).merge().setValue(question.question)
-      .setBackground("#EAF2F8").setFontWeight("bold");
+  questions.forEach(function(question, questionIndex) {
+    styleDynamicQuestionTitle_(sheet.getRange(row, 1, 1, 6).merge().setValue(formatDynamicQuestionTitle_(question,questionIndex)));
     row++;
     const rows = [["항목", "빈도", "시각화", "유효응답 기준 비율", "전체응답 기준 비율", "분석 기준"]];
     (question.items || []).forEach(function(item) {
@@ -222,9 +215,10 @@ function createDynamicCategoricalSheet_(sheetName, title, questions) {
     sheet.getRange(row, 1, rows.length, 6).setValues(rows);
     styleDynamicReportHeader_(sheet.getRange(row, 1, 1, 6));
     sheet.getRange(row + 1, 4, rows.length - 1, 2).setNumberFormat("0.0%");
-    sheet.getRange(row + rows.length - 1, 1, 1, 6).setFontWeight("bold").setBackground("#FFF2CC");
+    styleDynamicReportTotalRow_(sheet.getRange(row + rows.length - 1, 1, 1, 6));
     setDynamicBarSparklines_(sheet,row+1,(question.items||[]).length,2,3);
-    highlightDynamicMaximums_(sheet,row+1,(question.items||[]).length,[2,4,5]);
+    highlightDynamicRowsByMetric_(sheet,row+1,(question.items||[]).length,2,1,5,"max","#FFF2CC",
+      (question.items||[]).map(function(item){return !/^(?:무응답|결측|빈값)$/i.test(cleanText_(item.label));}));
     row += rows.length + 2;
   });
   sheet.setColumnWidth(1, 380); sheet.setColumnWidths(2, 4, 130);
@@ -233,7 +227,7 @@ function createDynamicCategoricalSheet_(sheetName, title, questions) {
 
 function createDynamicMultipleSheet_(analysis) {
   const sheet = resetDynamicReportSheet_("05_복수응답분석");
-  setDynamicReportTitle_(sheet, "A1:F2", "복수응답 분석");
+  setDynamicReportTitle_(sheet, "A1:F2", "Ⅴ. 복수응답 분석");
 
   let row = 4;
   const questions = analysis.multiple || [];
@@ -244,12 +238,8 @@ function createDynamicMultipleSheet_(analysis) {
     return;
   }
 
-  questions.forEach(function(question) {
-    sheet.getRange(row, 1, 1, 5)
-      .merge()
-      .setValue(question.question)
-      .setBackground("#EAF2F8")
-      .setFontWeight("bold");
+  questions.forEach(function(question, questionIndex) {
+    styleDynamicQuestionTitle_(sheet.getRange(row, 1, 1, 6).merge().setValue(formatDynamicQuestionTitle_(question,questionIndex)));
 
     row++;
 
@@ -284,10 +274,10 @@ function createDynamicMultipleSheet_(analysis) {
         .setNumberFormat("0.0%");
     }
 
-    sheet.getRange(row + rows.length - 1, 1, 1, 6)
-      .setFontWeight("bold").setBackground("#FFF2CC");
+    styleDynamicReportTotalRow_(sheet.getRange(row + rows.length - 1, 1, 1, 6));
     setDynamicBarSparklines_(sheet,row+1,(question.items||[]).length,2,3);
-    highlightDynamicMaximums_(sheet,row+1,(question.items||[]).length,[2,4,5,6]);
+    highlightDynamicRowsByMetric_(sheet,row+1,(question.items||[]).length,2,1,6,"max","#FFF2CC",
+      (question.items||[]).map(function(item){return !/^(?:무응답|결측|빈값)$/i.test(cleanText_(item.label));}));
     row += rows.length + 2;
   });
 
@@ -304,7 +294,7 @@ function buildDynamicMultipleTotalRow_(question) {
 
 function createDynamicSatisfactionSheet_(analysis) {
   const sheet=resetDynamicReportSheet_(DYNAMIC_SURVEY_CONFIG.SHEETS.SCALE);
-  setDynamicReportTitle_(sheet,"A1:S2","5점 척도 분석");
+  setDynamicReportTitle_(sheet,"A1:S2","Ⅵ. 만족도 분석");
   const headers=["문항","유효응답","시각화","결측","미매핑","5점","4점","3점","2점","1점","평균","중앙값","표준편차","100점 환산","긍정률","중립률","부정률","전체 가중평균 대비","순위"];
   const rows=[headers];
   (analysis.scale||[]).forEach(function(item){const d=item.scoreDistribution||{};rows.push([item.question,item.validCount,"",item.missingCount,item.unmappedCount,
@@ -316,8 +306,13 @@ function createDynamicSatisfactionSheet_(analysis) {
   sheet.getRange(4,1,rows.length,headers.length).setValues(rows);styleDynamicReportHeader_(sheet.getRange(4,1,1,headers.length));
   if(rows.length>1){sheet.getRange(5,11,rows.length-1,4).setNumberFormat("0.00");sheet.getRange(5,15,rows.length-1,3).setNumberFormat("0.0%");}
   setDynamicBarSparklines_(sheet,5,(analysis.scale||[]).length,2,3);
-  highlightDynamicMaximums_(sheet,5,(analysis.scale||[]).length,[2,6,7,8,9,10,15,16,17]);
-  sheet.getRange(4+rows.length-1,1,1,headers.length).setBackground("#FFF2CC").setFontWeight("bold");
+  highlightDynamicRowsByMetric_(sheet,5,(analysis.scale||[]).length,11,1,headers.length,"max","#FFF2CC",
+    (analysis.scale||[]).map(function(item){return Number(item.validCount||0)>0;}));
+  const scaleAverages=(analysis.scale||[]).filter(function(item){return Number(item.validCount||0)>0&&item.average!==null;}).map(function(item){return Number(item.average);});
+  if(scaleAverages.length&&Math.min.apply(null,scaleAverages)<Math.max.apply(null,scaleAverages))
+    highlightDynamicRowsByMetric_(sheet,5,(analysis.scale||[]).length,11,1,headers.length,"min","#FCE4D6",
+      (analysis.scale||[]).map(function(item){return Number(item.validCount||0)>0;}));
+  styleDynamicReportTotalRow_(sheet.getRange(4+rows.length-1,1,1,headers.length));
   const noteRow=5+rows.length;sheet.getRange(noteRow,1,1,headers.length).merge().setValue(
     "※ 전체 평균은 전체 유효 척도 응답 기준 가중평균입니다. 표준편차는 모집단 방식입니다. 순위는 평균→긍정률→5점 응답 수이며 완전 동점은 공동순위입니다.").setWrap(true);
   sheet.setColumnWidth(1,420);sheet.setColumnWidths(2,headers.length-1,95);finishDynamicReportSheet_(sheet,noteRow,headers.length);
@@ -325,7 +320,7 @@ function createDynamicSatisfactionSheet_(analysis) {
 
 function createDynamicRecommendationSheet_(analysis) {
   const sheet = resetDynamicReportSheet_(DYNAMIC_SURVEY_CONFIG.SHEETS.RECOMMENDATION);
-  setDynamicReportTitle_(sheet, "A1:H2", "추천의향 및 NPS 분석");
+  setDynamicReportTitle_(sheet, "A1:H2", "Ⅶ. 추천의향 분석");
   let row = 4;
   const questions = analysis.recommendation || [];
   if (questions.length === 0) {
@@ -333,8 +328,8 @@ function createDynamicRecommendationSheet_(analysis) {
     finishDynamicReportSheet_(sheet, row + 2, 8);
     return;
   }
-  questions.forEach(function(item) {
-    sheet.getRange(row, 1, 1, 8).merge().setValue(item.question).setBackground("#EAF2F8").setFontWeight("bold");
+  questions.forEach(function(item, questionIndex) {
+    styleDynamicQuestionTitle_(sheet.getRange(row, 1, 1, 8).merge().setValue(formatDynamicQuestionTitle_(item,questionIndex)));
     row++;
     let rows;
     if (item.scaleMode === "NPS_0_10") {
@@ -353,9 +348,9 @@ function createDynamicRecommendationSheet_(analysis) {
     sheet.getRange(row, 1, rows.length, 8).setValues(rows);
     styleDynamicReportHeader_(sheet.getRange(row, 1, 1, 8));
     sheet.getRange(row + 1, 4, rows.length - 1, 1).setNumberFormat("0.0%");
-    sheet.getRange(row + rows.length - 1, 1, 1, 8).setFontWeight("bold").setBackground("#FFF2CC");
+    styleDynamicReportTotalRow_(sheet.getRange(row + rows.length - 1, 1, 1, 8));
     setDynamicBarSparklines_(sheet,row+1,3,2,3);
-    highlightDynamicMaximums_(sheet,row+1,3,[2,4]);
+    highlightDynamicRowsByMetric_(sheet,row+1,3,2,1,4,"max","#FFF2CC");
     row += rows.length + 2;
   });
   finishDynamicReportSheet_(sheet, row, 8);
@@ -363,7 +358,7 @@ function createDynamicRecommendationSheet_(analysis) {
 
 function createDynamicOpinionRawSheet_(analysis) {
   const sheet = resetDynamicReportSheet_("08_주관식분석");
-  setDynamicReportTitle_(sheet, "A1:D2", "주관식 응답 목록");
+  setDynamicReportTitle_(sheet, "A1:D2", "Ⅷ. 주관식 분석");
 
   const rows = [["문항", "응답 ID", "응답 번호", "원문", "비식별문", "유효 여부", "제외 사유", "검토 상태"]];
 
@@ -432,21 +427,32 @@ function dynamicColumnLetter_(column) {
   return result;
 }
 
-function highlightDynamicMaximums_(sheet,startRow,rowCount,columns) {
-  if (!sheet || Number(rowCount || 0) < 1) return;
-  columns.forEach(function(column) {
-    const range=sheet.getRange(startRow,column,rowCount,1);
-    const values=range.getValues();
-    const numericValues=values.filter(function(row){return typeof row[0]==="number"&&Number.isFinite(row[0]);})
-      .map(function(row){return row[0];});
-    if (!numericValues.length) return;
-    const maximum=Math.max.apply(null,numericValues);
-    const backgrounds=range.getBackgrounds();
-    values.forEach(function(row,index){
-      if (typeof row[0]==="number"&&Number.isFinite(row[0])&&row[0]===maximum) backgrounds[index][0]="#FFF2CC";
-    });
-    range.setBackgrounds(backgrounds);
+function getDynamicExtremeRowIndexes_(values, mode, eligibility) {
+  const candidates=[];(values||[]).forEach(function(value,index){
+    if(eligibility&&eligibility[index]===false)return;
+    if(value===null||value===undefined||value==="")return;
+    const numeric=Number(value);if(Number.isFinite(numeric))candidates.push({index:index,value:numeric});
   });
+  if(!candidates.length)return [];
+  const target=(mode==="min"?Math.min:Math.max).apply(null,candidates.map(function(item){return item.value;}));
+  return candidates.filter(function(item){return item.value===target;}).map(function(item){return item.index;});
+}
+
+
+function highlightDynamicRowsByMetric_(sheet,startRow,rowCount,metricColumn,firstColumn,lastColumn,mode,color,eligibility) {
+  if(!sheet||Number(rowCount||0)<1)return [];
+  const values=sheet.getRange(startRow,metricColumn,rowCount,1).getValues().map(function(row){return row[0];});
+  const indexes=getDynamicExtremeRowIndexes_(values,mode,eligibility);
+  indexes.forEach(function(index){sheet.getRange(startRow+index,firstColumn,1,lastColumn-firstColumn+1).setBackground(color);});
+  return indexes;
+}
+
+
+function getDynamicScaleExtremeNames_(scaleItems, mode) {
+  const eligible=(scaleItems||[]).filter(function(item){return Number(item.validCount||0)>0&&item.average!==null;});
+  if(!eligible.length)return "";
+  const target=(mode==="min"?Math.min:Math.max).apply(null,eligible.map(function(item){return Number(item.average);}));
+  return eligible.filter(function(item){return Number(item.average)===target;}).map(function(item){return item.question;}).join(" / ");
 }
 
 function resetDynamicReportSheet_(sheetName) {
@@ -478,7 +484,8 @@ function setDynamicReportTitle_(sheet, rangeA1, title) {
     .setBackground("#17375E")
     .setFontColor("#FFFFFF")
     .setFontWeight("bold")
-    .setFontSize(16)
+    .setFontFamily("맑은 고딕")
+    .setFontSize(17)
     .setHorizontalAlignment("center")
     .setVerticalAlignment("middle");
 
@@ -491,9 +498,79 @@ function styleDynamicReportHeader_(range) {
     .setBackground("#244D78")
     .setFontColor("#FFFFFF")
     .setFontWeight("bold")
+    .setFontFamily("맑은 고딕")
+    .setFontSize(10)
     .setHorizontalAlignment("center")
     .setVerticalAlignment("middle")
     .setWrap(true);
+}
+
+
+/** 문항 코드를 본문과 분리해 기관 보고서형 제목으로 표시합니다. */
+function formatDynamicQuestionTitle_(question, index) {
+  const original=cleanText_(question&&question.question||"");
+  const matched=original.match(/^\s*(Q\d+)\s*[.:：)_-]?\s*/i);
+  const code=matched?matched[1].toUpperCase():"문항 "+(Number(index||0)+1);
+  const title=matched?original.substring(matched[0].length).trim():original;
+  return "【"+code+"】\n"+(title||original||"제목 없음");
+}
+
+
+/** 문항별 독립 표의 제목 행을 동일한 기관 문서 스타일로 표시합니다. */
+function styleDynamicQuestionTitle_(range) {
+  return range.setBackground("#D9EAF7").setFontColor("#17375E")
+    .setFontFamily("맑은 고딕").setFontSize(11).setFontWeight("bold")
+    .setHorizontalAlignment("left").setVerticalAlignment("middle").setWrap(true);
+}
+
+
+/** 합계/요약 행을 최다값 강조색과 구분되는 연한 회색으로 표시합니다. */
+function styleDynamicReportTotalRow_(range) {
+  return range.setBackground("#E7E6E6").setFontColor("#1F2937")
+    .setFontFamily("맑은 고딕").setFontWeight("bold");
+}
+
+
+/** 모든 통계 시트에 공통 글꼴·본문 크기·숫자 정렬·행 높이를 적용합니다. */
+function applyDynamicPublicReportBaseStyle_(sheet, lastRow, columnCount) {
+  const safeLastRow=Math.max(Number(lastRow||1),1),safeColumnCount=Math.max(Number(columnCount||1),1);
+  const range=sheet.getRange(1,1,safeLastRow,safeColumnCount);
+  range.setFontFamily("맑은 고딕").setFontSize(10).setVerticalAlignment("middle").setWrap(true);
+  range.getMergedRanges().forEach(function(mergedRange){
+    if(mergedRange.getRow()<=2)mergedRange.setFontSize(17);
+    else if(mergedRange.getNumRows()===1)mergedRange.setFontSize(11);
+  });
+  const values=range.getValues(),numericCells=[];
+  values.forEach(function(row,rowIndex){row.forEach(function(value,columnIndex){
+    if(typeof value==="number"&&Number.isFinite(value))numericCells.push(dynamicColumnLetter_(columnIndex+1)+(rowIndex+1));
+  });});
+  if(numericCells.length)sheet.getRangeList(numericCells).setHorizontalAlignment("right");
+  applyDynamicReportNumberFormats_(sheet,range,values);
+  applyDynamicReportAdaptiveWidths_(sheet,range.getDisplayValues(),safeColumnCount);
+  sheet.autoResizeRows(1,safeLastRow);
+  sheet.setRowHeights(1,2,32);
+}
+
+
+function applyDynamicReportNumberFormats_(sheet, range, values) {
+  const formats=range.getNumberFormats(),integerCells=[],decimalCells=[];
+  values.forEach(function(row,rowIndex){row.forEach(function(value,columnIndex){
+    if(typeof value!=="number"||!Number.isFinite(value)||String(formats[rowIndex][columnIndex]).toLowerCase()!=="general")return;
+    const a1=dynamicColumnLetter_(columnIndex+1)+(rowIndex+1);
+    (Math.floor(value)===value?integerCells:decimalCells).push(a1);
+  });});
+  if(integerCells.length)sheet.getRangeList(integerCells).setNumberFormat("#,##0");
+  if(decimalCells.length)sheet.getRangeList(decimalCells).setNumberFormat("#,##0.00");
+}
+
+
+function applyDynamicReportAdaptiveWidths_(sheet, displayValues, columnCount) {
+  for(let column=0;column<columnCount;column++){
+    const maximum=(displayValues||[]).reduce(function(max,row){
+      return Math.max(max,String(row[column]===undefined?"":row[column]).split("\n").reduce(function(lineMax,line){return Math.max(lineMax,line.length);},0));
+    },0);
+    sheet.setColumnWidth(column+1,Math.max(72,Math.min(420,maximum*8+24)));
+  }
 }
 
 
@@ -517,6 +594,8 @@ function finishDynamicReportSheet_(sheet, lastRow, columnCount) {
       "#D9E2EC",
       SpreadsheetApp.BorderStyle.SOLID
     );
+
+  applyDynamicPublicReportBaseStyle_(sheet, safeLastRow, safeColumnCount);
 }
 
 
