@@ -367,7 +367,7 @@ function createDynamicSurveyReportXlsx_(
     }
 
 
-    const excelBlob =
+    let excelBlob =
       exportResponse
         .getBlob()
         .setName(
@@ -377,6 +377,10 @@ function createDynamicSurveyReportXlsx_(
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         );
     if(excelBlob.getBytes().length===0)throw new Error("생성된 Excel 파일이 비어 있습니다.");
+
+    excelBlob = applyDynamicXlsxPrintLayout_(excelBlob, exportSheets)
+      .setName(fileName)
+      .setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
 
     assertDynamicXlsxBlobCompatible_(
       excelBlob
@@ -580,6 +584,47 @@ function findDynamicXlsxForbiddenToken_(content) {
     "UNIQUE(", "SORT(", "SORTN(", "TOCOL(", "TOROW(", "#NAME?"].find(function(token) {
     return normalized.indexOf(token) !== -1;
   }) || "";
+}
+
+
+/** XLSX XML에 A4 가로·한 페이지 너비·좁은 여백·1~4행 반복 인쇄 설정을 적용합니다. */
+function applyDynamicXlsxPrintLayout_(excelBlob, sheetNames) {
+  let entries;
+  try { entries=Utilities.unzip(excelBlob.copyBlob()); }
+  catch(error){throw new Error("Excel 인쇄 설정을 적용하지 못했습니다: "+(error&&error.message?error.message:String(error)));}
+  const updated=entries.map(function(entry){
+    const name=String(entry.getName()||"");
+    if(!/^xl\/worksheets\/sheet\d+\.xml$/i.test(name)&&name!=="xl/workbook.xml")return entry;
+    let content=entry.getDataAsString();
+    if(/^xl\/worksheets\/sheet\d+\.xml$/i.test(name)) content=applyDynamicWorksheetPrintSettingsXml_(content);
+    else content=applyDynamicWorkbookPrintTitlesXml_(content,sheetNames||[]);
+    return Utilities.newBlob(content,entry.getContentType(),name);
+  });
+  return Utilities.zip(updated,excelBlob.getName());
+}
+
+
+function applyDynamicWorksheetPrintSettingsXml_(content) {
+  let xml=String(content||"");
+  if(xml.indexOf("<pageSetUpPr")===-1){
+    if(/<sheetPr\b[^>]*\/>/.test(xml))xml=xml.replace(/<sheetPr\b([^>]*)\/>/,'<sheetPr$1><pageSetUpPr fitToPage="1"/></sheetPr>');
+    else if(xml.indexOf("<sheetPr")!==-1)xml=xml.replace(/<sheetPr([^>]*)>/,'<sheetPr$1><pageSetUpPr fitToPage="1"/>');
+    else xml=xml.replace(/(<worksheet[^>]*>)/,'$1<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>');
+  }
+  xml=xml.replace(/<pageMargins\b[^>]*\/>/g,"").replace(/<pageSetup\b[^>]*\/>/g,"");
+  return xml.replace("</worksheet>",'<pageMargins left="0.25" right="0.25" top="0.5" bottom="0.5" header="0.2" footer="0.2"/><pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/></worksheet>');
+}
+
+
+function applyDynamicWorkbookPrintTitlesXml_(content, sheetNames) {
+  let xml=String(content||"").replace(/<definedName\b[^>]*name="_xlnm\.Print_Titles"[^>]*>[\s\S]*?<\/definedName>/g,"");
+  const names=(sheetNames||[]).map(function(sheetName,index){
+    const escaped=String(sheetName).replace(/&/g,"&amp;").replace(/'/g,"&apos;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    return '<definedName name="_xlnm.Print_Titles" localSheetId="'+index+'">&apos;'+escaped+'&apos;!$1:$4</definedName>';
+  }).join("");
+  if(!names)return xml;
+  if(xml.indexOf("<definedNames")!==-1)return xml.replace("</definedNames>",names+"</definedNames>");
+  return xml.replace("</workbook>","<definedNames>"+names+"</definedNames></workbook>");
 }
 
 

@@ -537,6 +537,16 @@ Generated report and AI sheets share a public-sector presentation baseline:
 `맑은 고딕`, 10pt body text, 17pt merged titles, dark-navy title bars, blue table
 headers, light-blue question headings, light-gray total rows, thin borders,
 right-aligned numeric cells, wrapped long text, and content-sized row heights.
+Sheet titles use Roman-numeral report sections, question titles separate their
+`Q` code from the text, and adaptive widths are capped to avoid excessive blank
+space. The exported XLSX applies A4 landscape, fit-to-width, narrow margins, and
+rows 1–4 as repeating print titles without modifying the Google Sheets source.
+
+Report highlighting is calculated only within each question's item rows. Tied
+maxima are all yellow (`#FFF2CC`), total rows are excluded, scale maxima are
+yellow, and distinct scale minima are light red (`#FCE4D6`). Zero-valid-response
+scale questions are excluded. Dashboard extreme labels join tied question names
+instead of selecting an arbitrary winner.
 
 ## 13.2 Legacy compatibility sheets
 

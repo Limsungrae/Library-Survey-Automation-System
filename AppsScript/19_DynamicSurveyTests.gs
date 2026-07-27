@@ -82,6 +82,21 @@ function testDynamicSurveyV2RegressionSuite() {
     equal_(calls.setFontFamily,"맑은 고딕","공통 글꼴");equal_(calls.setFontSize,11,"문항 제목 크기");
     styleDynamicReportTotalRow_(range);equal_(calls.setBackground,"#E7E6E6","합계행 배경");
     equal_(calls.setFontWeight,"bold","합계행 굵게");});
+  test_("보고서 제목·문항 제목·인쇄 설정",function(){
+    equal_(formatDynamicQuestionTitle_({question:"Q1 시설 및 환경 만족도"},0),"【Q1】\n시설 및 환경 만족도","Q 제목");
+    equal_(formatDynamicQuestionTitle_({question:"응답자 유형"},1),"【문항 2】\n응답자 유형","일반 제목");
+    const worksheet=applyDynamicWorksheetPrintSettingsXml_('<worksheet><sheetData/></worksheet>');
+    equal_(worksheet.indexOf('paperSize="9"')>=0,true,"A4");equal_(worksheet.indexOf('orientation="landscape"')>=0,true,"가로");
+    equal_(worksheet.indexOf('fitToWidth="1"')>=0,true,"페이지 맞춤");equal_(worksheet.indexOf('left="0.25"')>=0,true,"좁은 여백");
+    const workbook=applyDynamicWorkbookPrintTitlesXml_('<workbook></workbook>',["01_조사개요"]);
+    equal_(workbook.indexOf("$1:$4")>=0,true,"반복 머리글");});
+  test_("문항별 최다·최저와 동률 강조 대상",function(){
+    equal_(getDynamicExtremeRowIndexes_([3,7,7,2],"max").join(","),"1,2","최다 동률");
+    equal_(getDynamicExtremeRowIndexes_([3,7,7,2],"min").join(","),"3","최저");
+    equal_(getDynamicExtremeRowIndexes_([9,2,2],"min",[false,true,true]).join(","),"1,2","제외 및 최저 동률");
+    equal_(getDynamicScaleExtremeNames_([{question:"A",validCount:2,average:4.5},{question:"B",validCount:2,average:4.5},
+      {question:"C",validCount:2,average:3},{question:"D",validCount:0,average:5}],"max"),"A / B","공동 최고");
+    equal_(getDynamicScaleExtremeNames_([{question:"A",validCount:2,average:4},{question:"B",validCount:2,average:2}],"min"),"B","최저 문항");});
   return {success:results.every(function(r){return r.status==="PASS";}),passed:results.filter(function(r){return r.status==="PASS";}).length,
     failed:results.filter(function(r){return r.status==="FAIL";}).length,results:results};
 }
