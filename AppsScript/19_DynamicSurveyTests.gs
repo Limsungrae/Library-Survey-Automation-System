@@ -65,11 +65,23 @@ function testDynamicSurveyV2RegressionSuite() {
     equal_(isDynamicXlsxIncompatibleFormula_('=SPARKLINE(B5,{"charttype","bar"})',""),true,"SPARKLINE");
     equal_(isDynamicXlsxIncompatibleFormula_("=__xludf.DUMMYFUNCTION(B5)","#NAME?"),true,"xludf");
     equal_(isDynamicXlsxIncompatibleFormula_("=UNKNOWN(B5)","#NAME?"),true,"NAME 오류");
-    equal_(isDynamicXlsxIncompatibleFormula_("=SUM(B5:B10)","82"),false,"호환 수식 유지");
+    ["=SUM(B5:B10)","=AVERAGE(B5:B10)","=ROUND(B5,1)","=COUNTIF(B5:B10,\">0\")",
+      "=COUNTA(B5:B10)","=IF(B5>0,B5,0)"].forEach(function(formula){
+      equal_(isDynamicXlsxIncompatibleFormula_(formula,"82"),false,"호환 수식 유지: "+formula);});
+    ["=LET(x,B5,x)","=LAMBDA(x,x)(B5)","=FILTER(A:A,B:B>0)","=UNIQUE(A:A)","=SORT(A:A)",
+      "=SORTN(A:A,5)","=TOCOL(A:B)","=TOROW(A:B)","=_xlfn.XLOOKUP(A1,B:B,C:C)"].forEach(function(formula){
+      equal_(isDynamicXlsxIncompatibleFormula_(formula,""),true,"비호환 수식 제거: "+formula);});
     equal_(isDynamicXlsxIncompatibleFormula_("","#NAME?"),false,"일반 텍스트 유지");
     equal_(findDynamicXlsxForbiddenToken_("<f>_xlfn.SPARKLINE(B5)</f>"),"SPARKLINE","XLSX SPARKLINE");
     equal_(findDynamicXlsxForbiddenToken_("<f>__xludf.DUMMYFUNCTION(B5)</f>"),"__XLUDF","XLSX xludf");
     equal_(findDynamicXlsxForbiddenToken_("<v>82</v>"),"","정상 XLSX XML");});
+  test_("공공기관 공통 표 스타일",function(){const calls={};const range={};
+    ["setBackground","setFontColor","setFontFamily","setFontSize","setFontWeight","setHorizontalAlignment",
+      "setVerticalAlignment","setWrap"].forEach(function(name){range[name]=function(value){calls[name]=value;return range;};});
+    styleDynamicQuestionTitle_(range);equal_(calls.setBackground,"#D9EAF7","문항 제목 배경");
+    equal_(calls.setFontFamily,"맑은 고딕","공통 글꼴");equal_(calls.setFontSize,11,"문항 제목 크기");
+    styleDynamicReportTotalRow_(range);equal_(calls.setBackground,"#E7E6E6","합계행 배경");
+    equal_(calls.setFontWeight,"bold","합계행 굵게");});
   return {success:results.every(function(r){return r.status==="PASS";}),passed:results.filter(function(r){return r.status==="PASS";}).length,
     failed:results.filter(function(r){return r.status==="FAIL";}).length,results:results};
 }

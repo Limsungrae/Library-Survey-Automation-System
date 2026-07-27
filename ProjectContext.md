@@ -528,6 +528,15 @@ formula displaying an Excel-style calculation error. The source Google Sheet is
 not modified, and numeric/statistical columns remain intact. Export aborts if a
 second scan still finds `SPARKLINE`, `__xludf`, `DUMMYFUNCTION`, `#NAME?`, or
 another broken formula.
+Empty visualization-only columns are hidden in the temporary XLSX copy by
+default; callers may preserve them with `hideEmptyVisualizationColumns:false`.
+The compatibility log records every sheet, removed-cell count, detected function
+kinds, and hidden visualization columns.
+
+Generated report and AI sheets share a public-sector presentation baseline:
+`맑은 고딕`, 10pt body text, 17pt merged titles, dark-navy title bars, blue table
+headers, light-blue question headings, light-gray total rows, thin borders,
+right-aligned numeric cells, wrapped long text, and content-sized row heights.
 
 ## 13.2 Legacy compatibility sheets
 

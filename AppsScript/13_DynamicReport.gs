@@ -141,6 +141,7 @@ function createDynamicOverviewSheet_(analysis, settings) {
     ["조사방법", getDynamicSettingDisplay_(settings, "조사방법", "surveyMethod")],
     ["분석방법", getDynamicSettingDisplay_(settings, "분석방법", "analysisMethod")],
     ["표본 수", Number(analysis.respondentCount || 0) + "명"],
+    ["분석 문항 수", Number(analysis.summary && analysis.summary.analyzedQuestionCount || 0) + "개"],
     ["담당부서", getDynamicSettingValue_(settings, "담당부서", "department")],
     ["문의처", getDynamicSettingValue_(settings, "문의처", "contact")],
     ["생성기관", getDynamicSettingDisplay_(settings, "생성기관", "organization")],
@@ -208,8 +209,7 @@ function createDynamicCategoricalSheet_(sheetName, title, questions) {
     return;
   }
   questions.forEach(function(question) {
-    sheet.getRange(row, 1, 1, 6).merge().setValue(question.question)
-      .setBackground("#EAF2F8").setFontWeight("bold");
+    styleDynamicQuestionTitle_(sheet.getRange(row, 1, 1, 6).merge().setValue(question.question));
     row++;
     const rows = [["항목", "빈도", "시각화", "유효응답 기준 비율", "전체응답 기준 비율", "분석 기준"]];
     (question.items || []).forEach(function(item) {
@@ -221,7 +221,7 @@ function createDynamicCategoricalSheet_(sheetName, title, questions) {
     sheet.getRange(row, 1, rows.length, 6).setValues(rows);
     styleDynamicReportHeader_(sheet.getRange(row, 1, 1, 6));
     sheet.getRange(row + 1, 4, rows.length - 1, 2).setNumberFormat("0.0%");
-    sheet.getRange(row + rows.length - 1, 1, 1, 6).setFontWeight("bold").setBackground("#FFF2CC");
+    styleDynamicReportTotalRow_(sheet.getRange(row + rows.length - 1, 1, 1, 6));
     setDynamicBarSparklines_(sheet,row+1,(question.items||[]).length,2,3);
     highlightDynamicMaximums_(sheet,row+1,(question.items||[]).length,[2,4,5]);
     row += rows.length + 2;
@@ -244,11 +244,7 @@ function createDynamicMultipleSheet_(analysis) {
   }
 
   questions.forEach(function(question) {
-    sheet.getRange(row, 1, 1, 6)
-      .merge()
-      .setValue(question.question)
-      .setBackground("#EAF2F8")
-      .setFontWeight("bold");
+    styleDynamicQuestionTitle_(sheet.getRange(row, 1, 1, 6).merge().setValue(question.question));
 
     row++;
 
@@ -283,8 +279,7 @@ function createDynamicMultipleSheet_(analysis) {
         .setNumberFormat("0.0%");
     }
 
-    sheet.getRange(row + rows.length - 1, 1, 1, 6)
-      .setFontWeight("bold").setBackground("#FFF2CC");
+    styleDynamicReportTotalRow_(sheet.getRange(row + rows.length - 1, 1, 1, 6));
     setDynamicBarSparklines_(sheet,row+1,(question.items||[]).length,2,3);
     highlightDynamicMaximums_(sheet,row+1,(question.items||[]).length,[2,4,5,6]);
     row += rows.length + 2;
@@ -316,7 +311,7 @@ function createDynamicSatisfactionSheet_(analysis) {
   if(rows.length>1){sheet.getRange(5,11,rows.length-1,4).setNumberFormat("0.00");sheet.getRange(5,15,rows.length-1,3).setNumberFormat("0.0%");}
   setDynamicBarSparklines_(sheet,5,(analysis.scale||[]).length,2,3);
   highlightDynamicMaximums_(sheet,5,(analysis.scale||[]).length,[2,6,7,8,9,10,15,16,17]);
-  sheet.getRange(4+rows.length-1,1,1,headers.length).setBackground("#FFF2CC").setFontWeight("bold");
+  styleDynamicReportTotalRow_(sheet.getRange(4+rows.length-1,1,1,headers.length));
   const noteRow=5+rows.length;sheet.getRange(noteRow,1,1,headers.length).merge().setValue(
     "※ 전체 평균은 전체 유효 척도 응답 기준 가중평균입니다. 표준편차는 모집단 방식입니다. 순위는 평균→긍정률→5점 응답 수이며 완전 동점은 공동순위입니다.").setWrap(true);
   sheet.setColumnWidth(1,420);sheet.setColumnWidths(2,headers.length-1,95);finishDynamicReportSheet_(sheet,noteRow,headers.length);
@@ -333,7 +328,7 @@ function createDynamicRecommendationSheet_(analysis) {
     return;
   }
   questions.forEach(function(item) {
-    sheet.getRange(row, 1, 1, 8).merge().setValue(item.question).setBackground("#EAF2F8").setFontWeight("bold");
+    styleDynamicQuestionTitle_(sheet.getRange(row, 1, 1, 8).merge().setValue(item.question));
     row++;
     let rows;
     if (item.scaleMode === "NPS_0_10") {
@@ -352,7 +347,7 @@ function createDynamicRecommendationSheet_(analysis) {
     sheet.getRange(row, 1, rows.length, 8).setValues(rows);
     styleDynamicReportHeader_(sheet.getRange(row, 1, 1, 8));
     sheet.getRange(row + 1, 4, rows.length - 1, 1).setNumberFormat("0.0%");
-    sheet.getRange(row + rows.length - 1, 1, 1, 8).setFontWeight("bold").setBackground("#FFF2CC");
+    styleDynamicReportTotalRow_(sheet.getRange(row + rows.length - 1, 1, 1, 8));
     setDynamicBarSparklines_(sheet,row+1,3,2,3);
     highlightDynamicMaximums_(sheet,row+1,3,[2,4]);
     row += rows.length + 2;
@@ -477,7 +472,8 @@ function setDynamicReportTitle_(sheet, rangeA1, title) {
     .setBackground("#17375E")
     .setFontColor("#FFFFFF")
     .setFontWeight("bold")
-    .setFontSize(16)
+    .setFontFamily("맑은 고딕")
+    .setFontSize(17)
     .setHorizontalAlignment("center")
     .setVerticalAlignment("middle");
 
@@ -490,9 +486,45 @@ function styleDynamicReportHeader_(range) {
     .setBackground("#244D78")
     .setFontColor("#FFFFFF")
     .setFontWeight("bold")
+    .setFontFamily("맑은 고딕")
+    .setFontSize(10)
     .setHorizontalAlignment("center")
     .setVerticalAlignment("middle")
     .setWrap(true);
+}
+
+
+/** 문항별 독립 표의 제목 행을 동일한 기관 문서 스타일로 표시합니다. */
+function styleDynamicQuestionTitle_(range) {
+  return range.setBackground("#D9EAF7").setFontColor("#17375E")
+    .setFontFamily("맑은 고딕").setFontSize(11).setFontWeight("bold")
+    .setHorizontalAlignment("left").setVerticalAlignment("middle").setWrap(true);
+}
+
+
+/** 합계/요약 행을 최다값 강조색과 구분되는 연한 회색으로 표시합니다. */
+function styleDynamicReportTotalRow_(range) {
+  return range.setBackground("#E7E6E6").setFontColor("#1F2937")
+    .setFontFamily("맑은 고딕").setFontWeight("bold");
+}
+
+
+/** 모든 통계 시트에 공통 글꼴·본문 크기·숫자 정렬·행 높이를 적용합니다. */
+function applyDynamicPublicReportBaseStyle_(sheet, lastRow, columnCount) {
+  const safeLastRow=Math.max(Number(lastRow||1),1),safeColumnCount=Math.max(Number(columnCount||1),1);
+  const range=sheet.getRange(1,1,safeLastRow,safeColumnCount);
+  range.setFontFamily("맑은 고딕").setFontSize(10).setVerticalAlignment("middle").setWrap(true);
+  range.getMergedRanges().forEach(function(mergedRange){
+    if(mergedRange.getRow()<=2)mergedRange.setFontSize(17);
+    else if(mergedRange.getNumRows()===1)mergedRange.setFontSize(11);
+  });
+  const values=range.getValues(),numericCells=[];
+  values.forEach(function(row,rowIndex){row.forEach(function(value,columnIndex){
+    if(typeof value==="number"&&Number.isFinite(value))numericCells.push(dynamicColumnLetter_(columnIndex+1)+(rowIndex+1));
+  });});
+  if(numericCells.length)sheet.getRangeList(numericCells).setHorizontalAlignment("right");
+  sheet.autoResizeRows(1,safeLastRow);
+  sheet.setRowHeights(1,2,32);
 }
 
 
@@ -516,6 +548,8 @@ function finishDynamicReportSheet_(sheet, lastRow, columnCount) {
       "#D9E2EC",
       SpreadsheetApp.BorderStyle.SOLID
     );
+
+  applyDynamicPublicReportBaseStyle_(sheet, safeLastRow, safeColumnCount);
 }
 
 

@@ -301,7 +301,8 @@ function createDynamicSurveyReportXlsx_(
     // 원본 보고서의 SPARKLINE 보조열과 통계 숫자는 변경하지 않습니다.
     const compatibilityResult =
       prepareDynamicSpreadsheetForXlsx_(
-        temporarySpreadsheet
+        temporarySpreadsheet,
+        options
       );
 
     assertDynamicSpreadsheetXlsxCompatible_(
@@ -441,46 +442,90 @@ function createDynamicSurveyReportXlsx_(
  * 정확한 숫자표를 우선하므로 SPARKLINE 보조 셀은 빈 값으로 대체합니다.
  *
  * @param {GoogleAppsScript.Spreadsheet.Spreadsheet} spreadsheet 임시 내보내기 문서
- * @return {{removedFormulaCount:number, affectedSheets:Array<string>}}
+ * @param {Object=} options 내보내기 옵션
+ * @return {{removedFormulaCount:number, affectedSheets:Array<string>, sheets:Array<Object>}}
  */
-function prepareDynamicSpreadsheetForXlsx_(spreadsheet) {
+function prepareDynamicSpreadsheetForXlsx_(spreadsheet, options) {
   const affectedSheets = [];
+  const sheetResults = [];
   let removedFormulaCount = 0;
 
   spreadsheet.getSheets().forEach(function(sheet) {
     const range = sheet.getDataRange();
     const formulas = range.getFormulas();
     const displayValues = range.getDisplayValues();
-    let sheetChanged = false;
+    const functionKinds = {};
+    let sheetRemovedCount = 0;
 
     formulas.forEach(function(row, rowIndex) {
       row.forEach(function(formula, columnIndex) {
-        if (!isDynamicXlsxIncompatibleFormula_(formula, displayValues[rowIndex][columnIndex])) {
+        const kinds = getDynamicXlsxIncompatibleFormulaKinds_(formula, displayValues[rowIndex][columnIndex]);
+        if (!kinds.length) {
           return;
         }
         range.getCell(rowIndex + 1, columnIndex + 1).clearContent();
         removedFormulaCount++;
-        sheetChanged = true;
+        sheetRemovedCount++;
+        kinds.forEach(function(kind) { functionKinds[kind] = true; });
       });
     });
 
-    if (sheetChanged) affectedSheets.push(sheet.getName());
+    SpreadsheetApp.flush();
+    const hiddenVisualizationColumns = options && options.hideEmptyVisualizationColumns === false
+      ? [] : hideEmptyDynamicVisualizationColumns_(sheet);
+    if (sheetRemovedCount) affectedSheets.push(sheet.getName());
+    const result = {sheetName:sheet.getName(),removedCellCount:sheetRemovedCount,
+      removedFunctionKinds:Object.keys(functionKinds),hiddenVisualizationColumns:hiddenVisualizationColumns};
+    sheetResults.push(result);
+    console.log(result.sheetName + "\n" + (result.removedFunctionKinds.join(", ") || "NONE")
+      + "\n" + result.removedCellCount + " cells");
   });
 
   SpreadsheetApp.flush();
-  return {removedFormulaCount:removedFormulaCount, affectedSheets:affectedSheets};
+  return {removedFormulaCount:removedFormulaCount, affectedSheets:affectedSheets, sheets:sheetResults};
 }
 
 
 /** Google Sheets 전용 함수 또는 계산 오류가 있는 수식인지 판별합니다. */
 function isDynamicXlsxIncompatibleFormula_(formula, displayValue) {
+  return getDynamicXlsxIncompatibleFormulaKinds_(formula, displayValue).length > 0;
+}
+
+
+/** 제거 대상 수식의 함수/오류 종류를 반환합니다. */
+function getDynamicXlsxIncompatibleFormulaKinds_(formula, displayValue) {
   const normalizedFormula = String(formula || "").toUpperCase();
-  if (!normalizedFormula) return false;
-  if (["SPARKLINE", "__XLUDF", "DUMMYFUNCTION"].some(function(token) {
-    return normalizedFormula.indexOf(token) !== -1;
-  })) return true;
-  return /^#(?:NAME\?|REF!|VALUE!|ERROR!|N\/A|DIV\/0!|NUM!|NULL!)$/i
-    .test(String(displayValue || "").trim());
+  if (!normalizedFormula) return [];
+  const kinds = [];
+  ["SPARKLINE", "__XLUDF", "DUMMYFUNCTION", "_XLFN."].forEach(function(token) {
+    if (normalizedFormula.indexOf(token) !== -1) kinds.push(token);
+  });
+  ["LET", "LAMBDA", "FILTER", "UNIQUE", "SORT", "SORTN", "TOCOL", "TOROW"].forEach(function(name) {
+    if (new RegExp("(?:^|[^A-Z0-9_])" + name + "\\s*\\(", "i").test(normalizedFormula)) kinds.push(name);
+  });
+  if (/^#(?:NAME\?|REF!|VALUE!|ERROR!|N\/A|DIV\/0!|NUM!|NULL!)$/i
+    .test(String(displayValue || "").trim())) kinds.push("FORMULA_ERROR");
+  return kinds.filter(function(kind, index) { return kinds.indexOf(kind) === index; });
+}
+
+
+/** SPARKLINE 제거 뒤 시각화 전용열이 완전히 비면 임시 XLSX 사본에서만 숨깁니다. */
+function hideEmptyDynamicVisualizationColumns_(sheet) {
+  const range = sheet.getDataRange();
+  const values = range.getDisplayValues();
+  const hiddenColumns = [];
+  if (!values.length) return hiddenColumns;
+  const columnCount = values.reduce(function(max, row) { return Math.max(max, row.length); }, 0);
+  for (let columnIndex = 0; columnIndex < columnCount; columnIndex++) {
+    const columnValues = values.map(function(row) { return String(row[columnIndex] || "").trim(); });
+    if (columnValues.indexOf("시각화") === -1) continue;
+    const hasNonVisualizationValue = columnValues.some(function(value) { return value && value !== "시각화"; });
+    if (!hasNonVisualizationValue) {
+      sheet.hideColumns(columnIndex + 1);
+      hiddenColumns.push(columnIndex + 1);
+    }
+  }
+  return hiddenColumns;
 }
 
 
@@ -531,7 +576,8 @@ function assertDynamicXlsxBlobCompatible_(excelBlob) {
 /** XLSX XML에서 금지된 함수/오류 토큰을 반환합니다. */
 function findDynamicXlsxForbiddenToken_(content) {
   const normalized = String(content || "").toUpperCase();
-  return ["SPARKLINE", "__XLUDF", "DUMMYFUNCTION", "#NAME?"].find(function(token) {
+  return ["SPARKLINE", "__XLUDF", "DUMMYFUNCTION", "_XLFN.", "LET(", "LAMBDA(", "FILTER(",
+    "UNIQUE(", "SORT(", "SORTN(", "TOCOL(", "TOROW(", "#NAME?"].find(function(token) {
     return normalized.indexOf(token) !== -1;
   }) || "";
 }

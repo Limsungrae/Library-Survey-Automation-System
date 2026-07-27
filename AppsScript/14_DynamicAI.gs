@@ -86,6 +86,7 @@ function createDynamicAIBlockedSheet_(quality) {
   const rows=[["수준","코드","문항","오류"]].concat((quality.errors||[]).map(function(item){return [item.level,item.code,item.questionId,item.message];}));
   sheet.getRange(4,1,rows.length,4).setValues(rows);styleDynamicAIHeader_(sheet.getRange(4,1,1,4));
   if(rows.length>1)styleDynamicAITable_(sheet.getRange(4,1,rows.length,4));
+  applyDynamicPublicReportBaseStyle_(sheet,rows.length+3,8);
 }
 
 /**
@@ -635,6 +636,7 @@ function createDynamicAIOpinionSheet_(analysis, opinionAnalysis) {
     sheet.setColumnWidth(5, 260);
     sheet.setColumnWidth(6, 150);
   }
+  applyDynamicPublicReportBaseStyle_(sheet, detailStartRow + Math.max(detailRows.length, 1), 8);
 }
 
 
@@ -669,7 +671,7 @@ function createDynamicAITextSheet_(sheetName, title, bodyText, notice) {
 
   // 각 문단별로 루프를 돌며 카드를 배치하듯 셀을 큼직하게 병합하여 기록합니다.
   paragraphs.forEach(function(paragraph) {
-    sheet.getRange(row, 1, 2, 8) // 가로 8열, 세로 2개 행을 통째로 병합
+    sheet.getRange(row, 1, 1, 8)
       .merge()
       .setValue(paragraph)
       .setVerticalAlignment("middle") // 텍스트 중앙 정렬
@@ -681,15 +683,15 @@ function createDynamicAITextSheet_(sheetName, title, bodyText, notice) {
       );
 
     // 가독성을 극대화하기 위해 데이터가 들어간 병합된 행들의 높이를 넉넉하게 38픽셀씩 지정합니다.
-    sheet.setRowHeight(row, 38);
-    sheet.setRowHeight(row + 1, 38);
+    sheet.setRowHeight(row, 34);
 
     // 다음 문단은 1행만큼 띄우고 배치하기 위해 3행 아래(row + 3)로 인덱스를 넘깁니다.
-    row += 3;
+    row += 2;
   });
 
   // 모든 열(1~8번 열)의 너비를 균등하게 120픽셀로 맞춰 시트의 균형을 잡습니다.
   sheet.setColumnWidths(1, 8, 120);
+  applyDynamicPublicReportBaseStyle_(sheet, Math.max(row - 1, 6), 8);
 }
 
 
@@ -783,6 +785,7 @@ function setDynamicAISheetTitle_(sheet, title, columnCount) {
     .setBackground("#1b365d") // 신뢰감을 주는 기관용 다크블루 색상 배경
     .setFontColor("#ffffff")   // 흰색 글자
     .setFontWeight("bold")     // 굵게
+    .setFontFamily("맑은 고딕")
     .setFontSize(18)           // 18포인트 크게 설정
     .setHorizontalAlignment("center") // 가로 가운데 정렬
     .setVerticalAlignment("middle");  // 세로 정렬도 중앙 정렬
@@ -801,6 +804,8 @@ function styleDynamicAIHeader_(range) {
     .setBackground("#4a6fa5")         // 차분한 인디고 블루 배경색
     .setFontColor("#ffffff")           // 흰색 글자
     .setFontWeight("bold")             // 굵게
+    .setFontFamily("맑은 고딕")
+    .setFontSize(10)
     .setHorizontalAlignment("center") // 가로 중앙 정렬
     .setVerticalAlignment("middle")  // 세로 중앙 정렬
     .setWrap(true);                   // 좁을 때 줄바꿈 허용
@@ -819,6 +824,8 @@ function styleDynamicAITable_(range) {
       "#c9d2dd",                          // 너무 튀지 않는 연회색 테두리 색상 지정
       SpreadsheetApp.BorderStyle.SOLID    // 단선 실선 스타일
     )
+    .setFontFamily("맑은 고딕")
+    .setFontSize(10)
     .setVerticalAlignment("middle")      // 기본적으로 모든 텍스트는 세로 기준 정중앙 배치
     .setWrap(true);                       // 셀 크기 오버 시 텍스트 삐져나가지 않고 줄바꿈 처리
 }
