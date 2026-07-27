@@ -97,6 +97,14 @@ function testDynamicSurveyV2RegressionSuite() {
     equal_(getDynamicScaleExtremeNames_([{question:"A",validCount:2,average:4.5},{question:"B",validCount:2,average:4.5},
       {question:"C",validCount:2,average:3},{question:"D",validCount:0,average:5}],"max"),"A / B","공동 최고");
     equal_(getDynamicScaleExtremeNames_([{question:"A",validCount:2,average:4},{question:"B",validCount:2,average:2}],"min"),"B","최저 문항");});
+  test_("XLSX ZIP 입력 MIME 보정",function(){const calls=[];const blob={copyBlob:function(){return {
+      setContentType:function(type){calls.push(type);return this;}};}};
+    const zipInput=createDynamicXlsxZipInput_(blob);equal_(Boolean(zipInput),true,"ZIP 입력 Blob");
+    equal_(calls[0],"application/zip","ZIP MIME");});
+  test_("XLSX 인쇄 설정 실패 시 원본 Blob 유지",function(){const blob={};let logged="";
+    const result=applyDynamicXlsxPrintLayoutSafely_(blob,[],"report.xlsx",function(){throw new Error("ZIP 변환 실패");},
+      function(error){logged=error.message;});
+    equal_(result.blob,blob,"원본 Blob");equal_(result.warning,"ZIP 변환 실패","경고 원문");equal_(logged,"ZIP 변환 실패","오류 로그");});
   return {success:results.every(function(r){return r.status==="PASS";}),passed:results.filter(function(r){return r.status==="PASS";}).length,
     failed:results.filter(function(r){return r.status==="FAIL";}).length,results:results};
 }

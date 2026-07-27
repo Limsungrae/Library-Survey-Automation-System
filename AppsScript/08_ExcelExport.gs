@@ -144,8 +144,10 @@ function createDynamicSurveyReportXlsx_(
   options
 ) {
   let temporarySpreadsheet = null;
+  let currentStage = "내보내기 준비";
 
   try {
+    currentStage = "보고서 시트 확인";
     const sourceSpreadsheet =
       SpreadsheetApp.getActiveSpreadsheet();
 
@@ -301,12 +303,14 @@ function createDynamicSurveyReportXlsx_(
 
     // Google Sheets 전용 수식은 임시 사본에서만 제거합니다.
     // 원본 보고서의 SPARKLINE 보조열과 통계 숫자는 변경하지 않습니다.
+    currentStage = "Excel 비호환 수식 제거";
     const compatibilityResult =
       prepareDynamicSpreadsheetForXlsx_(
         temporarySpreadsheet,
         options
       );
 
+    currentStage = "임시 Spreadsheet 호환성 검사";
     assertDynamicSpreadsheetXlsxCompatible_(
       temporarySpreadsheet
     );
@@ -335,6 +339,7 @@ function createDynamicSurveyReportXlsx_(
       + "&exportFormat=xlsx";
 
 
+    currentStage = "Drive XLSX 변환 요청";
     const exportResponse =
       UrlFetchApp.fetch(
         exportUrl,
@@ -380,13 +385,21 @@ function createDynamicSurveyReportXlsx_(
         );
     if(excelBlob.getBytes().length===0)throw new Error("생성된 Excel 파일이 비어 있습니다.");
 
-    excelBlob = applyDynamicXlsxPrintLayout_(excelBlob, exportSheets)
-      .setName(fileName)
-      .setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    currentStage = "Drive XLSX Blob 확인";
+    logDynamicExcelBlobMetadata_("Drive export 이후", excelBlob);
 
+    currentStage = "XLSX 인쇄 레이아웃 적용";
+    const printLayoutResult=applyDynamicXlsxPrintLayoutSafely_(excelBlob,exportSheets,fileName);
+    excelBlob=printLayoutResult.blob;
+    if(!printLayoutResult.warning){
+      logDynamicExcelBlobMetadata_("인쇄 레이아웃 적용 이후", excelBlob);
+    }
+
+    currentStage = "최종 XLSX 호환성 검사";
     assertDynamicXlsxBlobCompatible_(
       excelBlob
     );
+    logDynamicExcelBlobMetadata_("최종 Drive 저장 직전", excelBlob);
 
 
     // ----------------------------------------------------------------------
@@ -422,6 +435,9 @@ function createDynamicSurveyReportXlsx_(
         "범용 만족도 조사 결과보고서 Excel 파일을 생성했습니다."
     };
 
+  } catch (error) {
+    logDynamicExportError_(currentStage, error);
+    throw error;
   } finally {
     // ----------------------------------------------------------------------
     // 임시 스프레드시트 정리
@@ -561,8 +577,9 @@ function assertDynamicSpreadsheetXlsxCompatible_(spreadsheet) {
 function assertDynamicXlsxBlobCompatible_(excelBlob) {
   let entries;
   try {
-    entries = Utilities.unzip(excelBlob.copyBlob());
+    entries = unzipDynamicXlsxBlob_(excelBlob, "최종 XLSX 호환성 검사");
   } catch (error) {
+    logDynamicExportError_("최종 XLSX 압축 해제", error);
     throw new Error("생성된 Excel 파일의 호환성 검사를 수행하지 못했습니다: " + (error && error.message ? error.message : String(error)));
   }
   const violations = [];
@@ -573,6 +590,7 @@ function assertDynamicXlsxBlobCompatible_(excelBlob) {
     if (token) violations.push(name + " (" + token + ")");
   });
   if (violations.length) {
+    Logger.log("XLSX 비호환 문자열 발견: " + violations.join(", "));
     throw new Error("생성된 Excel 파일에 비호환 수식이 남아 있습니다: " + violations.slice(0, 20).join(", "));
   }
   return true;
@@ -592,8 +610,11 @@ function findDynamicXlsxForbiddenToken_(content) {
 /** XLSX XML에 A4 가로·한 페이지 너비·좁은 여백·1~4행 반복 인쇄 설정을 적용합니다. */
 function applyDynamicXlsxPrintLayout_(excelBlob, sheetNames) {
   let entries;
-  try { entries=Utilities.unzip(excelBlob.copyBlob()); }
+  try { entries=unzipDynamicXlsxBlob_(excelBlob,"XLSX 인쇄 레이아웃 적용"); }
   catch(error){throw new Error("Excel 인쇄 설정을 적용하지 못했습니다: "+(error&&error.message?error.message:String(error)));}
+  Logger.log("XLSX ZIP entries: " + entries.map(function(entry){
+    return entry.getName()+" ["+entry.getContentType()+", "+entry.getBytes().length+" bytes]";
+  }).join(" | "));
   const updated=entries.map(function(entry){
     const name=String(entry.getName()||"");
     if(!/^xl\/worksheets\/sheet\d+\.xml$/i.test(name)&&name!=="xl/workbook.xml")return entry;
@@ -602,7 +623,57 @@ function applyDynamicXlsxPrintLayout_(excelBlob, sheetNames) {
     else content=applyDynamicWorkbookPrintTitlesXml_(content,sheetNames||[]);
     return Utilities.newBlob(content,entry.getContentType(),name);
   });
-  return Utilities.zip(updated,excelBlob.getName());
+  const zipped=Utilities.zip(updated,excelBlob.getName());
+  logDynamicExcelBlobMetadata_("Utilities.zip 이후",zipped);
+  return zipped;
+}
+
+
+/** 인쇄 레이아웃 실패를 비치명 경고로 전환하고 원본 Blob을 보존합니다. */
+function applyDynamicXlsxPrintLayoutSafely_(excelBlob, sheetNames, fileName, layoutFunction, errorLogger) {
+  try {
+    const functionToCall=typeof layoutFunction==="function"?layoutFunction:applyDynamicXlsxPrintLayout_;
+    return {blob:functionToCall(excelBlob,sheetNames).setName(fileName)
+      .setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),warning:null};
+  } catch(error) {
+    if(typeof errorLogger==="function")errorLogger(error);
+    else {
+      logDynamicExportError_("XLSX 인쇄 레이아웃 적용",error);
+      Logger.log("XLSX 인쇄 레이아웃 적용을 건너뛰고 Drive 원본 Blob을 사용합니다.");
+    }
+    return {blob:excelBlob,warning:error&&error.message?error.message:String(error)};
+  }
+}
+
+
+/** XLSX Blob을 ZIP MIME 사본으로 만들어 안정적으로 압축 해제합니다. */
+function unzipDynamicXlsxBlob_(excelBlob, stage) {
+  logDynamicExcelBlobMetadata_(stage+" unzip 입력",excelBlob);
+  const zipBlob=createDynamicXlsxZipInput_(excelBlob);
+  const entries=Utilities.unzip(zipBlob);
+  Logger.log(stage+" unzip entry count: "+entries.length);
+  return entries;
+}
+
+
+function createDynamicXlsxZipInput_(excelBlob) {
+  return excelBlob.copyBlob().setContentType("application/zip");
+}
+
+
+function logDynamicExcelBlobMetadata_(label, blob) {
+  if(!blob){Logger.log(label+": Blob 없음");return;}
+  Logger.log(label+": name="+blob.getName()+", contentType="+blob.getContentType()+", bytes="+blob.getBytes().length);
+}
+
+
+function logDynamicExportError_(stage, error) {
+  const message=error&&error.message?error.message:String(error);
+  const stack=error&&error.stack?error.stack:message;
+  Logger.log("Dynamic XLSX 실패 단계: "+stage);
+  Logger.log("Dynamic XLSX Exception message: "+message);
+  Logger.log("Dynamic XLSX Exception stack: "+stack);
+  console.error("Dynamic XLSX 실패 ["+stage+"]",stack);
 }
 
 
@@ -670,13 +741,11 @@ function exportDynamicSurveyReportFromWeb(
     return response;
 
   } catch (error) {
+    logDynamicExportError_("exportDynamicSurveyReportFromWeb", error);
     return {
       success: false,
 
-      error:
-        error && error.message
-          ? error.message
-          : String(error)
+      error: error && error.message ? error.message : String(error)
     };
   }
 }

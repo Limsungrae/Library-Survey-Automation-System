@@ -548,6 +548,12 @@ yellow, and distinct scale minima are light red (`#FCE4D6`). Zero-valid-response
 scale questions are excluded. Dashboard extreme labels join tied question names
 instead of selecting an arbitrary winner.
 
+Dynamic XLSX export logs its current stage, original exception message/stack,
+Blob name/MIME/byte length, and ZIP entry metadata. Print-layout XML rewriting is
+best-effort: failures are logged and export continues with the untouched Drive
+XLSX Blob. Formula compatibility validation remains mandatory and reports the
+exact forbidden token and ZIP entry when it fails.
+
 ## 13.2 Legacy compatibility sheets
 
 - `09_원자료`: fixed-format legacy survey raw data.
