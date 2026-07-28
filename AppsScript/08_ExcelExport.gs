@@ -583,12 +583,24 @@ function assertDynamicXlsxBlobCompatible_(excelBlob) {
     throw new Error("생성된 Excel 파일의 호환성 검사를 수행하지 못했습니다: " + (error && error.message ? error.message : String(error)));
   }
   const violations = [];
+  const worksheetOrderViolations = [];
   entries.forEach(function(entry) {
     const name = String(entry.getName() || "");
     if (!/\.(?:xml|rels)$/i.test(name)) return;
-    const token = findDynamicXlsxForbiddenToken_(entry.getDataAsString());
+    const content = entry.getDataAsString();
+    const token = findDynamicXlsxForbiddenToken_(content);
     if (token) violations.push(name + " (" + token + ")");
+    if (/^xl\/worksheets\/sheet\d+\.xml$/i.test(name)) {
+      const orderErrors = validateDynamicWorksheetElementOrder_(content);
+      orderErrors.forEach(function(message) {
+        worksheetOrderViolations.push(name + "\n" + message);
+      });
+    }
   });
+  if (worksheetOrderViolations.length) {
+    Logger.log("XLSX 워크시트 요소 순서 오류: " + worksheetOrderViolations.join(" | "));
+    throw new Error("XLSX 워크시트 요소 순서 오류:\n" + worksheetOrderViolations.slice(0, 20).join("\n"));
+  }
   if (violations.length) {
     Logger.log("XLSX 비호환 문자열 발견: " + violations.join(", "));
     throw new Error("생성된 Excel 파일에 비호환 수식이 남아 있습니다: " + violations.slice(0, 20).join(", "));
@@ -684,8 +696,58 @@ function applyDynamicWorksheetPrintSettingsXml_(content) {
     else if(xml.indexOf("<sheetPr")!==-1)xml=xml.replace(/<sheetPr([^>]*)>/,'<sheetPr$1><pageSetUpPr fitToPage="1"/>');
     else xml=xml.replace(/(<worksheet[^>]*>)/,'$1<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>');
   }
-  xml=xml.replace(/<pageMargins\b[^>]*\/>/g,"").replace(/<pageSetup\b[^>]*\/>/g,"");
-  return xml.replace("</worksheet>",'<pageMargins left="0.25" right="0.25" top="0.5" bottom="0.5" header="0.2" footer="0.2"/><pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/></worksheet>');
+  xml=removeDynamicWorksheetPrintElements_(xml);
+  return insertDynamicWorksheetPrintElements_(xml,
+    '<pageMargins left="0.25" right="0.25" top="0.5" bottom="0.5" header="0.2" footer="0.2"/>'+
+    '<pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/>');
+}
+
+
+/** 기존 인쇄 요소를 namespace prefix 여부와 관계없이 제거합니다. */
+function removeDynamicWorksheetPrintElements_(xml) {
+  return String(xml||"")
+    .replace(/<(?:[A-Za-z_][\w.-]*:)?pageMargins\b[^>]*(?:\/>|>[\s\S]*?<\/(?:[A-Za-z_][\w.-]*:)?pageMargins\s*>)/gi,"")
+    .replace(/<(?:[A-Za-z_][\w.-]*:)?pageSetup\b[^>]*(?:\/>|>[\s\S]*?<\/(?:[A-Za-z_][\w.-]*:)?pageSetup\s*>)/gi,"");
+}
+
+
+/** OOXML 후반부 요소 중 가장 먼저 나오는 위치 앞에 인쇄 요소를 삽입합니다. */
+function insertDynamicWorksheetPrintElements_(xml, printXml) {
+  const content=String(xml||"");
+  const closing=/<\/(?:[A-Za-z_][\w.-]*:)?worksheet\s*>/i.exec(content);
+  if(!closing)throw new Error("worksheet 종료 태그를 찾을 수 없습니다.");
+  let insertIndex=closing.index;
+  const trailingTags=["drawing","legacyDrawing","legacyDrawingHF","picture","oleObjects",
+    "controls","webPublishItems","tableParts","extLst"];
+  trailingTags.forEach(function(tag){
+    const match=new RegExp("<(?:[A-Za-z_][\\w.-]*:)?"+tag+"\\b","i").exec(content);
+    if(match&&match.index<insertIndex)insertIndex=match.index;
+  });
+  return content.slice(0,insertIndex)+String(printXml||"")+content.slice(insertIndex);
+}
+
+
+/** pageMargins/pageSetup이 OOXML worksheet 후반부 요소보다 앞서는지 검사합니다. */
+function validateDynamicWorksheetElementOrder_(xml) {
+  const content=String(xml||"");
+  function indexOfElement_(name){
+    const match=new RegExp("<(?:[A-Za-z_][\\w.-]*:)?"+name+"\\b","i").exec(content);
+    return match?match.index:-1;
+  }
+  const errors=[];
+  const margins=indexOfElement_("pageMargins");
+  const setup=indexOfElement_("pageSetup");
+  if(margins<0)errors.push("pageMargins가 없습니다.");
+  if(setup<0)errors.push("pageSetup이 없습니다.");
+  if(margins>=0&&setup>=0&&margins>setup)errors.push("pageMargins가 pageSetup 뒤에 있습니다.");
+  ["drawing","legacyDrawing","legacyDrawingHF","picture","oleObjects","controls",
+    "webPublishItems","tableParts","extLst"].forEach(function(tag){
+    const trailing=indexOfElement_(tag);
+    if(trailing<0)return;
+    if(margins>=0&&margins>trailing)errors.push("pageMargins가 "+tag+" 뒤에 있습니다.");
+    if(setup>=0&&setup>trailing)errors.push("pageSetup이 "+tag+" 뒤에 있습니다.");
+  });
+  return errors;
 }
 
 

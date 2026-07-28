@@ -553,6 +553,9 @@ Blob name/MIME/byte length, and ZIP entry metadata. Print-layout XML rewriting i
 best-effort: failures are logged and export continues with the untouched Drive
 XLSX Blob. Formula compatibility validation remains mandatory and reports the
 exact forbidden token and ZIP entry when it fails.
+Worksheet print elements are inserted before OOXML trailing elements such as
+`drawing`, `legacyDrawing`, `tableParts`, and `extLst`. Final XLSX validation also
+rejects worksheets where `pageMargins` or `pageSetup` occurs after those elements.
 
 ## 13.2 Legacy compatibility sheets
 

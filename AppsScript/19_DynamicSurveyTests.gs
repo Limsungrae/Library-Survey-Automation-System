@@ -105,6 +105,26 @@ function testDynamicSurveyV2RegressionSuite() {
     const result=applyDynamicXlsxPrintLayoutSafely_(blob,[],"report.xlsx",function(){throw new Error("ZIP 변환 실패");},
       function(error){logged=error.message;});
     equal_(result.blob,blob,"원본 Blob");equal_(result.warning,"ZIP 변환 실패","경고 원문");equal_(logged,"ZIP 변환 실패","오류 로그");});
+  test_("XLSX worksheet 인쇄 요소 순서",function(){
+    const drawing=applyDynamicWorksheetPrintSettingsXml_('<worksheet><sheetData/><drawing r:id="rId1"/></worksheet>');
+    equal_(drawing.indexOf("<sheetData")<drawing.indexOf("<pageMargins"),true,"sheetData 다음 인쇄 요소");
+    equal_(drawing.indexOf("<pageSetup")<drawing.indexOf("<drawing"),true,"drawing 앞 pageSetup");
+    const legacy=applyDynamicWorksheetPrintSettingsXml_(
+      '<worksheet><sheetData/><autoFilter/><drawing/><legacyDrawing/></worksheet>');
+    equal_(legacy.indexOf("<autoFilter")<legacy.indexOf("<pageMargins"),true,"autoFilter 유지");
+    equal_(legacy.indexOf("<pageSetup")<legacy.indexOf("<drawing"),true,"후반 요소 앞 삽입");
+    const existing=applyDynamicWorksheetPrintSettingsXml_(
+      '<worksheet><sheetData/><pageMargins left="1"/><pageSetup/><drawing/></worksheet>');
+    equal_((existing.match(/<pageMargins\b/g)||[]).length,1,"pageMargins 중복 없음");
+    equal_((existing.match(/<pageSetup\b/g)||[]).length,1,"pageSetup 중복 없음");
+    const plain=applyDynamicWorksheetPrintSettingsXml_('<worksheet><sheetData/></worksheet>');
+    equal_(plain.indexOf("<pageSetup")<plain.indexOf("</worksheet>"),true,"후반 요소 없을 때 종료 태그 앞");
+    const namespaced=insertDynamicWorksheetPrintElements_(
+      '<x:worksheet><x:sheetData/><x:drawing/></x:worksheet>','<x:pageMargins/><x:pageSetup/>');
+    equal_(validateDynamicWorksheetElementOrder_(namespaced).length,0,"namespace prefix 순서");
+    const invalid='<worksheet><sheetData/><drawing/><pageMargins/><pageSetup/></worksheet>';
+    equal_(validateDynamicWorksheetElementOrder_(invalid).indexOf("pageSetup이 drawing 뒤에 있습니다.")>=0,true,
+      "잘못된 요소 순서 탐지");});
   return {success:results.every(function(r){return r.status==="PASS";}),passed:results.filter(function(r){return r.status==="PASS";}).length,
     failed:results.filter(function(r){return r.status==="FAIL";}).length,results:results};
 }
