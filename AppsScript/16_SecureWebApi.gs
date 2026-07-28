@@ -70,6 +70,31 @@ function secureCreateGenericRawSheetFromWeb(fileData, accessToken) {
   return createGenericRawSheetFromWeb(fileData);
 }
 
+function secureUploadSurveyExcelFromWeb(fileData, accessToken) {
+  requireWebAccessToken_(accessToken);
+  return uploadSurveyExcelFromWeb(fileData);
+}
+
+function secureValidateRawSheetFromWeb(accessToken) {
+  requireWebAccessToken_(accessToken);
+  return validateRawSheetFromWeb();
+}
+
+function secureGenerateStatisticalSheetsFromWeb(accessToken) {
+  requireWebAccessToken_(accessToken);
+  return generateStatisticalSheetsFromWeb();
+}
+
+function secureGenerateAIReportSheetsFromWeb(accessToken) {
+  requireWebAccessToken_(accessToken);
+  return generateAIReportSheetsFromWeb();
+}
+
+function secureGenerateFullSurveyReportFromWeb(accessToken) {
+  requireWebAccessToken_(accessToken);
+  return generateFullSurveyReportFromWeb();
+}
+
 /**
  * 범용 통계 보고서 생성
  */
