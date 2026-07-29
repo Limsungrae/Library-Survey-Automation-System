@@ -547,6 +547,11 @@ title, four KPI cards, and four two-column detail panels for satisfaction,
 future-service demand, improvement needs, and opinion categories. It uses static
 Unicode bars rather than formulas, so the same visual cells survive Drive XLSX
 export without SPARKLINE or OOXML postprocessing.
+Dashboard KPI and Unicode-bar cells are display strings; their numeric source is
+retained separately in the dashboard model, and no number format is applied to
+those text cells. Regeneration clears typed-cell content in A1:H19 before clearing
+validation, notes, merges, and dashboard conditional-format rules, then resets
+only visual properties; it deliberately does not call `clearFormat()`.
 
 Report highlighting is calculated only within each question's item rows. Tied
 maxima are all yellow (`#FFF2CC`), total rows are excluded, scale maxima are

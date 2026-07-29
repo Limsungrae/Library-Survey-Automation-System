@@ -145,14 +145,28 @@ function testDynamicSurveyV2RegressionSuite() {
         {question:"개선 필요사항",items:[{label:"횟수 확대",count:36},{label:"홍보",count:13}]}],
       text:[],summary:{analyzedQuestionCount:6,opinionCount:0,missingRate:0}};
     const model=buildDynamicDashboardModel_(analysis,{surveyName:"공간혁신 만족도 조사"});
-    equal_(model.title,"공간혁신 만족도 조사 대시보드","동적 제목");equal_(model.kpis[0].value,"82명","응답자 KPI");
-    equal_(model.kpis[1].value,"4.70/5점","평균 KPI");equal_(model.kpis[3].value,"98.8%","추천 KPI");
-    equal_(model.sections[0].items.length,2,"만족도 중복 없음");equal_(model.sections[0].items[1].highlight,true,"최고 만족 강조");
+    equal_(model.title,"공간혁신 만족도 조사 대시보드","동적 제목");equal_(model.kpis[0].value,82,"응답자 원본값");
+    equal_(model.kpis[0].displayText,"82명","응답자 KPI");equal_(model.kpis[1].displayText,"4.70/5점","평균 KPI");
+    equal_(model.kpis[3].displayText,"98.8%","추천 KPI");
+    equal_(model.sections[0].items.length,2,"만족도 중복 없음");equal_(model.sections[0].items[1].isMax,true,"최고 만족 강조");
     equal_(model.sections[1].items[0].label,"AI 교육","희망 서비스 내림차순");
     equal_(model.sections[2].items[0].label,"횟수 확대","개선사항 내림차순");
     equal_(model.sections[3].items[0].label,"분석 결과 없음","주관식 빈 상태");
     const bar=buildDynamicDashboardUnicodeBar_(5,5,"5.00");
     equal_((bar.match(/█/g)||[]).length,12,"정적 막대 최대 길이");equal_(bar.indexOf("5.00")>0,true,"막대 값 유지");});
+  test_("대시보드 텍스트 셀 숫자 형식 미적용과 반복 초기화",function(){
+    equal_(createDynamicDashboardSheet_.toString().indexOf("setNumberFormat"),-1,"렌더러 숫자 형식 없음");
+    const calls=[];const range={breakApart:function(){calls.push("unmerge");return this;},
+      clearContent:function(){calls.push("content");return this;},clearDataValidations:function(){calls.push("validation");return this;},
+      clearNote:function(){calls.push("notes");return this;},setBackground:function(){calls.push("visual");return this;},
+      setFontColor:function(){return this;},setFontWeight:function(){return this;},setFontStyle:function(){return this;},
+      setHorizontalAlignment:function(){return this;},setVerticalAlignment:function(){return this;},setWrap:function(){return this;},
+      setBorder:function(){return this;}};
+    const sheet={getRange:function(a1){equal_(a1,"A1:H19","초기화 범위");return range;}};
+    resetDynamicDashboardRange_(sheet);resetDynamicDashboardRange_(sheet);
+    equal_(calls.join(","),"unmerge,content,validation,notes,visual,unmerge,content,validation,notes,visual","연속 초기화 순서");
+    equal_(calls.indexOf("content")<calls.indexOf("visual"),true,"typed content 선제 제거");
+    equal_(resetDynamicDashboardRange_.toString().indexOf("clearFormat"),-1,"숫자 형식 포함 초기화 없음");});
   return {success:results.every(function(r){return r.status==="PASS";}),passed:results.filter(function(r){return r.status==="PASS";}).length,
     failed:results.filter(function(r){return r.status==="FAIL";}).length,results:results};
 }

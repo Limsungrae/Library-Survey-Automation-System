@@ -160,7 +160,7 @@ function createDynamicOverviewSheet_(analysis, settings) {
 
 
 function createDynamicDashboardSheet_(analysis, settings) {
-  const sheet=resetDynamicReportSheet_(DYNAMIC_SURVEY_CONFIG.SHEETS.DASHBOARD);
+  const sheet=resetDynamicDashboardSheet_();
   const model=buildDynamicDashboardModel_(analysis,settings);
   setDynamicReportTitle_(sheet,"A1:H2",model.title);
   sheet.getRange("A1:H2").setBorder(true,true,true,true,false,false,"#102F50",SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
@@ -168,7 +168,7 @@ function createDynamicDashboardSheet_(analysis, settings) {
 
   model.kpis.forEach(function(kpi,index){
     const startColumn=index*2+1;
-    sheet.getRange(4,startColumn,3,2).merge().setValue(kpi.value)
+    sheet.getRange(4,startColumn,3,2).merge().setValue(kpi.displayText)
       .setBackground("#EEF3F8").setFontColor("#17375E").setFontWeight("bold").setFontSize(18)
       .setHorizontalAlignment("center").setVerticalAlignment("middle");
     sheet.getRange(7,startColumn,1,2).merge().setValue(kpi.label)
@@ -184,14 +184,14 @@ function createDynamicDashboardSheet_(analysis, settings) {
     const rows=[];
     for(let rowIndex=0;rowIndex<9;rowIndex++){
       const item=section.items[rowIndex];
-      rows.push(item?[item.label,item.visual]:["",""]);
+      rows.push(item?[item.label,item.displayText]:["",""]);
     }
     sheet.getRange(11,startColumn,9,2).setValues(rows).setWrap(true).setVerticalAlignment("middle");
     sheet.getRange(11,startColumn+1,9,1).setHorizontalAlignment("right")
       .setFontFamily("Consolas").setFontSize(9);
     sheet.getRange(10,startColumn,10,2).setBorder(true,true,true,true,true,true,"#AAB8C5",SpreadsheetApp.BorderStyle.SOLID);
     section.items.forEach(function(item,rowIndex){
-      if(item.highlight)sheet.getRange(11+rowIndex,startColumn,1,2).setBackground("#FFF2CC");
+      if(item.isMax)sheet.getRange(11+rowIndex,startColumn,1,2).setBackground("#FFF2CC");
     });
   });
 
@@ -199,6 +199,54 @@ function createDynamicDashboardSheet_(analysis, settings) {
   sheet.setRowHeights(4,4,24);sheet.setRowHeight(5,32);sheet.setRowHeight(6,32);
   sheet.setRowHeight(10,30);sheet.setRowHeights(11,9,36);
   sheet.setFrozenRows(2);sheet.setFrozenColumns(0);sheet.setHiddenGridlines(true);
+}
+
+
+/** typed cell 콘텐츠를 먼저 제거한 뒤 A1:H19 서식을 초기화합니다. */
+function resetDynamicDashboardSheet_(){
+  const spreadsheet=SpreadsheetApp.getActiveSpreadsheet();
+  let sheet=spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.DASHBOARD);
+  if(!sheet)sheet=spreadsheet.insertSheet(DYNAMIC_SURVEY_CONFIG.SHEETS.DASHBOARD);
+  sheet.getCharts().forEach(function(chart){sheet.removeChart(chart);});
+  resetDynamicDashboardRange_(sheet);
+  sheet.setConditionalFormatRules([]);
+  sheet.setHiddenGridlines(true);
+  return sheet;
+}
+
+
+function resetDynamicDashboardRange_(sheet){
+  const range=sheet.getRange("A1:H19");
+  runDynamicDashboardRangeOperation_("resetDynamicDashboardRange_","unmerge",range,function(){range.breakApart();});
+  runDynamicDashboardRangeOperation_("resetDynamicDashboardRange_","clear-content",range,function(){range.clearContent();});
+  runDynamicDashboardRangeOperation_("resetDynamicDashboardRange_","clear-validation",range,function(){range.clearDataValidations();});
+  runDynamicDashboardRangeOperation_("resetDynamicDashboardRange_","clear-notes",range,function(){range.clearNote();});
+  runDynamicDashboardRangeOperation_("resetDynamicDashboardRange_","reset-visual-format",range,function(){
+    range.setBackground("#FFFFFF").setFontColor("#000000").setFontWeight("normal").setFontStyle("normal")
+      .setHorizontalAlignment("left").setVerticalAlignment("middle").setWrap(false)
+      .setBorder(false,false,false,false,false,false);
+  });
+}
+
+
+/** 오류를 숨기지 않고 Range·값·타입을 실행 로그에 남긴 뒤 원래 예외를 다시 던집니다. */
+function runDynamicDashboardRangeOperation_(functionName,stage,range,operation,numberFormat){
+  try{return operation();}catch(error){
+    logDynamicDashboardRangeError_(functionName,stage,range,numberFormat,error);
+    throw error;
+  }
+}
+
+
+function logDynamicDashboardRangeError_(functionName,stage,range,numberFormat,error){
+  let values=[];
+  try{values=range.getValues();}catch(ignored){}
+  const firstValue=values.length&&values[0].length?values[0][0]:undefined;
+  Logger.log("[DASHBOARD_NUMBER_FORMAT_ERROR]\nfunction="+functionName+"\nstage="+stage+
+    "\nrange="+range.getA1Notation()+"\nstartRow="+range.getRow()+"\nstartColumn="+range.getColumn()+
+    "\nrows="+range.getNumRows()+"\ncolumns="+range.getNumColumns()+"\nvalue="+String(firstValue)+
+    "\nvalueType="+typeof firstValue+"\nnumberFormat="+(numberFormat||"not requested")+
+    "\nerror="+(error&&error.message?error.message:String(error)));
 }
 
 
@@ -215,10 +263,10 @@ function buildDynamicDashboardModel_(analysis,settings){
   const future=selectDynamicDashboardMultipleQuestion_(analysis.multiple||[],/(?:향후|희망|원하|서비스|프로그램)/i);
   const improvement=selectDynamicDashboardMultipleQuestion_(analysis.multiple||[],/(?:개선|불편|보완|필요|요구)/i,future);
   return {title:surveyName+" 대시보드",kpis:[
-    {label:"전체 응답자",value:respondentCount?respondentCount.toLocaleString("ko-KR")+"명":"-"},
-    {label:scale.length+"개 만족도 평균",value:overallAverage===null?"-":overallAverage.toFixed(2)+"/5점"},
-    {label:"만족도 긍정률",value:overallPositiveRate!==null&&Number.isFinite(overallPositiveRate)?overallPositiveRate.toFixed(1)+"%":"-"},
-    {label:"재이용·추천",value:recommendationRate===null?"-":recommendationRate.toFixed(1)+"%"}
+    {label:"전체 응답자",value:respondentCount,displayText:respondentCount?respondentCount.toLocaleString("ko-KR")+"명":"-"},
+    {label:scale.length+"개 만족도 평균",value:overallAverage,displayText:overallAverage===null?"-":overallAverage.toFixed(2)+"/5점"},
+    {label:"만족도 긍정률",value:overallPositiveRate,displayText:overallPositiveRate!==null&&Number.isFinite(overallPositiveRate)?overallPositiveRate.toFixed(1)+"%":"-"},
+    {label:"재이용·추천",value:recommendationRate,displayText:recommendationRate===null?"-":recommendationRate.toFixed(1)+"%"}
   ],sections:[
     {label:"세부 만족도",valueLabel:"평균",items:buildDynamicDashboardItems_(scale,5,8,true)},
     {label:"향후 희망 서비스",valueLabel:"선택 수",items:buildDynamicDashboardItems_(future?future.items:[],null,8,false)},
@@ -241,8 +289,8 @@ function buildDynamicDashboardItems_(source,fixedMaximum,limit,isScale){
   const shown=items.slice(0,limit),maximum=fixedMaximum||Math.max.apply(null,shown.map(function(item){return item.value;}).concat([0]));
   const highest=shown.length?Math.max.apply(null,shown.map(function(item){return item.value;})):null;
   return shown.map(function(item){return {label:item.label,value:item.value,
-    visual:buildDynamicDashboardUnicodeBar_(item.value,maximum,isScale?item.value.toFixed(2):item.value.toLocaleString("ko-KR")),
-    highlight:highest!==null&&item.value===highest};});
+    displayText:buildDynamicDashboardUnicodeBar_(item.value,maximum,isScale?item.value.toFixed(2):item.value.toLocaleString("ko-KR")),
+    isMax:highest!==null&&item.value===highest};});
 }
 
 
@@ -250,7 +298,7 @@ function buildDynamicDashboardOpinionItems_(analysis,limit){
   let categories=[];
   if(Array.isArray(analysis.opinionCategories))categories=analysis.opinionCategories;
   (analysis.text||[]).forEach(function(question){if(Array.isArray(question.categories))categories=categories.concat(question.categories);});
-  if(!categories.length)return [{label:"분석 결과 없음",value:0,visual:"-",highlight:false}];
+  if(!categories.length)return [{label:"분석 결과 없음",value:0,displayText:"-",isMax:false}];
   return buildDynamicDashboardItems_(categories.map(function(item){return {label:item.category||item.label,count:item.count};}),null,limit,false);
 }
 
