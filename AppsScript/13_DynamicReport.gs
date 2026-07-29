@@ -510,8 +510,7 @@ function createDynamicMultipleSheet_(analysis) {
 
   sheet.setColumnWidth(1, 380);
   sheet.setColumnWidths(2, 4, 125);
-  finishDynamicReportSheet_(sheet, row, 5);
-}
+finishDynamicReportSheet_(sheet, row, 6);}
 
 function buildDynamicMultipleTotalRow_(question) {
   return ["합계",Number(question.totalSelections||question.totalSelectionCount||0),
@@ -682,23 +681,53 @@ function getDynamicScaleExtremeNames_(scaleItems, mode) {
   return eligible.filter(function(item){return Number(item.average)===target;}).map(function(item){return item.question;}).join(" / ");
 }
 
+/**
+ * 자동 생성 보고서 시트는 기존 시트를 초기화하지 않고
+ * 삭제 후 같은 이름과 위치에 새로 생성합니다.
+ *
+ * Google Sheets 표(Table), typed cell, 병합, 고정 행 및
+ * 숨은 서식 메타데이터가 남아서 발생하는 오류를 방지합니다.
+ *
+ * 주의:
+ * 09_원자료, 11_범용원자료, 12_문항매핑에는 사용하지 않습니다.
+ *
+ * @param {string} sheetName
+ * @return {GoogleAppsScript.Spreadsheet.Sheet}
+ */
 function resetDynamicReportSheet_(sheetName) {
   const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = spreadsheet.getSheetByName(sheetName);
+  const existingSheet = spreadsheet.getSheetByName(sheetName);
 
-  if (!sheet) {
-    sheet = spreadsheet.insertSheet(sheetName);
+  let targetIndex = null;
+
+  if (existingSheet) {
+    targetIndex = existingSheet.getIndex();
+
+    // 삭제할 시트가 현재 활성 시트라면 다른 시트를 먼저 활성화합니다.
+    const fallbackSheet = spreadsheet.getSheets().find(function(sheet) {
+      return sheet.getSheetId() !== existingSheet.getSheetId();
+    });
+
+    if (fallbackSheet) {
+      spreadsheet.setActiveSheet(fallbackSheet);
+    }
+
+    spreadsheet.deleteSheet(existingSheet);
   }
 
-  sheet.clear();
+  const sheet = targetIndex !== null
+    ? spreadsheet.insertSheet(sheetName, targetIndex)
+    : spreadsheet.insertSheet(sheetName);
 
-  // Sheet 객체에는 clearCharts()가 없으므로 기존 차트를 하나씩 제거합니다.
-  sheet.getCharts().forEach(function(chart) {
-    sheet.removeChart(chart);
-  });
-
-  sheet.getDataRange().breakApart();
+  sheet.setFrozenRows(0);
+  sheet.setFrozenColumns(0);
   sheet.setHiddenGridlines(true);
+
+  Logger.log(
+    "[DYNAMIC_REPORT_SHEET_RECREATED]"
+    + " sheet=" + sheetName
+    + " index=" + sheet.getIndex()
+  );
 
   return sheet;
 }
