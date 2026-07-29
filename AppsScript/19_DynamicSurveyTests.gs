@@ -137,6 +137,22 @@ function testDynamicSurveyV2RegressionSuite() {
       "report_DRIVE_ORIGINAL.xlsx","원본 진단 파일명");
     equal_(buildDynamicXlsxDiagnosticFileName_("report","POSTPROCESSED"),
       "report_POSTPROCESSED.xlsx","후처리 진단 파일명");});
+  test_("한 화면 대시보드 모델과 정적 막대",function(){const analysis={respondentCount:82,
+      scale:[{question:"시설 만족",average:4.5,positiveRate:90,validCount:82},{question:"직원 만족",average:4.9,positiveRate:95,validCount:82}],
+      scaleSummary:{weightedAverage:4.7,overallConverted100:92.5,overallPositiveRate:93.7},
+      recommendation:[{question:"재이용",positiveRate:98.8}],multiple:[
+        {question:"향후 희망 서비스",items:[{label:"AI 교육",count:44},{label:"코딩",count:29}]},
+        {question:"개선 필요사항",items:[{label:"횟수 확대",count:36},{label:"홍보",count:13}]}],
+      text:[],summary:{analyzedQuestionCount:6,opinionCount:0,missingRate:0}};
+    const model=buildDynamicDashboardModel_(analysis,{surveyName:"공간혁신 만족도 조사"});
+    equal_(model.title,"공간혁신 만족도 조사 대시보드","동적 제목");equal_(model.kpis[0].value,"82명","응답자 KPI");
+    equal_(model.kpis[1].value,"4.70/5점","평균 KPI");equal_(model.kpis[3].value,"98.8%","추천 KPI");
+    equal_(model.sections[0].items.length,2,"만족도 중복 없음");equal_(model.sections[0].items[1].highlight,true,"최고 만족 강조");
+    equal_(model.sections[1].items[0].label,"AI 교육","희망 서비스 내림차순");
+    equal_(model.sections[2].items[0].label,"횟수 확대","개선사항 내림차순");
+    equal_(model.sections[3].items[0].label,"분석 결과 없음","주관식 빈 상태");
+    const bar=buildDynamicDashboardUnicodeBar_(5,5,"5.00");
+    equal_((bar.match(/█/g)||[]).length,12,"정적 막대 최대 길이");equal_(bar.indexOf("5.00")>0,true,"막대 값 유지");});
   return {success:results.every(function(r){return r.status==="PASS";}),passed:results.filter(function(r){return r.status==="PASS";}).length,
     failed:results.filter(function(r){return r.status==="FAIL";}).length,results:results};
 }

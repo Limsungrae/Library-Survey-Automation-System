@@ -542,6 +542,12 @@ Sheet titles use Roman-numeral report sections, question titles separate their
 space. The exported XLSX applies A4 landscape, fit-to-width, narrow margins, and
 rows 1–4 as repeating print titles without modifying the Google Sheets source.
 
+`02_대시보드` is a fixed A1:H19 single-screen summary: a merged dynamic survey
+title, four KPI cards, and four two-column detail panels for satisfaction,
+future-service demand, improvement needs, and opinion categories. It uses static
+Unicode bars rather than formulas, so the same visual cells survive Drive XLSX
+export without SPARKLINE or OOXML postprocessing.
+
 Report highlighting is calculated only within each question's item rows. Tied
 maxima are all yellow (`#FFF2CC`), total rows are excluded, scale maxima are
 yellow, and distinct scale minima are light red (`#FCE4D6`). Zero-valid-response

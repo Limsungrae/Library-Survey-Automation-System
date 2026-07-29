@@ -161,28 +161,104 @@ function createDynamicOverviewSheet_(analysis, settings) {
 
 function createDynamicDashboardSheet_(analysis, settings) {
   const sheet=resetDynamicReportSheet_(DYNAMIC_SURVEY_CONFIG.SHEETS.DASHBOARD);
-  const summary=buildDynamicReportSummary_(analysis);
-  setDynamicReportTitle_(sheet,"A1:H2","Ⅱ. 대시보드");
-  const npsText=summary.nps===null?"NPS 문항 없음":summary.nps.toFixed(1);
-  const topNames=getDynamicScaleExtremeNames_(analysis.scale||[],"max"),lowNames=getDynamicScaleExtremeNames_(analysis.scale||[],"min");
-  const cards=[
-    ["전체 응답자",summary.respondentCount+"명","가중평균",summary.overallAverage===null?"산출 불가":summary.overallAverage.toFixed(2)+"점"],
-    ["전체 긍정률",summary.overallPositiveRate.toFixed(1)+"%","추천/NPS",npsText],
-    ["유효 주관식",summary.opinionCount+"건","결측률",summary.missingRate.toFixed(1)+"%"],
-    ["최고 만족",topNames||"산출 불가","개선 우선",lowNames||"산출 불가"]
-  ];
-  sheet.getRange(4,1,4,4).setValues(cards);
-  sheet.getRange(4,1,4,4).setBorder(true,true,true,true,true,true,"#D9E2EC",SpreadsheetApp.BorderStyle.SOLID);
-  sheet.getRange(4,1,4,1).setBackground("#EAF2F8").setFontWeight("bold");
-  sheet.getRange(4,3,4,1).setBackground("#EAF2F8").setFontWeight("bold");
-  const ranked=(analysis.scale||[]).filter(function(i){return i.average!==null;}).slice().sort(compareDynamicScaleResults_);
-  const rows=[["구분","문항","평균","시각화","긍정률","순위"]];
-  ranked.slice(0,5).forEach(function(i){rows.push(["상위",i.question,i.average,"",i.positiveRate/100,i.rank]);});
-  ranked.slice(-5).reverse().forEach(function(i){rows.push(["하위",i.question,i.average,"",i.positiveRate/100,i.rank]);});
-  sheet.getRange(10,1,rows.length,6).setValues(rows);styleDynamicReportHeader_(sheet.getRange(10,1,1,6));
-  if(rows.length>1){sheet.getRange(11,3,rows.length-1,1).setNumberFormat("0.00");sheet.getRange(11,5,rows.length-1,1).setNumberFormat("0.0%");}
-  setDynamicBarSparklines_(sheet,11,rows.length-1,3,4);
-  finishDynamicReportSheet_(sheet,rows.length+11,8);
+  const model=buildDynamicDashboardModel_(analysis,settings);
+  setDynamicReportTitle_(sheet,"A1:H2",model.title);
+  sheet.getRange("A1:H2").setBorder(true,true,true,true,false,false,"#102F50",SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+  sheet.getRange("A1:H19").setFontFamily("맑은 고딕").setVerticalAlignment("middle");
+
+  model.kpis.forEach(function(kpi,index){
+    const startColumn=index*2+1;
+    sheet.getRange(4,startColumn,3,2).merge().setValue(kpi.value)
+      .setBackground("#EEF3F8").setFontColor("#17375E").setFontWeight("bold").setFontSize(18)
+      .setHorizontalAlignment("center").setVerticalAlignment("middle");
+    sheet.getRange(7,startColumn,1,2).merge().setValue(kpi.label)
+      .setBackground("#F8FAFC").setFontColor("#52677C").setFontSize(9)
+      .setHorizontalAlignment("center").setVerticalAlignment("middle");
+    sheet.getRange(4,startColumn,4,2).setBorder(true,true,true,true,true,true,"#AAB8C5",SpreadsheetApp.BorderStyle.SOLID);
+  });
+
+  model.sections.forEach(function(section,index){
+    const startColumn=index*2+1;
+    sheet.getRange(10,startColumn,1,2).setValues([[section.label,section.valueLabel]]);
+    styleDynamicReportHeader_(sheet.getRange(10,startColumn,1,2));
+    const rows=[];
+    for(let rowIndex=0;rowIndex<9;rowIndex++){
+      const item=section.items[rowIndex];
+      rows.push(item?[item.label,item.visual]:["",""]);
+    }
+    sheet.getRange(11,startColumn,9,2).setValues(rows).setWrap(true).setVerticalAlignment("middle");
+    sheet.getRange(11,startColumn+1,9,1).setHorizontalAlignment("right")
+      .setFontFamily("Consolas").setFontSize(9);
+    sheet.getRange(10,startColumn,10,2).setBorder(true,true,true,true,true,true,"#AAB8C5",SpreadsheetApp.BorderStyle.SOLID);
+    section.items.forEach(function(item,rowIndex){
+      if(item.highlight)sheet.getRange(11+rowIndex,startColumn,1,2).setBackground("#FFF2CC");
+    });
+  });
+
+  [210,190,210,190,210,190,210,190].forEach(function(width,index){sheet.setColumnWidth(index+1,width);});
+  sheet.setRowHeights(4,4,24);sheet.setRowHeight(5,32);sheet.setRowHeight(6,32);
+  sheet.setRowHeight(10,30);sheet.setRowHeights(11,9,36);
+  sheet.setFrozenRows(2);sheet.setFrozenColumns(0);sheet.setHiddenGridlines(true);
+}
+
+
+function buildDynamicDashboardModel_(analysis,settings){
+  const respondentCount=Number(analysis.respondentCount||0);
+  const overallAverage=analysis.scaleSummary&&analysis.scaleSummary.weightedAverage!==null
+    &&analysis.scaleSummary.weightedAverage!==undefined?Number(analysis.scaleSummary.weightedAverage):null;
+  const overallPositiveRate=analysis.scaleSummary&&analysis.scaleSummary.overallPositiveRate!==null
+    &&analysis.scaleSummary.overallPositiveRate!==undefined?Number(analysis.scaleSummary.overallPositiveRate):null;
+  const surveyName=getDynamicSettingValue_(settings,"조사명","surveyName")||"만족도 조사";
+  const scale=(analysis.scale||[]).filter(function(item){return item.average!==null&&item.average!==undefined;});
+  const recommendation=(analysis.recommendation||[]).filter(function(item){return item.positiveRate!==null&&item.positiveRate!==undefined;});
+  const recommendationRate=recommendation.length?Number(recommendation[0].positiveRate):null;
+  const future=selectDynamicDashboardMultipleQuestion_(analysis.multiple||[],/(?:향후|희망|원하|서비스|프로그램)/i);
+  const improvement=selectDynamicDashboardMultipleQuestion_(analysis.multiple||[],/(?:개선|불편|보완|필요|요구)/i,future);
+  return {title:surveyName+" 대시보드",kpis:[
+    {label:"전체 응답자",value:respondentCount?respondentCount.toLocaleString("ko-KR")+"명":"-"},
+    {label:scale.length+"개 만족도 평균",value:overallAverage===null?"-":overallAverage.toFixed(2)+"/5점"},
+    {label:"만족도 긍정률",value:overallPositiveRate!==null&&Number.isFinite(overallPositiveRate)?overallPositiveRate.toFixed(1)+"%":"-"},
+    {label:"재이용·추천",value:recommendationRate===null?"-":recommendationRate.toFixed(1)+"%"}
+  ],sections:[
+    {label:"세부 만족도",valueLabel:"평균",items:buildDynamicDashboardItems_(scale,5,8,true)},
+    {label:"향후 희망 서비스",valueLabel:"선택 수",items:buildDynamicDashboardItems_(future?future.items:[],null,8,false)},
+    {label:"개선 필요사항",valueLabel:"선택 수",items:buildDynamicDashboardItems_(improvement?improvement.items:[],null,8,false)},
+    {label:"주관식 범주",valueLabel:"언급 수",items:buildDynamicDashboardOpinionItems_(analysis,8)}
+  ]};
+}
+
+
+function selectDynamicDashboardMultipleQuestion_(questions,pattern,excluded){
+  const candidates=(questions||[]).filter(function(question){return question!==excluded;});
+  return candidates.filter(function(question){return pattern.test(cleanText_(question.question));})[0]||candidates[0]||null;
+}
+
+
+function buildDynamicDashboardItems_(source,fixedMaximum,limit,isScale){
+  const items=(source||[]).map(function(item){return {label:cleanText_(item.question||item.label),
+    value:Number(isScale?item.average:item.count||0)};}).filter(function(item){return item.label&&Number.isFinite(item.value);});
+  if(!isScale)items.sort(function(a,b){return b.value-a.value||a.label.localeCompare(b.label,"ko");});
+  const shown=items.slice(0,limit),maximum=fixedMaximum||Math.max.apply(null,shown.map(function(item){return item.value;}).concat([0]));
+  const highest=shown.length?Math.max.apply(null,shown.map(function(item){return item.value;})):null;
+  return shown.map(function(item){return {label:item.label,value:item.value,
+    visual:buildDynamicDashboardUnicodeBar_(item.value,maximum,isScale?item.value.toFixed(2):item.value.toLocaleString("ko-KR")),
+    highlight:highest!==null&&item.value===highest};});
+}
+
+
+function buildDynamicDashboardOpinionItems_(analysis,limit){
+  let categories=[];
+  if(Array.isArray(analysis.opinionCategories))categories=analysis.opinionCategories;
+  (analysis.text||[]).forEach(function(question){if(Array.isArray(question.categories))categories=categories.concat(question.categories);});
+  if(!categories.length)return [{label:"분석 결과 없음",value:0,visual:"-",highlight:false}];
+  return buildDynamicDashboardItems_(categories.map(function(item){return {label:item.category||item.label,count:item.count};}),null,limit,false);
+}
+
+
+function buildDynamicDashboardUnicodeBar_(value,maximum,valueText){
+  const width=12,ratio=maximum>0?Math.max(0,Math.min(1,Number(value||0)/maximum)):0;
+  const filled=Math.round(width*ratio);
+  return new Array(filled+1).join("█")+new Array(width-filled+1).join("░")+" "+valueText;
 }
 
 function createDynamicRespondentSheet_(analysis) {
