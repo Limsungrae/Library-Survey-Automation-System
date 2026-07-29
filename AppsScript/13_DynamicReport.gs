@@ -254,13 +254,37 @@ function dynamicDashboardColumnNumber_(letters){
 /** 기존 고정 경계를 기록하고 병합 해제보다 먼저 행·열 고정을 모두 해제합니다. */
 function prepareDynamicDashboardFreezeState_(sheet,logger){
   const range=sheet.getRange("A1:H19");
-  const merged=range.getMergedRanges().map(function(item){return item.getA1Notation();});
-  const message="[DASHBOARD_FREEZE_STATE]\nsheet="+sheet.getName()+"\nfrozenRows="+sheet.getFrozenRows()+
-    "\nfrozenColumns="+sheet.getFrozenColumns()+"\nplannedMerges="+getDynamicDashboardPlannedMerges_().join(",")+
+  const frozenRows=sheet.getFrozenRows();
+  const frozenColumns=sheet.getFrozenColumns();
+  const mergedRanges=range.getMergedRanges();
+  const merged=mergedRanges.map(function(item){return item.getA1Notation();});
+  const message="[DASHBOARD_FREEZE_STATE]\nsheet="+sheet.getName()+"\nfrozenRows="+frozenRows+
+    "\nfrozenColumns="+frozenColumns+"\nplannedMerges="+getDynamicDashboardPlannedMerges_().join(",")+
     "\ncurrentMerges="+(merged.join(",")||"none");
   if(typeof logger==="function")logger(message);else Logger.log(message);
-  sheet.setFrozenRows(0);
-  sheet.setFrozenColumns(0);
+
+  // 가져온 Excel/기존 시트에는 병합 범위가 고정 경계를 가로지르는 비정상 상태가 남을 수 있습니다.
+  // 이 상태에서 setFrozenRows(0) 자체가 병합 오류를 던질 수 있으므로 경계를 가로지르는 병합부터 해제합니다.
+  mergedRanges.forEach(function(mergedRange){
+    const crossesFrozenRow=frozenRows>0&&mergedRange.getRow()<=frozenRows&&mergedRange.getLastRow()>frozenRows;
+    const crossesFrozenColumn=frozenColumns>0&&mergedRange.getColumn()<=frozenColumns&&mergedRange.getLastColumn()>frozenColumns;
+    if(crossesFrozenRow||crossesFrozenColumn){
+      Logger.log("[DASHBOARD_PRE_UNMERGE] range="+mergedRange.getA1Notation()+
+        " crossesFrozenRow="+crossesFrozenRow+" crossesFrozenColumn="+crossesFrozenColumn);
+      mergedRange.breakApart();
+    }
+  });
+
+  try{
+    sheet.setFrozenRows(0);
+    sheet.setFrozenColumns(0);
+  }catch(error){
+    // 일부 비정상 시트는 경계 판정만으로 해제되지 않을 수 있어 대시보드 영역의 병합을 모두 해제하고 한 번만 재시도합니다.
+    Logger.log("[DASHBOARD_FREEZE_RESET_RETRY] error="+(error&&error.message?error.message:String(error)));
+    range.breakApart();
+    sheet.setFrozenRows(0);
+    sheet.setFrozenColumns(0);
+  }
 }
 
 
