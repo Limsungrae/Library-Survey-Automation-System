@@ -162,16 +162,24 @@ function createDynamicOverviewSheet_(analysis, settings) {
 function createDynamicDashboardSheet_(analysis, settings) {
   const sheet=resetDynamicDashboardSheet_();
   const model=buildDynamicDashboardModel_(analysis,settings);
-  setDynamicReportTitle_(sheet,"A1:H2",model.title);
-  sheet.getRange("A1:H2").setBorder(true,true,true,true,false,false,"#102F50",SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+  const mergePlanErrors=validateDynamicDashboardMergePlan_(getDynamicDashboardPlannedMerges_());
+  if(mergePlanErrors.length)throw new Error("대시보드 병합 계획 오류: "+mergePlanErrors.join(", "));
+  const titleRange=safeMergeDynamicDashboardRange_(sheet,"A1:H2","dashboard-title");
+  titleRange.setValue(model.title).setBackground("#17375E").setFontColor("#FFFFFF")
+    .setFontWeight("bold").setFontFamily("맑은 고딕").setFontSize(17)
+    .setHorizontalAlignment("center").setVerticalAlignment("middle")
+    .setBorder(true,true,true,true,false,false,"#102F50",SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+  sheet.setRowHeights(1,2,30);
   sheet.getRange("A1:H19").setFontFamily("맑은 고딕").setVerticalAlignment("middle");
 
   model.kpis.forEach(function(kpi,index){
     const startColumn=index*2+1;
-    sheet.getRange(4,startColumn,3,2).merge().setValue(kpi.displayText)
+    const valueA1=dynamicDashboardRangeA1_(4,startColumn,6,startColumn+1);
+    const labelA1=dynamicDashboardRangeA1_(7,startColumn,7,startColumn+1);
+    safeMergeDynamicDashboardRange_(sheet,valueA1,"kpi-value-"+(index+1)).setValue(kpi.displayText)
       .setBackground("#EEF3F8").setFontColor("#17375E").setFontWeight("bold").setFontSize(18)
       .setHorizontalAlignment("center").setVerticalAlignment("middle");
-    sheet.getRange(7,startColumn,1,2).merge().setValue(kpi.label)
+    safeMergeDynamicDashboardRange_(sheet,labelA1,"kpi-label-"+(index+1)).setValue(kpi.label)
       .setBackground("#F8FAFC").setFontColor("#52677C").setFontSize(9)
       .setHorizontalAlignment("center").setVerticalAlignment("middle");
     sheet.getRange(4,startColumn,4,2).setBorder(true,true,true,true,true,true,"#AAB8C5",SpreadsheetApp.BorderStyle.SOLID);
@@ -198,7 +206,7 @@ function createDynamicDashboardSheet_(analysis, settings) {
   [210,190,210,190,210,190,210,190].forEach(function(width,index){sheet.setColumnWidth(index+1,width);});
   sheet.setRowHeights(4,4,24);sheet.setRowHeight(5,32);sheet.setRowHeight(6,32);
   sheet.setRowHeight(10,30);sheet.setRowHeights(11,9,36);
-  sheet.setFrozenRows(2);sheet.setFrozenColumns(0);sheet.setHiddenGridlines(true);
+  sheet.setFrozenRows(0);sheet.setFrozenColumns(0);sheet.setHiddenGridlines(true);
 }
 
 
@@ -207,11 +215,82 @@ function resetDynamicDashboardSheet_(){
   const spreadsheet=SpreadsheetApp.getActiveSpreadsheet();
   let sheet=spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.DASHBOARD);
   if(!sheet)sheet=spreadsheet.insertSheet(DYNAMIC_SURVEY_CONFIG.SHEETS.DASHBOARD);
+  prepareDynamicDashboardFreezeState_(sheet);
   sheet.getCharts().forEach(function(chart){sheet.removeChart(chart);});
   resetDynamicDashboardRange_(sheet);
   sheet.setConditionalFormatRules([]);
   sheet.setHiddenGridlines(true);
   return sheet;
+}
+
+
+function getDynamicDashboardPlannedMerges_(){
+  return ["A1:H2","A4:B6","A7:B7","C4:D6","C7:D7","E4:F6","E7:F7","G4:H6","G7:H7"];
+}
+
+
+function validateDynamicDashboardMergePlan_(ranges){
+  const parsed=[],errors=[];
+  (ranges||[]).forEach(function(a1){
+    const match=String(a1).match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
+    if(!match){errors.push("잘못된 범위 "+a1);return;}
+    const item={a1:a1,r1:Number(match[2]),c1:dynamicDashboardColumnNumber_(match[1]),
+      r2:Number(match[4]),c2:dynamicDashboardColumnNumber_(match[3])};
+    parsed.forEach(function(other){
+      if(item.r1<=other.r2&&item.r2>=other.r1&&item.c1<=other.c2&&item.c2>=other.c1)
+        errors.push("겹침 "+other.a1+" / "+item.a1);
+    });
+    parsed.push(item);
+  });
+  return errors;
+}
+
+
+function dynamicDashboardColumnNumber_(letters){
+  return String(letters).split("").reduce(function(total,letter){return total*26+letter.charCodeAt(0)-64;},0);
+}
+
+
+/** 기존 고정 경계를 기록하고 병합 해제보다 먼저 행·열 고정을 모두 해제합니다. */
+function prepareDynamicDashboardFreezeState_(sheet,logger){
+  const range=sheet.getRange("A1:H19");
+  const merged=range.getMergedRanges().map(function(item){return item.getA1Notation();});
+  const message="[DASHBOARD_FREEZE_STATE]\nsheet="+sheet.getName()+"\nfrozenRows="+sheet.getFrozenRows()+
+    "\nfrozenColumns="+sheet.getFrozenColumns()+"\nplannedMerges="+getDynamicDashboardPlannedMerges_().join(",")+
+    "\ncurrentMerges="+(merged.join(",")||"none");
+  if(typeof logger==="function")logger(message);else Logger.log(message);
+  sheet.setFrozenRows(0);
+  sheet.setFrozenColumns(0);
+}
+
+
+function safeMergeDynamicDashboardRange_(sheet,a1Notation,stage){
+  const range=sheet.getRange(a1Notation);
+  const frozenRows=sheet.getFrozenRows(),frozenColumns=sheet.getFrozenColumns();
+  if(frozenRows!==0||frozenColumns!==0){
+    Logger.log("[DASHBOARD_MERGE_ERROR]\nstage="+stage+"\nrange="+a1Notation+
+      "\nfrozenRows="+frozenRows+"\nfrozenColumns="+frozenColumns+
+      "\nstartRow="+range.getRow()+"\nendRow="+range.getLastRow()+
+      "\nstartColumn="+range.getColumn()+"\nendColumn="+range.getLastColumn());
+    throw new Error("대시보드 병합 전에 고정 행·열이 해제되지 않았습니다: "+a1Notation);
+  }
+  const overlaps=range.getMergedRanges();
+  if(overlaps.length){
+    const exact=overlaps.length===1&&overlaps[0].getA1Notation()===a1Notation;
+    if(exact)return range;
+    throw new Error("대시보드 병합 범위가 기존 병합과 겹칩니다: "+a1Notation+" / "+
+      overlaps.map(function(item){return item.getA1Notation();}).join(", "));
+  }
+  try{return range.merge();}catch(error){
+    Logger.log("[DASHBOARD_MERGE_ERROR]\nstage="+stage+"\nrange="+a1Notation+"\nerror="+
+      (error&&error.message?error.message:String(error)));
+    throw error;
+  }
+}
+
+
+function dynamicDashboardRangeA1_(startRow,startColumn,endRow,endColumn){
+  return dynamicColumnLetter_(startColumn)+startRow+":"+dynamicColumnLetter_(endColumn)+endRow;
 }
 
 

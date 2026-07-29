@@ -552,6 +552,9 @@ retained separately in the dashboard model, and no number format is applied to
 those text cells. Regeneration clears typed-cell content in A1:H19 before clearing
 validation, notes, merges, and dashboard conditional-format rules, then resets
 only visual properties; it deliberately does not call `clearFormat()`.
+Before breaking or creating dashboard merges, regeneration logs and resets both
+frozen rows and frozen columns to zero. The completed single-screen dashboard
+also remains unfrozen, so its title and KPI merges never cross a freeze boundary.
 
 Report highlighting is calculated only within each question's item rows. Tied
 maxima are all yellow (`#FFF2CC`), total rows are excluded, scale maxima are

@@ -167,6 +167,25 @@ function testDynamicSurveyV2RegressionSuite() {
     equal_(calls.join(","),"unmerge,content,validation,notes,visual,unmerge,content,validation,notes,visual","연속 초기화 순서");
     equal_(calls.indexOf("content")<calls.indexOf("visual"),true,"typed content 선제 제거");
     equal_(resetDynamicDashboardRange_.toString().indexOf("clearFormat"),-1,"숫자 형식 포함 초기화 없음");});
+  test_("대시보드 고정 해제와 병합 계획",function(){
+    [[1,0],[2,0],[0,1]].forEach(function(initial){const calls=[];const merged={getA1Notation:function(){return "A1:H2";}};
+      const sheet={getName:function(){return "02_대시보드";},getFrozenRows:function(){return initial[0];},
+        getFrozenColumns:function(){return initial[1];},setFrozenRows:function(value){calls.push("rows="+value);},
+        setFrozenColumns:function(value){calls.push("columns="+value);},getRange:function(){return {getMergedRanges:function(){return [merged];}};}};
+      let logged="";prepareDynamicDashboardFreezeState_(sheet,function(message){logged=message;});
+      equal_(calls.join(","),"rows=0,columns=0","고정 해제 순서 "+initial.join("/"));
+      equal_(logged.indexOf("frozenRows="+initial[0])>=0,true,"기존 고정 행 로그");
+      equal_(logged.indexOf("currentMerges=A1:H2")>=0,true,"기존 병합 로그");});
+    const planned=getDynamicDashboardPlannedMerges_();
+    equal_(planned.join(","),"A1:H2,A4:B6,A7:B7,C4:D6,C7:D7,E4:F6,E7:F7,G4:H6,G7:H7","병합 계획");
+    equal_(new Set(planned).size,planned.length,"중복 병합 없음");
+    equal_(validateDynamicDashboardMergePlan_(planned).length,0,"병합 범위 비중첩");
+    equal_(validateDynamicDashboardMergePlan_(["A1:H2","A2:B3"]).length,1,"겹침 탐지");
+    const merged=[];const sheet={getFrozenRows:function(){return 0;},getFrozenColumns:function(){return 0;},
+      getRange:function(a1){return {getMergedRanges:function(){return [];},merge:function(){merged.push(a1);return this;}};}};
+    planned.forEach(function(a1){safeMergeDynamicDashboardRange_(sheet,a1,"test");});
+    equal_(merged.join(","),planned.join(","),"제목과 KPI 병합 성공");
+    equal_(createDynamicDashboardSheet_.toString().indexOf("setFrozenRows(2)"),-1,"최종 고정 행 없음");});
   return {success:results.every(function(r){return r.status==="PASS";}),passed:results.filter(function(r){return r.status==="PASS";}).length,
     failed:results.filter(function(r){return r.status==="FAIL";}).length,results:results};
 }
