@@ -556,6 +556,13 @@ exact forbidden token and ZIP entry when it fails.
 Worksheet print elements are inserted before OOXML trailing elements such as
 `drawing`, `legacyDrawing`, `tableParts`, and `extLst`. Final XLSX validation also
 rejects worksheets where `pageMargins` or `pageSetup` occurs after those elements.
+The production export path does not unzip, re-zip, or edit the Drive-exported XLSX
+Blob. It changes only the filename and MIME type before saving and returning it.
+The former XML print-layout path is reachable only when the explicit
+`xlsxDiagnosticMode` option is true; that mode stores separately named
+`DRIVE_ORIGINAL` and `POSTPROCESSED` comparison files with byte size and SHA-256.
+Deployment operators can also enable it temporarily with the
+`DYNAMIC_XLSX_DIAGNOSTIC_MODE=true` Script Property without changing the web UI.
 
 ## 13.2 Legacy compatibility sheets
 

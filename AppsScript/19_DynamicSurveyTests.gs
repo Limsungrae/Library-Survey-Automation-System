@@ -125,6 +125,18 @@ function testDynamicSurveyV2RegressionSuite() {
     const invalid='<worksheet><sheetData/><drawing/><pageMargins/><pageSetup/></worksheet>';
     equal_(validateDynamicWorksheetElementOrder_(invalid).indexOf("pageSetup이 drawing 뒤에 있습니다.")>=0,true,
       "잘못된 요소 순서 탐지");});
+  test_("Drive export 원본 Blob 무후처리 반환",function(){const calls=[];const blob={
+      setName:function(name){calls.push(["name",name]);return this;},
+      setContentType:function(type){calls.push(["type",type]);return this;}};
+    const result=finalizeDynamicDriveExportBlob_(blob,"report.xlsx");
+    equal_(result,blob,"동일 Blob 반환");equal_(calls.length,2,"이름과 MIME만 설정");
+    equal_(calls[0][1],"report.xlsx","파일명");
+    equal_(calls[1][1],"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","XLSX MIME");
+    equal_(isDynamicXlsxDiagnosticMode_({xlsxDiagnosticMode:true}),true,"명시적 진단 모드");
+    equal_(buildDynamicXlsxDiagnosticFileName_("report.xlsx","DRIVE_ORIGINAL"),
+      "report_DRIVE_ORIGINAL.xlsx","원본 진단 파일명");
+    equal_(buildDynamicXlsxDiagnosticFileName_("report","POSTPROCESSED"),
+      "report_POSTPROCESSED.xlsx","후처리 진단 파일명");});
   return {success:results.every(function(r){return r.status==="PASS";}),passed:results.filter(function(r){return r.status==="PASS";}).length,
     failed:results.filter(function(r){return r.status==="FAIL";}).length,results:results};
 }
