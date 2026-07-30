@@ -619,14 +619,46 @@ targetSheet
 targetSheet.clear();
 removeAllCharts_(targetSheet);
 
+    const actualColumnCount = nonEmptyValues[0].length;
+    const currentColumnCount = targetSheet.getMaxColumns();
+
+    // 업로드 문항 수보다 시트 열이 부족한 경우 먼저 확장합니다.
+    if (currentColumnCount < actualColumnCount) {
+      targetSheet.insertColumnsAfter(
+        currentColumnCount,
+        actualColumnCount - currentColumnCount
+      );
+    }
+
+    // 모든 행의 길이를 헤더 열 수에 맞춰 안전하게 정규화합니다.
+    const normalizedValues = nonEmptyValues.map(function(row) {
+      const normalizedRow = row.slice(0, actualColumnCount);
+      while (normalizedRow.length < actualColumnCount) normalizedRow.push("");
+      return normalizedRow;
+    });
+
     targetSheet
       .getRange(
         1,
         1,
-        nonEmptyValues.length,
-        nonEmptyValues[0].length
+        normalizedValues.length,
+        actualColumnCount
       )
-      .setValues(nonEmptyValues);
+      .setValues(normalizedValues);
+
+    // 이전 업로드에서 남은 빈 열(P열 등)을 실제 문항 수 뒤에서 제거합니다.
+    const remainingColumnCount = targetSheet.getMaxColumns();
+    if (remainingColumnCount > actualColumnCount) {
+      targetSheet.deleteColumns(
+        actualColumnCount + 1,
+        remainingColumnCount - actualColumnCount
+      );
+    }
+    Logger.log(
+      "[DYNAMIC_RAW_COLUMNS_NORMALIZED] sheet=" + targetSheetName
+      + " actualColumns=" + actualColumnCount
+      + " removedColumns=" + Math.max(remainingColumnCount - actualColumnCount, 0)
+    );
     targetSheet.getRange(1, 1).setNote(JSON.stringify({
       sourceFileName: fileName, sourceSheetName: sourceSheet.getName(), importedAt: new Date().toISOString(),
       blankRowsRemoved: values.length - nonEmptyValues.length
@@ -635,9 +667,9 @@ removeAllCharts_(targetSheet);
     // 기본 서식
     targetSheet.setFrozenRows(1);
     if (targetSheet.getFilter()) targetSheet.getFilter().remove();
-    targetSheet.getRange(1,1,nonEmptyValues.length,nonEmptyValues[0].length).createFilter();
+    targetSheet.getRange(1, 1, normalizedValues.length, actualColumnCount).createFilter();
     targetSheet.getBandings().forEach(function(banding){banding.remove();});
-    targetSheet.getRange(1,1,nonEmptyValues.length,nonEmptyValues[0].length)
+    targetSheet.getRange(1, 1, normalizedValues.length, actualColumnCount)
       .applyRowBanding(SpreadsheetApp.BandingTheme.LIGHT_GREY,true,false);
 
     targetSheet
@@ -645,7 +677,7 @@ removeAllCharts_(targetSheet);
         1,
         1,
         1,
-        values[0].length
+        actualColumnCount
       )
       .setBackground("#1b365d")
       .setFontColor("#ffffff")
@@ -653,13 +685,13 @@ removeAllCharts_(targetSheet);
       .setHorizontalAlignment("center")
       .setWrap(true);
 
-    if (values.length > 1) {
+    if (normalizedValues.length > 1) {
       targetSheet
         .getRange(
           2,
           1,
-          values.length - 1,
-          values[0].length
+          normalizedValues.length - 1,
+          actualColumnCount
         )
         .setVerticalAlignment("top")
         .setWrap(true);
@@ -667,7 +699,7 @@ removeAllCharts_(targetSheet);
 
     targetSheet.autoResizeColumns(
       1,
-      values[0].length
+      actualColumnCount
     );
     const savedMappings=getSavedSurveyMappingsFromWeb();
     if(savedMappings.success&&savedMappings.exists){
@@ -681,12 +713,12 @@ removeAllCharts_(targetSheet);
       sheetName: targetSheetName,
       sourceSheet: sourceSheet.getName(),
       rowCount: nonEmptyValues.length - 1,
-      columnCount: values[0].length,
+      columnCount: actualColumnCount,
       message:
         targetSheetName + " 시트에 응답 "
         + (nonEmptyValues.length - 1)
         + "건과 문항 "
-        + values[0].length
+        + actualColumnCount
         + "개를 저장했습니다."
     };
 
