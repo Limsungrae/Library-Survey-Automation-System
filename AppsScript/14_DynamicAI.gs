@@ -9,7 +9,7 @@
  * 2. 범주별 건수와 대표 의견 검증
  * 3. 06_주관식분석 시트 갱신
  * 4. 07_AI총평 시트 생성
- * 5. 08_향후계획 시트 생성
+ * 5. 08_향후개선방향 시트 생성
  *
  * 기존 공통 기능 재사용
  * - callGeminiJson_()
@@ -28,7 +28,7 @@
 
 /**
  * 범용 AI 보고서 전체를 생성합니다.
- * 생성 시트: 06_주관식분석, 07_AI총평, 08_향후계획
+ * 생성 시트: 06_주관식분석, 07_AI총평, 08_향후개선방향
  *
  * @return {Object} 생성 결과 리포트 오브젝트
  */
@@ -49,7 +49,7 @@ function generateDynamicAIReport(onStage) {
       updateStage("AI 차단 결과 시트 생성");
       createDynamicAIBlockedSheet_(quality);
       return {success:false,message:"통계 품질검사 실패로 AI 보고서 생성을 중단했습니다.",
-        error:"품질검사 오류를 먼저 해결해 주세요.",quality:quality,generatedSheets:["09_AI총평"]};
+        error:"품질검사 오류를 먼저 해결해 주세요.",quality:quality,generatedSheets:[getDynamicAIReportSheetName_("AI_SUMMARY", "07_AI총평")]};
     }
     // 외부 호출 중에는 ScriptLock을 보유하지 않습니다.
     const opinionAnalysis=analyzeDynamicOpinionsWithAI_(analysis,settings,updateStage);
@@ -63,17 +63,45 @@ function generateDynamicAIReport(onStage) {
     updateStage("Gemini 향후계획 응답 처리");
     updateStage("보고서 저장 잠금 획득");
     lock=LockService.getScriptLock();lock.waitLock(30000);
-    updateStage("08_주관식분석 시트 생성");
+    updateStage("06_주관식분석 시트 생성");
     createDynamicAIOpinionSheet_(analysis,opinionAnalysis);
-    updateStage("09_AI총평 시트 생성");
-    createDynamicAITextSheet_("09_AI총평","Ⅸ. AI 종합분석",summaryText,
+    updateStage("07_AI총평 시트 생성");
+    createDynamicAITextSheet_(getDynamicAIReportSheetName_("AI_SUMMARY", "07_AI총평"),"Ⅶ. AI 종합분석",summaryText,
       "※ 품질검사를 통과한 집계와 비식별 의견만 사용한 Gemini 초안입니다. 담당자 검토가 필요합니다.");
-    updateStage("10_향후계획 시트 생성");
-    createDynamicAITextSheet_("10_향후계획","Ⅹ. 향후 개선계획",futurePlanText,
-      "※ 확정 정책·예산·일정이 아닌 검토용 초안입니다.");
-    updateStage("AI 보고서 시트 정렬 및 저장");
-    moveDynamicAISheetsInOrder_();SpreadsheetApp.flush();
-    const generatedSheets=["08_주관식분석","09_AI총평","10_향후계획"];
+updateStage("08_향후개선방향 시트 생성");
+createDynamicAITextSheet_(
+  getDynamicAIReportSheetName_("IMPROVEMENT_PLAN", "08_향후개선방향"),
+  "Ⅷ. 향후 개선방향",
+  futurePlanText,
+  "※ 확정 정책·예산·일정이 아닌 검토용 초안입니다."
+);
+
+/*
+ * AI 주관식 범주 결과를 통계 분석 객체에 연결합니다.
+ *
+ * 02_대시보드의 buildDynamicDashboardOpinionItems_()는
+ * analysis.opinionCategories를 읽으므로,
+ * 별도로 생성된 opinionAnalysis.categories를 전달해야 합니다.
+ */
+analysis.opinionCategories = Array.isArray(opinionAnalysis.categories)
+  ? opinionAnalysis.categories
+  : [];
+
+/*
+ * 처음 생성된 대시보드는 AI 분석 전 상태이므로
+ * AI 범주 결과를 연결한 뒤 다시 생성합니다.
+ */
+updateStage("AI 주관식 범주 대시보드 반영");
+createDynamicDashboardSheet_(analysis, settings);
+
+updateStage("AI 보고서 시트 정렬 및 저장");
+moveDynamicAISheetsInOrder_();
+SpreadsheetApp.flush();
+    const generatedSheets=[
+      getDynamicAIReportSheetName_("OPINION", "06_주관식분석"),
+      getDynamicAIReportSheetName_("AI_SUMMARY", "07_AI총평"),
+      getDynamicAIReportSheetName_("IMPROVEMENT_PLAN", "08_향후개선방향")
+    ];
     const summary={validOpinionCount:opinionAnalysis.validCount,categoryCount:opinionAnalysis.categories.length};
     return {success:true,message:"범용 AI 보고서 생성이 완료되었습니다.",
       generatedSheets:generatedSheets,quality:quality,summary:summary};
@@ -82,7 +110,8 @@ function generateDynamicAIReport(onStage) {
 }
 
 function createDynamicAIBlockedSheet_(quality) {
-  const sheet=getOrResetDynamicAISheet_("09_AI총평");setDynamicAISheetTitle_(sheet,"Ⅸ. AI 종합분석",8);
+  const sheet=getOrResetDynamicAISheet_(getDynamicAIReportSheetName_("AI_SUMMARY", "07_AI총평"));
+  setDynamicAISheetTitle_(sheet,"Ⅶ. AI 종합분석",8);
   const rows=[["수준","코드","문항","오류"]].concat((quality.errors||[]).map(function(item){return [item.level,item.code,item.questionId,item.message];}));
   sheet.getRange(4,1,rows.length,4).setValues(rows);styleDynamicAIHeader_(sheet.getRange(4,1,1,4));
   if(rows.length>1)styleDynamicAITable_(sheet.getRange(4,1,rows.length,4));
@@ -519,10 +548,10 @@ function buildDynamicAIInterpretationRules_() {
  */
 function createDynamicAIOpinionSheet_(analysis, opinionAnalysis) {
   // 시트가 이미 있다면 깨끗이 밀어버리고(초기화) 새로 가져옵니다.
-  const sheet = getOrResetDynamicAISheet_("08_주관식분석");
+  const sheet = getOrResetDynamicAISheet_(getDynamicAIReportSheetName_("OPINION", "06_주관식분석"));
 
   // 시트 맨 상단에 제목(1~2행 병합)을 배치합니다.
-  setDynamicAISheetTitle_(sheet, "Ⅷ. 주관식 분석", 8);
+  setDynamicAISheetTitle_(sheet, "Ⅵ. 주관식 분석", 8);
 
   // 4행에 카테고리 요약 통계 테이블의 머리글(헤더)을 작성합니다.
   sheet.getRange(4, 1, 1, 8).setValues([[
@@ -640,7 +669,7 @@ function createDynamicAIOpinionSheet_(analysis, opinionAnalysis) {
 
 
 /**
- * 07_AI총평 또는 08_향후계획처럼 AI가 서술형으로 작성한 본문을 정돈된 시트 양식으로 생성합니다.
+ * 07_AI총평 또는 08_향후개선방향처럼 AI가 서술형으로 작성한 본문을 정돈된 시트 양식으로 생성합니다.
  *
  * @param {string} sheetName 새로 생성/초기화할 시트명 ("07_AI총평" 등)
  * @param {string} title 시트 대제목 명칭 ("AI 총평" 등)
@@ -834,20 +863,69 @@ function styleDynamicAITable_(range) {
  * 새로 생성하거나 갱신한 AI 관련 분석 탭 세 개를 다른 시트들 뒤로 밀리지 않게 앞쪽 보고서 정식 순서대로 강제 재배치합니다.
  */
 function moveDynamicAISheetsInOrder_() {
+  // 통계 보고서 파일의 공통 정렬 함수가 있으면 동일한 규칙을 재사용합니다.
+  if (typeof moveDynamicStatisticalSheetsInOrder_ === "function") {
+    moveDynamicStatisticalSheetsInOrder_();
+    return;
+  }
+
   const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const reportOrder = getDynamicAIFinalReportOrder_();
+  const internalPrefix = ["00_설정", "00_품질검사"];
+  const fullOrder = internalPrefix.concat(reportOrder);
 
-  // 정렬 순서 정의
-  ["08_주관식분석", "09_AI총평", "10_향후계획"].forEach(function(sheetName, index) {
+  let targetPosition = 1;
+  fullOrder.forEach(function(sheetName) {
     const sheet = spreadsheet.getSheetByName(sheetName);
-
-    if (!sheet) return; // 혹시라도 시트가 없으면 패스합니다.
-
-    spreadsheet.setActiveSheet(sheet); // 해당 시트를 마우스로 클릭하듯 활성화 상태로 만듭니다.
-
-    // 00_설정 탭(1번째) 및 01~05 통계 탭(2~6번째)이 앞에 고정되어 있다고 전제하므로,
-    // 활성화된 탭을 순서대로 각각 7번째, 8번째, 9번째 탭 위치로 명시적 이동시킵니다.
-    spreadsheet.moveActiveSheet(index + 9);
+    if (!sheet) return;
+    spreadsheet.setActiveSheet(sheet);
+    spreadsheet.moveActiveSheet(targetPosition++);
   });
+}
+
+
+/**
+ * 새 설정 파일의 REPORT_SHEETS를 우선 사용하고, 이전 설정에서도 동작하도록
+ * 기본 시트명을 반환합니다.
+ *
+ * @param {string} key REPORT_SHEETS 키
+ * @param {string} fallbackName 설정 미존재 시 기본값
+ * @return {string}
+ */
+function getDynamicAIReportSheetName_(key, fallbackName) {
+  if (
+    typeof DYNAMIC_SURVEY_CONFIG !== "undefined"
+    && DYNAMIC_SURVEY_CONFIG.REPORT_SHEETS
+    && DYNAMIC_SURVEY_CONFIG.REPORT_SHEETS[key]
+  ) {
+    return DYNAMIC_SURVEY_CONFIG.REPORT_SHEETS[key];
+  }
+  return fallbackName;
+}
+
+
+/**
+ * 최종 공개 보고서 시트 순서를 반환합니다.
+ * 00_품질검사는 숨김 내부 시트이므로 공개 순서에서 제외합니다.
+ *
+ * @return {Array<string>}
+ */
+function getDynamicAIFinalReportOrder_() {
+  if (typeof getDynamicFinalReportSheetNames_ === "function") {
+    return getDynamicFinalReportSheetNames_();
+  }
+
+  return [
+    getDynamicAIReportSheetName_("OVERVIEW", "01_조사개요"),
+    getDynamicAIReportSheetName_("DASHBOARD", "02_대시보드"),
+    getDynamicAIReportSheetName_("RESPONDENT", "03_응답자특성"),
+    getDynamicAIReportSheetName_("MULTIPLE", "04_복수응답분석"),
+    getDynamicAIReportSheetName_("SATISFACTION", "05_만족도분석"),
+    getDynamicAIReportSheetName_("OPINION", "06_주관식분석"),
+    getDynamicAIReportSheetName_("AI_SUMMARY", "07_AI총평"),
+    getDynamicAIReportSheetName_("IMPROVEMENT_PLAN", "08_향후개선방향"),
+    getDynamicAIReportSheetName_("RAW", "09_원자료")
+  ];
 }
 
 
