@@ -85,48 +85,124 @@ function sanitizeFileName_(
  * 범용 만족도 조사 보고서 Excel 내보내기
  * ==========================================================================
  *
- * 최종 Excel에 포함하는 시트:
+ * 최종 Excel 시트 순서
+ * - 00_품질검사       : 포함하되 숨김 처리
  * - 01_조사개요
  * - 02_대시보드
  * - 03_응답자특성
- * - 04_단일응답분석
- * - 05_복수응답분석
- * - 06_척도분석
- * - 07_추천의향분석
- * - 08_주관식분석
- * - 09_AI총평       : 존재할 때만 포함
- * - 10_향후계획     : 존재할 때만 포함
- * - 11_범용원자료
+ * - 04_복수응답분석
+ * - 05_만족도분석
+ * - 06_주관식분석
+ * - 07_AI총평         : 존재할 때만 포함
+ * - 08_향후개선방향   : 존재할 때만 포함
+ * - 09_원자료
  *
- * 제외하는 내부 관리 시트:
+ * 제외하는 내부 관리 시트
  * - 00_설정
+ * - 10_문항매핑
+ * - 11_범용원자료
  * - 12_문항매핑
  * - AI 홍보 비서용 시트
  */
 
 
 /**
- * 범용 보고서의 시트 순서를 반환합니다.
+ * 범용 보고서의 최종 Excel 시트 순서를 반환합니다.
  *
- * 전역 상수로 선언하지 않아 다른 파일과의 중복 선언을 방지합니다.
+ * 00_Config.gs의 공통 함수를 우선 사용하고, 이전 설정 파일에서도
+ * 내보내기 파일 자체가 중단되지 않도록 안전한 기본값을 제공합니다.
  *
  * @return {Array<string>}
  */
 function getDynamicExportSheetNames_() {
+  if (typeof getDynamicFinalReportSheetOrder_ === "function") {
+    return getDynamicFinalReportSheetOrder_(true);
+  }
+
   return [
     "00_품질검사",
     "01_조사개요",
     "02_대시보드",
     "03_응답자특성",
-    "04_단일응답분석",
-    "05_복수응답분석",
-    "06_척도분석",
-    "07_추천의향분석",
-    "08_주관식분석",
-    "09_AI총평",
-    "10_향후계획",
-    "11_범용원자료"
+    "04_복수응답분석",
+    "05_만족도분석",
+    "06_주관식분석",
+    "07_AI총평",
+    "08_향후개선방향",
+    "09_원자료"
   ];
+}
+
+
+/**
+ * Excel 내보내기 전에 반드시 존재해야 하는 시트를 반환합니다.
+ * AI 분석 결과 시트 두 개는 AI 실행 전에는 없을 수 있으므로 제외합니다.
+ *
+ * @return {Array<string>}
+ */
+function getDynamicRequiredExportSheetNames_() {
+  if (typeof getDynamicRequiredReportSheetNames_ === "function") {
+    return getDynamicRequiredReportSheetNames_();
+  }
+
+  return [
+    "00_품질검사",
+    "01_조사개요",
+    "02_대시보드",
+    "03_응답자특성",
+    "04_복수응답분석",
+    "05_만족도분석",
+    "06_주관식분석",
+    "09_원자료"
+  ];
+}
+
+
+/**
+ * 설정 파일 버전에 관계없이 품질검사 시트명을 반환합니다.
+ *
+ * @return {string}
+ */
+function getDynamicExportQualitySheetName_() {
+  const config = typeof DYNAMIC_SURVEY_CONFIG !== "undefined"
+    ? DYNAMIC_SURVEY_CONFIG
+    : null;
+
+  return String(
+    config
+    && config.INTERNAL_SHEETS
+    && config.INTERNAL_SHEETS.QUALITY
+    || config
+    && config.SHEETS
+    && config.SHEETS.QUALITY
+    || "00_품질검사"
+  );
+}
+
+
+/**
+ * 임시 XLSX 변환 문서에서 품질검사 시트를 숨깁니다.
+ * 원본 스프레드시트의 표시 상태는 변경하지 않습니다.
+ *
+ * @param {GoogleAppsScript.Spreadsheet.Spreadsheet} spreadsheet
+ */
+function hideDynamicExportQualitySheet_(spreadsheet) {
+  const qualitySheet = spreadsheet.getSheetByName(
+    getDynamicExportQualitySheetName_()
+  );
+
+  if (!qualitySheet) {
+    return;
+  }
+
+  const visibleSheetCount = spreadsheet.getSheets().filter(function(sheet) {
+    return !sheet.isSheetHidden();
+  }).length;
+
+  // Google Sheets는 모든 시트를 숨길 수 없으므로 최소 한 개는 표시합니다.
+  if (visibleSheetCount > 1 && !qualitySheet.isSheetHidden()) {
+    qualitySheet.hideSheet();
+  }
 }
 
 
@@ -159,18 +235,8 @@ function createDynamicSurveyReportXlsx_(
     // 반드시 존재해야 하는 범용 통계 보고서 시트
     // ----------------------------------------------------------------------
 
-    const requiredSheets = [
-      "01_조사개요",
-      "00_품질검사",
-      "02_대시보드",
-      "03_응답자특성",
-      "04_단일응답분석",
-      "05_복수응답분석",
-      "06_척도분석",
-      "07_추천의향분석",
-      "08_주관식분석",
-      "11_범용원자료"
-    ];
+    const requiredSheets =
+      getDynamicRequiredExportSheetNames_();
 
 
     const missingSheets =
@@ -189,7 +255,9 @@ function createDynamicSurveyReportXlsx_(
       );
     }
 
-    const qualitySheet=sourceSpreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.QUALITY);
+    const qualitySheet = sourceSpreadsheet.getSheetByName(
+      getDynamicExportQualitySheetName_()
+    );
     if(qualitySheet&&qualitySheet.getRange("B5").getDisplayValue()==="FAIL"&&!(options&&options.force===true)){
       throw new Error("품질검사 실패 상태에서는 기본 내보내기를 차단합니다. 오류를 수정하거나 관리자 강제 내보내기를 사용하세요.");
     }
@@ -300,6 +368,9 @@ function createDynamicSurveyReportXlsx_(
         index + 1
       );
     });
+
+    // 00_품질검사는 최종 Excel에 포함하되 사용자 화면에서는 숨깁니다.
+    hideDynamicExportQualitySheet_(temporarySpreadsheet);
 
     // Google Sheets 전용 수식은 임시 사본에서만 제거합니다.
     // 원본 보고서의 SPARKLINE 보조열과 통계 숫자는 변경하지 않습니다.
