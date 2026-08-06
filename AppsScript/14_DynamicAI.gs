@@ -18,6 +18,7 @@
  * - getSurveySettings_()
  * - cleanText_()
  *
+ * 
  * 검증 원칙
  * - Gemini가 반환한 건수를 그대로 사용하지 않습니다.
  * - 실제 원자료에 존재하는 응답 번호만 인정합니다.
@@ -578,19 +579,29 @@ function createDynamicAIOpinionSheet_(analysis, opinionAnalysis) {
       opinionAnalysis.validCount > 0
         ? round_(category.count / opinionAnalysis.validCount * 100, 1) // 비율 소수점 첫째자리 계산
         : 0,
-      category.responseNumbers.join(", "), // 매핑된 응답자들의 행 번호들을 쉼표로 나열
+      category.responseNumbers.join("· "), // 매핑된 응답자들의 행 번호들을 쉼표로 나열
       category.representativeOpinions[0] || "", // AI 요약 대표의견 1
       category.representativeOpinions[1] || ""  // AI 요약 대표의견 2
     ];
   });
 
   // 뿌려줄 카테고리 데이터가 하나 이상 존재한다면
-  if (categoryRows.length > 0) {
-    // 5행부터 데이터 길이만큼 영역을 잡아 표 데이터를 채워넣습니다.
-    sheet.getRange(5, 1, categoryRows.length, 8).setValues(categoryRows);
-    
-    // 4번째 열(비율)에 소수점 첫째자리 서식("0.0")을 일괄 적용합니다.
-    sheet.getRange(5, 5, categoryRows.length, 1).setNumberFormat("0.0");
+if (categoryRows.length > 0) {
+
+    // 응답번호 열(C?)이 아니라 6열(F)을 먼저 텍스트로 지정
+    sheet
+      .getRange(5,6,categoryRows.length,1)
+      .setNumberFormat("@");
+
+    sheet
+      .getRange(5,1,categoryRows.length,8)
+      .setValues(categoryRows);
+
+    sheet
+      .getRange(5,5,categoryRows.length,1)
+      .setNumberFormat("0.0");
+    sheet.getRange(5, 6, categoryRows.length, 1)
+  .setNumberFormat("@");
     
     // 테이블 전체 영역에 회색 테두리 등의 기본 격자 서식을 적용합니다.
     styleDynamicAITable_(sheet.getRange(4, 1, categoryRows.length + 1, 8));
