@@ -48,24 +48,280 @@
   function persistState(){sessionStorage.setItem(UI_STATE_KEY,JSON.stringify({currentPage:state.currentPage,uploadStatus:state.uploadStatus}));}
   function restoreState(){try{const saved=JSON.parse(sessionStorage.getItem(UI_STATE_KEY)||"{}");if(STEPS.some(function(step){return step.id===saved.currentPage;}))state.currentPage=saved.currentPage;if(saved.uploadStatus==="success")state.uploadStatus="success";}catch(ignored){sessionStorage.removeItem(UI_STATE_KEY);}}
 
-  function friendlyError(error){
-    const raw=String(error&&error.message?error.message:error||"");
-    const safe=raw.replace(/^Exception:\s*/i,"").split(/\n\s*at\s+/)[0].slice(0,500);
-    if(/^통계 분석 실패 \(/.test(safe))return safe;
-    if(/^AI 보고서 생성 실패 \(/.test(safe))return safe;
-    if(/인증|token|토큰|만료/i.test(raw))return "인증 세션을 확인할 수 없습니다. 다시 로그인한 뒤 시도해 주세요.";
-    if(/size|크기|12\s*MB/i.test(raw))return "파일이 최대 허용 용량 12MB를 초과했습니다. 응답 파일을 나누거나 불필요한 시트를 제거해 주세요.";
-    if(/Drive|드라이브|권한|permission|access denied/i.test(raw))return safe||"Drive 접근 권한을 확인할 수 없습니다. 배포 권한을 확인한 뒤 다시 시도해 주세요.";
-    if(/변환.*실패|변환할 수|conversion/i.test(raw))return safe||"Excel 변환에 실패했습니다. 파일을 다시 저장한 뒤 시도해 주세요.";
-    if(/원자료.*컬럼|필수.*컬럼|컬럼.*누락|중복.*(문항|헤더)|빈.*(문항|헤더)|문항.*헤더.*비어/i.test(raw))return safe;
-    if(/문항 매핑.*(미저장|저장되지|먼저)|매핑.*저장.*필요|먼저.*문항.*(구조|유형).*저장/i.test(raw))return safe;
-    if(/11_범용원자료|범용원자료.*(생성|저장|실패)|원자료.*생성.*실패/i.test(raw))return safe;
-    if(/xlsx|xls|excel|형식|signature|서명/i.test(raw))return "지원되는 Excel 파일로 확인되지 않았습니다. .xlsx 또는 .xls 형식으로 다시 저장한 뒤 선택해 주세요.";
-    if(/매핑|문항|columnNumber|척도|scoreMap|JSON/i.test(raw))return "문항 매핑을 처리하지 못했습니다. 검토 필요 문항과 척도·점수 매핑 값을 확인한 뒤 다시 시도해 주세요.";
-    if(/통계|분석 결과|보고서/i.test(raw))return safe||"통계 분석을 시작할 수 없습니다. 범용 원자료와 저장된 문항 매핑이 준비되었는지 확인한 뒤 다시 시도해 주세요.";
-    if(/gemini|ai|총평|향후계획/i.test(raw))return "AI 보고서를 생성하지 못했습니다. 품질검사 상태와 Gemini 설정을 확인한 뒤 다시 시도해 주세요.";
-    return safe||"요청을 완료하지 못했습니다. 파일과 네트워크 상태를 확인한 뒤 다시 시도해 주세요.";
+function friendlyError(error) {
+  const raw = String(
+    error && error.message
+      ? error.message
+      : error || ""
+  );
+
+  const safe = raw
+    .replace(/^Exception:\s*/i, "")
+    .split(/\n\s*at\s+/)[0]
+    .slice(0, 1500);
+
+  const lower = raw.toLowerCase();
+
+  // ------------------------------------------------------------------
+  // 1. Gemini API 사용량·요청 제한
+  // ------------------------------------------------------------------
+
+  if (
+    /429/.test(raw)
+    || /quota exceeded/i.test(raw)
+    || /rate limit/i.test(raw)
+    || /resource_exhausted/i.test(raw)
+    || /too many requests/i.test(raw)
+  ) {
+    const retrySeconds = extractRetryAfterSeconds(raw);
+
+    return retrySeconds
+      ? "현재 AI 서비스 사용량이 많습니다. "
+        + retrySeconds
+        + "초 후 다시 시도해 주세요."
+      : "현재 AI 서비스 사용량이 많습니다. 잠시 후 다시 시도해 주세요.";
   }
+
+  // ------------------------------------------------------------------
+  // 2. 인증·API 키 오류
+  // ------------------------------------------------------------------
+
+  if (
+    /401/.test(raw)
+    || /unauthorized/i.test(raw)
+    || /invalid api key/i.test(raw)
+    || /api key.*invalid/i.test(raw)
+    || /authentication/i.test(raw)
+  ) {
+    return "AI 서비스 인증에 실패했습니다. 관리자에게 API 설정 확인을 요청해 주세요.";
+  }
+
+  // ------------------------------------------------------------------
+  // 3. 권한·결제·사용 제한
+  // ------------------------------------------------------------------
+
+  if (
+    /403/.test(raw)
+    || /permission denied/i.test(raw)
+    || /forbidden/i.test(raw)
+    || /billing/i.test(raw)
+    || /access denied/i.test(raw)
+  ) {
+    return "AI 서비스 사용 권한을 확인할 수 없습니다. 관리자에게 권한 또는 결제 설정 확인을 요청해 주세요.";
+  }
+
+  // ------------------------------------------------------------------
+  // 4. 모델 또는 API 주소 오류
+  // ------------------------------------------------------------------
+
+  if (
+    /404/.test(raw)
+    || /not found/i.test(raw)
+    || /model.*not.*found/i.test(raw)
+    || /models\/.*not found/i.test(raw)
+  ) {
+    return "설정된 AI 모델을 찾을 수 없습니다. 관리자에게 AI 모델 설정 확인을 요청해 주세요.";
+  }
+
+  // ------------------------------------------------------------------
+  // 5. 잘못된 요청
+  // ------------------------------------------------------------------
+
+  if (
+    /400/.test(raw)
+    || /bad request/i.test(raw)
+    || /invalid argument/i.test(raw)
+    || /request payload/i.test(raw)
+  ) {
+    return "AI에 전달된 요청 내용을 처리하지 못했습니다. 입력 데이터와 AI 설정을 확인한 뒤 다시 시도해 주세요.";
+  }
+
+  // ------------------------------------------------------------------
+  // 6. 서버 내부 오류
+  // ------------------------------------------------------------------
+
+  if (
+    /500/.test(raw)
+    || /internal server error/i.test(raw)
+    || /internal_error/i.test(raw)
+  ) {
+    return "AI 서버에서 일시적인 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.";
+  }
+
+  // ------------------------------------------------------------------
+  // 7. 서비스 일시 중단
+  // ------------------------------------------------------------------
+
+  if (
+    /502/.test(raw)
+    || /503/.test(raw)
+    || /service unavailable/i.test(raw)
+    || /unavailable/i.test(raw)
+    || /bad gateway/i.test(raw)
+    || /overloaded/i.test(raw)
+  ) {
+    return "현재 AI 서비스가 일시적으로 응답하지 않습니다. 잠시 후 다시 시도해 주세요.";
+  }
+
+  // ------------------------------------------------------------------
+  // 8. 응답 시간 초과
+  // ------------------------------------------------------------------
+
+  if (
+    /504/.test(raw)
+    || /timeout/i.test(raw)
+    || /timed out/i.test(raw)
+    || /deadline exceeded/i.test(raw)
+    || /execution time/i.test(raw)
+  ) {
+    return "AI 응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.";
+  }
+
+  // ------------------------------------------------------------------
+  // 9. 인터넷·네트워크 오류
+  // ------------------------------------------------------------------
+
+  if (
+    /network/i.test(raw)
+    || /failed to fetch/i.test(raw)
+    || /connection/i.test(raw)
+    || /socket/i.test(raw)
+    || /dns/i.test(raw)
+  ) {
+    return "네트워크 연결이 불안정합니다. 인터넷 연결을 확인한 뒤 다시 시도해 주세요.";
+  }
+
+  // ------------------------------------------------------------------
+  // 10. 기존 시스템 인증 오류
+  // ------------------------------------------------------------------
+
+  if (
+    /인증|token|토큰|만료/i.test(raw)
+  ) {
+    return "인증 세션을 확인할 수 없습니다. 다시 로그인한 뒤 시도해 주세요.";
+  }
+
+  // ------------------------------------------------------------------
+  // 11. 파일 처리 오류
+  // ------------------------------------------------------------------
+
+  if (
+    /size|크기|12\s*mb/i.test(raw)
+  ) {
+    return "파일이 최대 허용 용량 12MB를 초과했습니다. 불필요한 시트를 제거하거나 파일을 나누어 주세요.";
+  }
+
+  if (
+    /drive|드라이브|permission|access denied/i.test(raw)
+  ) {
+    return "파일 저장 공간에 접근할 수 없습니다. 관리자에게 Drive 권한 확인을 요청해 주세요.";
+  }
+
+  if (
+    /변환.*실패|변환할 수|conversion/i.test(raw)
+  ) {
+    return "Excel 파일 변환에 실패했습니다. 파일을 다시 저장한 뒤 시도해 주세요.";
+  }
+
+  if (
+    /xlsx|xls|excel|signature|서명/i.test(raw)
+  ) {
+    return "지원되는 Excel 파일로 확인되지 않았습니다. .xlsx 또는 .xls 형식으로 다시 저장해 주세요.";
+  }
+
+  // ------------------------------------------------------------------
+  // 12. 문항 매핑 오류
+  // ------------------------------------------------------------------
+
+  if (
+    /원자료.*컬럼|필수.*컬럼|컬럼.*누락|중복.*(문항|헤더)|빈.*(문항|헤더)|문항.*헤더.*비어/i.test(raw)
+  ) {
+    return safe;
+  }
+
+  if (
+    /문항 매핑.*(미저장|저장되지|먼저)|매핑.*저장.*필요|먼저.*문항.*(구조|유형).*저장/i.test(raw)
+  ) {
+    return safe;
+  }
+
+  if (
+    /매핑|문항|columnnumber|척도|scoremap|json/i.test(lower)
+  ) {
+    return "문항 매핑을 처리하지 못했습니다. 문항 유형과 척도·점수 매핑 값을 확인해 주세요.";
+  }
+
+  // ------------------------------------------------------------------
+  // 13. 통계 및 AI 보고서 오류
+  // ------------------------------------------------------------------
+
+  if (
+    /^통계 분석 실패 \(/.test(safe)
+  ) {
+    return safe;
+  }
+
+  if (
+    /통계|분석 결과|보고서/i.test(raw)
+  ) {
+    return "통계 분석을 완료하지 못했습니다. 원자료와 문항 매핑 상태를 확인한 뒤 다시 시도해 주세요.";
+  }
+
+  if (
+    /gemini|ai|총평|향후계획/i.test(raw)
+  ) {
+    return "AI 보고서를 생성하지 못했습니다. 잠시 후 다시 시도하거나 관리자에게 AI 설정 확인을 요청해 주세요.";
+  }
+
+  // ------------------------------------------------------------------
+  // 14. 알 수 없는 오류
+  // ------------------------------------------------------------------
+
+return safe ||
+"요청을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+}
+
+
+/**
+ * Gemini 오류 메시지에서 재시도 대기 시간을 찾습니다.
+ *
+ * 예:
+ * - Please retry in 37.8s
+ * - retryDelay: 38s
+ * - retry after 60 seconds
+ *
+ * @param {string} rawMessage
+ * @return {number|null}
+ */
+function extractRetryAfterSeconds(rawMessage) {
+  const text = String(rawMessage || "");
+
+  const patterns = [
+    /retry\s+in\s+([\d.]+)\s*s/i,
+    /retry\s+after\s+([\d.]+)\s*(?:s|sec|seconds?)/i,
+    /retrydelay["']?\s*[:=]\s*["']?([\d.]+)\s*s/i,
+    /([\d.]+)\s*초\s*후/i
+  ];
+
+  for (
+    let index = 0;
+    index < patterns.length;
+    index += 1
+  ) {
+    const matched = text.match(patterns[index]);
+
+    if (matched) {
+      return Math.max(
+        1,
+        Math.ceil(
+          Number(matched[1])
+        )
+      );
+    }
+  }
+
+  return null;
+}
 
   const api = {
     invoke:function(executor,options){
@@ -138,9 +394,60 @@
   function typeLabel(value){const option=QUESTION_TYPES.find(function(item){return item.value===String(value||"").toUpperCase();});return option?option.label:String(value||"추천 정보 없음");}
   function hasFivePointScoreMap(mapping){const scoreMap=mapping&&mapping.scoreMap&&typeof mapping.scoreMap==="object"&&!Array.isArray(mapping.scoreMap)?mapping.scoreMap:{};const values=Object.keys(scoreMap).map(function(key){return Number(scoreMap[key]);});return values.length>0&&values.every(function(value){return Number.isFinite(value)&&value>=1&&value<=5;});}
   function hasNumericFivePointScoreMap(mapping){const scoreMap=mapping&&mapping.scoreMap&&typeof mapping.scoreMap==="object"&&!Array.isArray(mapping.scoreMap)?mapping.scoreMap:{};const keys=Object.keys(scoreMap);return keys.length>0&&keys.every(function(key){const numericText=String(key).trim().replace(/점$/,"").trim();const numericValue=Number(numericText);return numericText!==""&&Number.isFinite(numericValue)&&numericValue>=1&&numericValue<=5&&Number(scoreMap[key])===numericValue;});}
-  function displayedScaleKind(mapping){const explicit=String(mapping&&mapping.scaleKind||"").toUpperCase();if(explicit)return explicit;const type=String(mapping&&mapping.selectedType||mapping&&mapping.suggestedType||"").toUpperCase();return (type==="SCALE"||type==="RECOMMENDATION")&&hasFivePointScoreMap(mapping)?"RECOMMENDATION_1_5":"";}
+
+function displayedScaleKind(mapping) {
+  const explicit =
+    String(
+      mapping && mapping.scaleKind || ""
+    ).toUpperCase();
+
+  // 서버 또는 저장된 매핑에 척도 유형이 있으면 그대로 사용합니다.
+  if (explicit) {
+    return explicit;
+  }
+
+  const type =
+    String(
+      mapping && (
+        mapping.selectedType
+        || mapping.suggestedType
+      ) || ""
+    ).toUpperCase();
+
+  // 만족도와 재이용·추천 문항은 기본적으로 5점 척도로 표시합니다.
+  if (
+    type === "SCALE"
+    || type === "RECOMMENDATION"
+  ) {
+    return "RECOMMENDATION_1_5";
+  }
+
+  return "";
+}
+
   function autoReviewEligible(mapping){if(Number(mapping&&mapping.confidence||0)<0.9)return false;const type=String(mapping.selectedType||mapping.suggestedType||"").toUpperCase();const header=String(mapping.originalHeader||mapping.normalizedHeader||"").replace(/\s+/g,"").toLowerCase();if(type==="EXCLUDE"&&/(응답일시|제출일시|타임스탬프|timestamp)/.test(header))return true;if(type==="MULTIPLE"&&/(복수선택|복수응답)/.test(header))return true;if((type==="SCALE"||type==="RECOMMENDATION")&&hasNumericFivePointScoreMap(mapping))return true;return type==="TEXT"&&/(자유의견|자유로운의견|기타의견|건의|서술)/.test(header);}
-  function normalizeMappings(result){return (Array.isArray(result&&result.mappings)?result.mappings:[]).map(function(mapping,index){const scoreMap=mapping.scoreMap&&typeof mapping.scoreMap==="object"&&!Array.isArray(mapping.scoreMap)?mapping.scoreMap:{};const normalized=Object.assign({},mapping,{columnNumber:Number(mapping.columnNumber||index+1),selectedType:String(mapping.selectedType||mapping.suggestedType||"EXCLUDE").toUpperCase(),suggestedType:String(mapping.suggestedType||mapping.selectedType||"EXCLUDE").toUpperCase(),analysisTarget:mapping.analysisTarget!==false,scaleKind:String(mapping.scaleKind||""),scoreMap:scoreMap,scoreMapText:JSON.stringify(scoreMap),confidence:Math.max(0,Math.min(1,Number(mapping.confidence)||0)),mappingSource:mapping.mappingSource||result.mappingSource||"RULE",reviewStatus:mapping.reviewStatus||"REVIEW_REQUIRED",_uiIndex:index});normalized.autoReviewEligible=autoReviewEligible(normalized);const reviewStatus=String(normalized.reviewStatus).toUpperCase();if(normalized.autoReviewEligible&&["USER_REVIEWED","APPROVED","CONFIRMED"].indexOf(reviewStatus)<0)normalized.reviewStatus="AUTO_REVIEWED";else if(!normalized.autoReviewEligible&&reviewStatus==="AUTO_REVIEWED")normalized.reviewStatus="REVIEW_REQUIRED";return normalized;});}
+  function normalizeMappings(result){return (Array.isArray(result&&result.mappings)?result.mappings:[]).map(function(mapping,index){const scoreMap=mapping.scoreMap&&typeof mapping.scoreMap==="object"&&!Array.isArray(mapping.scoreMap)?mapping.scoreMap:{};const normalized=Object.assign({},mapping,{columnNumber:Number(mapping.columnNumber||index+1),selectedType:String(mapping.selectedType||mapping.suggestedType||"EXCLUDE").toUpperCase(),suggestedType:String(mapping.suggestedType||mapping.selectedType||"EXCLUDE").toUpperCase(),analysisTarget:mapping.analysisTarget!==false,scaleKind:
+  String(
+    mapping.scaleKind
+    || (
+      String(
+        mapping.selectedType
+        || mapping.suggestedType
+        || ""
+      ).toUpperCase() === "SCALE"
+        ? "RECOMMENDATION_1_5"
+        : ""
+    )
+    || (
+      String(
+        mapping.selectedType
+        || mapping.suggestedType
+        || ""
+      ).toUpperCase() === "RECOMMENDATION"
+        ? "RECOMMENDATION_1_5"
+        : ""
+    )
+  ).toUpperCase(),scoreMap:scoreMap,scoreMapText:JSON.stringify(scoreMap),confidence:Math.max(0,Math.min(1,Number(mapping.confidence)||0)),mappingSource:mapping.mappingSource||result.mappingSource||"RULE",reviewStatus:mapping.reviewStatus||"REVIEW_REQUIRED",_uiIndex:index});normalized.autoReviewEligible=autoReviewEligible(normalized);const reviewStatus=String(normalized.reviewStatus).toUpperCase();if(normalized.autoReviewEligible&&["USER_REVIEWED","APPROVED","CONFIRMED"].indexOf(reviewStatus)<0)normalized.reviewStatus="AUTO_REVIEWED";else if(!normalized.autoReviewEligible&&reviewStatus==="AUTO_REVIEWED")normalized.reviewStatus="REVIEW_REQUIRED";return normalized;});}
   function applyMappingResult(result,sourceLabel){const mappings=normalizeMappings(result);const isSaved=sourceLabel==="저장 매핑";const serverStatus=isSaved?Object.assign({},state.serverStatus||{},{mappingExists:mappings.length>0,mappingCount:mappings.length}):state.serverStatus;setState({mappings:mappings,mappingMeta:{fileName:result.fileName||state.selectedFile&&state.selectedFile.name||"",sheetName:result.sheetName||"",mappingSource:result.mappingSource||sourceLabel||"RULE",surveyStructure:result.surveyStructure||{},fallbackUsed:Boolean(result.fallbackUsed),fallbackReason:result.fallbackReason||"",aiWarnings:result.aiWarnings||[]},mappingStatus:mappings.length?"ready":"empty",mappingMessage:mappings.length?(sourceLabel||result.mappingSource||"문항 매핑")+" 결과 "+mappings.length+"개를 불러왔습니다.":"표시할 문항 매핑이 없습니다.",mappingDirty:false,serverStatus:serverStatus});if(isSaved)deriveWorkflow();}
   function ensureMappingLoaded(){if(state.mappings.length||state.mappingStatus==="loading")return;loadSavedMappings(false);}
   function loadSavedMappings(force){setState({mappingStatus:"loading",mappingMessage:"저장된 문항 매핑을 확인하고 있습니다."},false);api.savedMappings().then(function(result){if(result.exists&&Array.isArray(result.mappings)&&result.mappings.length){const selectedName=state.selectedFile&&state.selectedFile.name||"";if(!force&&selectedName&&result.fileName&&selectedName!==result.fileName){inspectCurrentMapping(false);return;}applyMappingResult(result,"저장 매핑");return;}if(force){setState({mappings:[],mappingStatus:"empty",mappingMessage:"저장된 문항 매핑이 없습니다."});showStatus("저장된 문항 매핑이 없습니다. 업로드한 Excel을 AI 또는 규칙으로 분석해 주세요.","error");return;}inspectCurrentMapping(false);}).catch(function(error){setState({mappingStatus:"error",mappingMessage:error.message});});}
@@ -149,8 +456,52 @@
   function renderRawDataStatus(){const status=state.serverStatus||{};const raw=el("v2RawDataStatus");const retry=el("v2RetryRawDataButton");const creating=state.rawDataStatus==="creating";const failed=state.rawDataStatus==="error";const ready=Boolean(status.mappingExists&&status.rawSheetExists);raw.textContent=creating?"저장된 매핑을 적용하여 11_범용원자료를 생성하고 있습니다.":ready?"문항 매핑과 11_범용원자료가 모두 준비되었습니다.":failed?state.rawDataMessage:status.mappingExists?"문항 매핑은 저장되었지만 11_범용원자료가 아직 생성되지 않았습니다.":"문항 매핑 저장 후 11_범용원자료를 생성합니다.";raw.className="v2-upload-status"+(ready?" v2-upload-status--success":failed?" v2-upload-status--error":"");retry.hidden=ready||!status.mappingExists;retry.disabled=creating;retry.textContent=creating?"원자료 생성 중":"원자료 생성 재시도";}
   function renderMapping(){renderRawDataStatus();const status=el("v2MappingStatus");status.textContent=state.mappingMessage||"저장된 매핑 또는 선택한 Excel을 불러와 주세요.";status.className="v2-upload-status"+(state.mappingStatus==="error"?" v2-upload-status--error":state.mappingStatus==="saved"?" v2-upload-status--success":"");const hasMappings=state.mappings.length>0;el("v2MappingEmpty").hidden=hasMappings||state.mappingStatus==="loading";el("v2MappingTableWrap").hidden=!hasMappings;el("v2MappingSummary").hidden=!hasMappings;el("v2SaveMappingButton").disabled=!hasMappings||state.mappingStatus==="saving"||state.rawDataStatus==="creating";el("v2AiMappingButton").disabled=!state.filePayload;el("v2RuleMappingButton").disabled=!state.filePayload;if(!hasMappings){el("v2MappingTableBody").textContent="";return;}const reviewCount=state.mappings.filter(mappingNeedsReview).length;const autoCount=state.mappings.filter(function(mapping){return mapping.reviewStatus==="AUTO_REVIEWED";}).length;const sources=Array.from(new Set(state.mappings.map(function(item){return item.mappingSource||"RULE";}))).join(", ");el("v2MappingSummary").innerHTML='<div class="v2-mapping-metric"><span>전체 문항</span><strong>'+state.mappings.length+'개</strong></div><div class="v2-mapping-metric"><span>검토 필요</span><strong>'+reviewCount+'개</strong></div><div class="v2-mapping-metric"><span>매핑 출처</span><strong>'+escapeHtml(sources||"RULE")+'</strong></div><div class="v2-mapping-metric"><span>원본 파일</span><strong>'+escapeHtml(state.mappingMeta&&state.mappingMeta.fileName||"확인 필요")+'</strong></div>';const body=el("v2MappingTableBody");body.textContent="";state.mappings.slice().sort(function(left,right){return Number(mappingNeedsReview(right))-Number(mappingNeedsReview(left))||left.columnNumber-right.columnNumber;}).forEach(function(mapping){body.appendChild(buildMappingRow(mapping));});el("v2MappingHelp").textContent=reviewCount?"검토 필요 문항 "+reviewCount+"개가 상단에 표시됩니다. 자동 확인 "+autoCount+"개를 포함해 모든 값은 수정할 수 있습니다.":"자동 확인 "+autoCount+"개를 포함해 모든 문항이 확인 상태입니다. 필요하면 값을 수정한 뒤 저장하세요.";}
   function createSelect(options,value,label){const select=document.createElement("select");select.setAttribute("aria-label",label);options.forEach(function(item){const option=document.createElement("option");option.value=item.value;option.textContent=item.label;option.selected=item.value===value;select.appendChild(option);});return select;}
-  function buildMappingRow(mapping){const row=document.createElement("tr");if(mappingNeedsReview(mapping))row.className="is-review-required";const number=document.createElement("td");number.textContent=String(mapping.columnNumber);row.appendChild(number);const question=document.createElement("td");question.className="v2-mapping-question";const original=document.createElement("strong");original.textContent=mapping.originalHeader||"이름 없는 열";const suggested=document.createElement("span");suggested.textContent="자동 추천: "+typeLabel(mapping.suggestedType);const reason=document.createElement("small");reason.textContent=mapping.reason||"추천 근거가 제공되지 않았습니다.";question.appendChild(original);question.appendChild(suggested);question.appendChild(reason);row.appendChild(question);const typeCell=document.createElement("td");const typeSelect=createSelect(QUESTION_TYPES,mapping.selectedType,"열 "+mapping.columnNumber+" 문항 유형");typeSelect.addEventListener("change",function(){mapping.selectedType=this.value;mapping.analysisTarget=this.value!=="EXCLUDE"&&this.value!=="PERSONAL_INFO";mapping.autoReviewEligible=autoReviewEligible(mapping);if(!mapping.autoReviewEligible&&mapping.reviewStatus==="AUTO_REVIEWED")mapping.reviewStatus="REVIEW_REQUIRED";state.mappingDirty=true;renderMapping();renderBottomNav();});typeCell.appendChild(typeSelect);row.appendChild(typeCell);const scaleCell=document.createElement("td");const scaleSelect=createSelect(SCALE_KINDS,displayedScaleKind(mapping),"열 "+mapping.columnNumber+" 척도 유형");scaleSelect.addEventListener("change",function(){mapping.scaleKind=this.value;state.mappingDirty=true;});scaleCell.appendChild(scaleSelect);row.appendChild(scaleCell);const scoreCell=document.createElement("td");const score=document.createElement("textarea");score.value=mapping.scoreMapText;score.setAttribute("aria-label","열 "+mapping.columnNumber+" 점수 매핑 JSON");score.addEventListener("input",function(){mapping.scoreMapText=this.value;this.classList.remove("v2-json-error");state.mappingDirty=true;});scoreCell.appendChild(score);row.appendChild(scoreCell);const confidence=document.createElement("td");confidence.className="v2-confidence";confidence.textContent=Math.round(mapping.confidence*100)+"%";const meter=document.createElement("div");meter.className="v2-confidence-meter";const fill=document.createElement("span");fill.style.width=Math.round(mapping.confidence*100)+"%";meter.appendChild(fill);confidence.appendChild(meter);row.appendChild(confidence);const source=document.createElement("td");const sourceBadge=document.createElement("span");sourceBadge.className="v2-badge v2-badge--neutral v2-source-badge";sourceBadge.textContent=mapping.mappingSource||"RULE";source.appendChild(sourceBadge);row.appendChild(source);const reviewCell=document.createElement("td");const reviewOptions=[{value:"REVIEW_REQUIRED",label:"검토 필요"}];if(mapping.autoReviewEligible)reviewOptions.push({value:"AUTO_REVIEWED",label:"자동 확인"});reviewOptions.push({value:"USER_REVIEWED",label:"검토 완료"});const review=createSelect(reviewOptions,mapping.reviewStatus,"열 "+mapping.columnNumber+" 검토 상태");review.addEventListener("change",function(){mapping.reviewStatus=this.value;state.mappingDirty=true;renderMapping();});reviewCell.appendChild(review);row.appendChild(reviewCell);return row;}
-  function collectMappingPayload(){let invalid=null;const mappings=state.mappings.map(function(mapping){let scoreMap={};try{scoreMap=JSON.parse(mapping.scoreMapText||"{}");if(!scoreMap||typeof scoreMap!=="object"||Array.isArray(scoreMap))throw new Error("object required");}catch(ignored){invalid=mapping.columnNumber;return null;}return {columnNumber:mapping.columnNumber,originalHeader:mapping.originalHeader||"",normalizedHeader:mapping.normalizedHeader||"",sampleValue:mapping.sampleValue||"",suggestedType:mapping.suggestedType||"",selectedType:mapping.selectedType||mapping.suggestedType,analysisTarget:mapping.analysisTarget!==false,groupId:mapping.groupId||"",matrixId:mapping.matrixId||"",scaleKind:mapping.scaleKind||"",scoreMap:scoreMap,confidence:mapping.confidence,reason:mapping.reason||"",mappingSource:mapping.mappingSource||state.mappingMeta&&state.mappingMeta.mappingSource||"USER",reviewStatus:mapping.reviewStatus||"REVIEW_REQUIRED"};});if(invalid!==null){const message="열 "+invalid+"의 점수 매핑 JSON 형식이 올바르지 않습니다. 중괄호와 키·값을 확인해 주세요.";showStatus(message,"error");const input=el("v2MappingTableBody").querySelector('textarea[aria-label="열 '+invalid+' 점수 매핑 JSON"]');if(input){input.classList.add("v2-json-error");input.focus();}return null;}return {fileName:state.mappingMeta&&state.mappingMeta.fileName||state.selectedFile&&state.selectedFile.name||"",sheetName:state.mappingMeta&&state.mappingMeta.sheetName||"",mappingSource:state.mappingMeta&&state.mappingMeta.mappingSource||"USER",mappings:mappings};}
+  function buildMappingRow(mapping){const row=document.createElement("tr");if(mappingNeedsReview(mapping))row.className="is-review-required";const number=document.createElement("td");number.textContent=String(mapping.columnNumber);row.appendChild(number);const question=document.createElement("td");question.className="v2-mapping-question";const original=document.createElement("strong");original.textContent=mapping.originalHeader||"이름 없는 열";const suggested=document.createElement("span");suggested.textContent="자동 추천: "+typeLabel(mapping.suggestedType);const reason=document.createElement("small");reason.textContent=mapping.reason||"추천 근거가 제공되지 않았습니다.";question.appendChild(original);question.appendChild(suggested);question.appendChild(reason);row.appendChild(question);const typeCell=document.createElement("td");const typeSelect=createSelect(QUESTION_TYPES,mapping.selectedType,"열 "+mapping.columnNumber+" 문항 유형");
+typeSelect.addEventListener("change", function () {
+  mapping.selectedType = this.value;
+
+  mapping.analysisTarget =
+    this.value !== "EXCLUDE"
+    && this.value !== "PERSONAL_INFO";
+
+  // 만족도 또는 재이용·추천 유형을 선택하면
+  // 척도 유형을 기본 5점 척도로 자동 지정합니다.
+  if (
+    this.value === "SCALE"
+    || this.value === "RECOMMENDATION"
+  ) {
+    if (!mapping.scaleKind) {
+      mapping.scaleKind = "RECOMMENDATION_1_5";
+    }
+  } else {
+    // 척도 문항이 아닌 유형으로 변경하면 척도값을 제거합니다.
+    mapping.scaleKind = "";
+  }
+
+  mapping.autoReviewEligible =
+    autoReviewEligible(mapping);
+
+  if (
+    !mapping.autoReviewEligible
+    && mapping.reviewStatus === "AUTO_REVIEWED"
+  ) {
+    mapping.reviewStatus = "REVIEW_REQUIRED";
+  }
+
+  state.mappingDirty = true;
+
+  renderMapping();
+  renderBottomNav();
+});
+  typeCell.appendChild(typeSelect);row.appendChild(typeCell);const scaleCell=document.createElement("td");const scaleSelect=createSelect(SCALE_KINDS,displayedScaleKind(mapping),"열 "+mapping.columnNumber+" 척도 유형");scaleSelect.addEventListener("change",function(){mapping.scaleKind=this.value;state.mappingDirty=true;});scaleCell.appendChild(scaleSelect);row.appendChild(scaleCell);const scoreCell=document.createElement("td");const score=document.createElement("textarea");score.value=mapping.scoreMapText;score.setAttribute("aria-label","열 "+mapping.columnNumber+" 점수 매핑 JSON");score.addEventListener("input",function(){mapping.scoreMapText=this.value;this.classList.remove("v2-json-error");state.mappingDirty=true;});scoreCell.appendChild(score);row.appendChild(scoreCell);const confidence=document.createElement("td");confidence.className="v2-confidence";confidence.textContent=Math.round(mapping.confidence*100)+"%";const meter=document.createElement("div");meter.className="v2-confidence-meter";const fill=document.createElement("span");fill.style.width=Math.round(mapping.confidence*100)+"%";meter.appendChild(fill);confidence.appendChild(meter);row.appendChild(confidence);const source=document.createElement("td");const sourceBadge=document.createElement("span");sourceBadge.className="v2-badge v2-badge--neutral v2-source-badge";sourceBadge.textContent=mapping.mappingSource||"RULE";source.appendChild(sourceBadge);row.appendChild(source);const reviewCell=document.createElement("td");const reviewOptions=[{value:"REVIEW_REQUIRED",label:"검토 필요"}];if(mapping.autoReviewEligible)reviewOptions.push({value:"AUTO_REVIEWED",label:"자동 확인"});reviewOptions.push({value:"USER_REVIEWED",label:"검토 완료"});const review=createSelect(reviewOptions,mapping.reviewStatus,"열 "+mapping.columnNumber+" 검토 상태");review.addEventListener("change",function(){mapping.reviewStatus=this.value;state.mappingDirty=true;renderMapping();});reviewCell.appendChild(review);row.appendChild(reviewCell);return row;}
+  function collectMappingPayload(){let invalid=null;const mappings=state.mappings.map(function(mapping){let scoreMap={};try{scoreMap=JSON.parse(mapping.scoreMapText||"{}");if(!scoreMap||typeof scoreMap!=="object"||Array.isArray(scoreMap))throw new Error("object required");}catch(ignored){invalid=mapping.columnNumber;return null;}return {columnNumber:mapping.columnNumber,originalHeader:mapping.originalHeader||"",normalizedHeader:mapping.normalizedHeader||"",sampleValue:mapping.sampleValue||"",suggestedType:mapping.suggestedType||"",selectedType:mapping.selectedType||mapping.suggestedType,analysisTarget:mapping.analysisTarget!==false,groupId:mapping.groupId||"",matrixId:mapping.matrixId||"",scaleKind:
+  mapping.scaleKind
+  || (
+    mapping.selectedType === "SCALE"
+    || mapping.selectedType === "RECOMMENDATION"
+      ? "RECOMMENDATION_1_5"
+      : ""
+  ),scoreMap:scoreMap,confidence:mapping.confidence,reason:mapping.reason||"",mappingSource:mapping.mappingSource||state.mappingMeta&&state.mappingMeta.mappingSource||"USER",reviewStatus:mapping.reviewStatus||"REVIEW_REQUIRED"};});if(invalid!==null){const message="열 "+invalid+"의 점수 매핑 JSON 형식이 올바르지 않습니다. 중괄호와 키·값을 확인해 주세요.";showStatus(message,"error");const input=el("v2MappingTableBody").querySelector('textarea[aria-label="열 '+invalid+' 점수 매핑 JSON"]');if(input){input.classList.add("v2-json-error");input.focus();}return null;}return {fileName:state.mappingMeta&&state.mappingMeta.fileName||state.selectedFile&&state.selectedFile.name||"",sheetName:state.mappingMeta&&state.mappingMeta.sheetName||"",mappingSource:state.mappingMeta&&state.mappingMeta.mappingSource||"USER",mappings:mappings};}
   function createRawData(autoNavigate){const status=state.serverStatus||{};if(!status.mappingExists){const message="문항 매핑을 먼저 저장한 뒤 11_범용원자료를 생성해 주세요.";setState({rawDataStatus:"error",rawDataMessage:message});showStatus(message,"error");return;}if(!state.filePayload){const message="선택한 Excel 파일이 브라우저 메모리에 없습니다. Upload 단계에서 같은 파일을 다시 선택한 뒤 원자료 생성을 재시도해 주세요.";setState({rawDataStatus:"error",rawDataMessage:message});showStatus(message,"error");return;}const pendingStatus=Object.assign({},status,{rawSheetExists:false,statisticsComplete:false,qualityStatus:"NOT_RUN",qualityAiAllowed:false,aiComplete:false,exportReady:false});setState({rawDataStatus:"creating",rawDataMessage:"11_범용원자료를 생성하고 있습니다.",serverStatus:pendingStatus},false);deriveWorkflow();api.createRawData(state.filePayload).then(function(result){return api.systemStatus().then(function(systemStatus){if(!systemStatus.mappingExists||!systemStatus.rawSheetExists)throw new Error("11_범용원자료 생성 후 서버 상태를 확인하지 못했습니다. 문항 매핑과 원자료 상태를 다시 확인해 주세요.");setState({rawDataStatus:"success",rawDataMessage:result.message||"11_범용원자료를 생성했습니다.",respondentCount:Number(result.rowCount||systemStatus.respondentCount||0),lastSavedAt:new Date().toLocaleString("ko-KR"),serverStatus:systemStatus},false);deriveWorkflow();showStatus("문항 매핑과 11_범용원자료가 준비되었습니다. Analysis 단계를 시작할 수 있습니다.","success");if(autoNavigate)navigate("analysis");});}).catch(function(error){const failedStatus=Object.assign({},state.serverStatus||{},{mappingExists:true,rawSheetExists:false});setState({rawDataStatus:"error",rawDataMessage:error.message,serverStatus:failedStatus},false);deriveWorkflow();showStatus(error.message,"error");});}
   function saveMappings(){const payload=collectMappingPayload();if(!payload)return;setState({mappingStatus:"saving",mappingMessage:"문항 매핑을 저장하고 있습니다.",rawDataStatus:"idle",rawDataMessage:""},false);api.saveMappings(payload).then(function(result){const serverStatus=Object.assign({},state.serverStatus||{},{mappingExists:true,rawSheetExists:false,mappingCount:state.mappings.length,statisticsComplete:false,aiComplete:false,exportReady:false,qualityStatus:"NOT_RUN",qualityAiAllowed:false});setState({mappingStatus:"saved",mappingMessage:result.message||"문항 매핑을 저장했습니다.",mappingDirty:false,lastSavedAt:new Date().toLocaleString("ko-KR"),serverStatus:serverStatus,qualityStatus:"NOT_RUN",analysisStatus:"idle",analysisProgress:0,analysisStage:"분석 시작 버튼을 눌러 주세요.",analysisLogs:[],analysisSummary:null,analysisError:"",qualityRunStatus:"idle",qualityProgress:0,qualityStage:"통계 분석 완료 후 품질검사를 실행해 주세요.",qualityLogs:[],qualityResult:null,qualityError:"",aiRunStatus:"idle",aiProgress:0,aiStage:"품질검사 통과 후 AI 총평을 생성할 수 있습니다.",aiLogs:[],aiResult:null,aiError:"",aiGeneratedAt:"",downloadStatus:"idle",downloadResult:null,downloadError:"",downloadGeneratedAt:""},false);deriveWorkflow();showStatus("문항 매핑을 저장했습니다. 11_범용원자료를 생성합니다.","success");createRawData(true);}).catch(function(error){setState({mappingStatus:"error",mappingMessage:error.message});});}
 
