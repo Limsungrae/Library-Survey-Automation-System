@@ -132,6 +132,15 @@
 
           <div id="v2MappingStatus" class="v2-upload-status" aria-live="polite">문항 매핑을 불러오는 중입니다.</div>
           <section id="v2MappingSummary" class="v2-mapping-summary" aria-label="문항 매핑 요약" hidden></section>
+          <div id="v2MappingToolbar" class="v2-mapping-toolbar" hidden>
+            <label class="v2-mapping-search" for="v2MappingSearch"><span>문항 검색</span><input id="v2MappingSearch" type="search" placeholder="문항명, 예시 응답, 문항 유형 검색" autocomplete="off"></label>
+            <fieldset class="v2-mapping-filters"><legend>표시할 문항</legend>
+              <label><input type="radio" name="v2MappingFilter" value="all" checked> 전체 문항</label>
+              <label><input type="radio" name="v2MappingFilter" value="review"> 검토 필요</label>
+              <label><input type="radio" name="v2MappingFilter" value="modified"> 사용자 수정</label>
+            </fieldset>
+            <button id="v2ReviewAllMappingButton" class="v2-button v2-button--quiet" type="button">전체 검토 완료</button>
+          </div>
           <div id="v2MappingEmpty" class="v2-card v2-empty-state" hidden>
             <strong>표시할 문항이 없습니다.</strong>
             <span>Upload 단계에서 Excel을 선택하거나 저장된 매핑을 불러와 주세요.</span>
@@ -141,13 +150,11 @@
             <table class="v2-mapping-table">
               <caption class="v2-sr-only">문항별 분석 유형과 척도 설정</caption>
               <thead><tr>
-                <th scope="col">열</th>
-                <th scope="col">원본 열 이름 / 자동 추천</th>
+                <th scope="col">번호</th>
+                <th scope="col">문항 및 자동 추천 결과</th>
+                <th scope="col">예시 응답</th>
                 <th scope="col">문항 유형</th>
                 <th scope="col">척도 유형</th>
-                <th scope="col">점수 매핑 JSON</th>
-                <th scope="col">신뢰도</th>
-                <th scope="col">출처</th>
                 <th scope="col">검토 상태</th>
               </tr></thead>
               <tbody id="v2MappingTableBody"></tbody>
