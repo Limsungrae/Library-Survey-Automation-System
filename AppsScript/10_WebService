@@ -444,24 +444,28 @@ function getLowestSatisfactionItem_(
  * @param {*} error
  * @return {string}
  */
-function getWebErrorMessage_(
-  error
-) {
+function getWebErrorMessage_(error) {
+
   if (!error) {
     return "알 수 없는 오류가 발생했습니다.";
   }
 
+  let message =
+    error && error.message
+      ? String(error.message)
+      : String(error);
 
-  if (
-    error.message
-  ) {
-    return String(
-      error.message
-    );
-  }
-
-
-  return String(
-    error
+  // Apps Script Exception 제거
+  message = message.replace(
+    /^Exception:\s*/i,
+    ""
   );
+
+  // Stack Trace 제거
+  message = message.replace(
+    /\n\s*at[\s\S]*$/i,
+    ""
+  );
+
+  return message.trim();
 }
