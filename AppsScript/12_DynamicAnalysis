@@ -685,17 +685,65 @@ function buildDynamicScaleSummary_(scaleResults) {
  * @return {Array<string>}
  */
 function splitDynamicMultipleValue_(value) {
-  const text=cleanText_(value); if(!text)return [];
-  const result=[];let current="",depth=0;
-  for(let i=0;i<text.length;i++){
-    const ch=text.charAt(i);
-    if(ch==="("||ch==="["||ch==="{")depth++;
-    if(ch===")"||ch==="]"||ch==="}")depth=Math.max(depth-1,0);
-    if((ch==="|"||ch===";"||ch==="\n"||(ch===","&&depth===0))){
-      if(cleanText_(current))result.push(cleanText_(current));current="";
-    }else current+=ch;
+  const text = cleanText_(value);
+
+  if (!text) {
+    return [];
   }
-  if(cleanText_(current))result.push(cleanText_(current));
+
+  const result = [];
+  let current = "";
+  let depth = 0;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text.charAt(i);
+
+    if (
+      ch === "("
+      || ch === "["
+      || ch === "{"
+    ) {
+      depth++;
+    }
+
+    if (
+      ch === ")"
+      || ch === "]"
+      || ch === "}"
+    ) {
+      depth = Math.max(depth - 1, 0);
+    }
+
+    const isSeparator =
+      depth === 0
+      && (
+        ch === "|"
+        || ch === ";"
+        || ch === "\n"
+        || ch === ","
+        || ch === "/"
+        || ch === "·"
+      );
+
+    if (isSeparator) {
+      const item = cleanText_(current);
+
+      if (item) {
+        result.push(item);
+      }
+
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+
+  const lastItem = cleanText_(current);
+
+  if (lastItem) {
+    result.push(lastItem);
+  }
+
   return result;
 }
 
