@@ -176,7 +176,11 @@ function createDynamicDashboardSheet_(analysis, settings) {
     const valueA1=dynamicDashboardRangeA1_(4,startColumn,6,startColumn+1);
     const labelA1=dynamicDashboardRangeA1_(7,startColumn,7,startColumn+1);
     safeMergeDynamicDashboardRange_(sheet,valueA1,"kpi-value-"+(index+1)).setValue(kpi.displayText)
-      .setBackground("#EEF3F8").setFontColor("#17375E").setFontWeight("bold").setFontSize(18)
+      .setBackground("#EEF3F8").setFontColor("#17375E").setFontWeight("bold").setFontSize(
+  index === 3
+    ? 14
+    : 18
+)
       .setHorizontalAlignment("center").setVerticalAlignment("middle");
     safeMergeDynamicDashboardRange_(sheet,labelA1,"kpi-label-"+(index+1)).setValue(kpi.label)
       .setBackground("#F8FAFC").setFontColor("#52677C").setFontSize(9)
@@ -377,64 +381,166 @@ function buildDynamicDashboardModel_(analysis,settings){
     &&analysis.scaleSummary.overallPositiveRate!==undefined?Number(analysis.scaleSummary.overallPositiveRate):null;
   const surveyName=getDynamicSettingValue_(settings,"조사명","surveyName")||"만족도 조사";
   const scale=(analysis.scale||[]).filter(function(item){return item.average!==null&&item.average!==undefined;});
-const recommendation=(analysis.recommendation||[]).filter(function(item){
-  return item.positiveRate!==null&&item.positiveRate!==undefined;
-});
+const recommendation =
+  analysis.recommendation || [];
 
-const reuseItem=recommendation.find(function(item){
-  return /재이용|다시\s*이용|계속\s*이용/.test(
-    cleanText_(item.question||"")
+// 5점 척도 재이용·재참여 의향 문항
+const reuseItem =
+  recommendation.find(function(item) {
+    return (
+      item.scaleKind !== "NPS_0_10"
+      && /재이용|다시\s*이용|계속\s*이용|재참여|다시\s*참여/.test(
+        cleanText_(item.question || "")
+      )
+    );
+  });
+
+// 5점 척도 추천 의향 문항
+const recommendItem =
+  recommendation.find(function(item) {
+    return (
+      item.scaleKind !== "NPS_0_10"
+      && /추천/.test(
+        cleanText_(item.question || "")
+      )
+    );
+  });
+
+// 0~10점 NPS 문항
+const npsItem =
+  recommendation.find(function(item) {
+    return (
+      item.scaleKind === "NPS_0_10"
+      && item.nps !== null
+      && item.nps !== undefined
+    );
+  });
+
+const reuseRate =
+  reuseItem
+    && Number.isFinite(
+      Number(reuseItem.positiveRate)
+    )
+      ? Number(reuseItem.positiveRate)
+      : null;
+
+const recommendRate =
+  recommendItem
+    && Number.isFinite(
+      Number(recommendItem.positiveRate)
+    )
+      ? Number(recommendItem.positiveRate)
+      : null;
+
+const npsValue =
+  npsItem
+    && Number.isFinite(
+      Number(npsItem.nps)
+    )
+      ? Number(npsItem.nps)
+      : null;
+
+let recommendationLabel =
+  "재이용·추천 지표";
+
+const recommendationParts = [];
+
+// 재이용 또는 재참여 긍정률
+if (reuseRate !== null) {
+  recommendationParts.push(
+    reuseRate.toFixed(1) + "%"
   );
-});
-
-const recommendItem=recommendation.find(function(item){
-  return /추천/.test(
-    cleanText_(item.question||"")
-  );
-});
-
-const reuseRate=reuseItem
-  ? Number(reuseItem.positiveRate)
-  : null;
-
-const recommendRate=recommendItem
-  ? Number(recommendItem.positiveRate)
-  : null;
-
-let recommendationLabel="의향 긍정률";
-let recommendationDisplay="-";
-
-if (
-  reuseRate!==null &&
-  Number.isFinite(reuseRate) &&
-  recommendRate!==null &&
-  Number.isFinite(recommendRate)
-) {
-  recommendationLabel="재이용 / 추천 긍정률";
-  recommendationDisplay=
-    reuseRate.toFixed(1)+"% / "+
-    recommendRate.toFixed(1)+"%";
-
-} else if (reuseRate!==null && Number.isFinite(reuseRate)) {
-  recommendationLabel="재이용 긍정률";
-  recommendationDisplay=reuseRate.toFixed(1)+"%";
-
-} else if (recommendRate!==null && Number.isFinite(recommendRate)) {
-  recommendationLabel="추천 긍정률";
-  recommendationDisplay=recommendRate.toFixed(1)+"%";
-
-} else if (recommendation.length) {
-  const firstRate=Number(recommendation[0].positiveRate);
-
-  recommendationLabel=
-    getDynamicRecommendationKpiLabel_(recommendation[0]);
-
-  recommendationDisplay=
-    Number.isFinite(firstRate)
-      ? firstRate.toFixed(1)+"%"
-      : "-";
 }
-  const future=selectDynamicDashboardMultipleQuestion_(analysis.multiple||[],/(?:향후|희망|원하|서비스|프로그램)/i);
+
+// 추천 긍정률
+if (recommendRate !== null) {
+  recommendationParts.push(
+    recommendRate.toFixed(1) + "%"
+  );
+}
+
+// NPS
+if (npsValue !== null) {
+  recommendationParts.push(
+    "NPS "
+    + (
+      npsValue > 0
+        ? "+"
+        : ""
+    )
+    + npsValue.toFixed(1)
+  );
+}
+
+let recommendationDisplay =
+  recommendationParts.length
+    ? recommendationParts.join(" / ")
+    : "-";
+
+
+// 카드 제목 결정
+if (
+  reuseRate !== null
+  && recommendRate === null
+  && npsValue === null
+) {
+  recommendationLabel =
+    reuseItem
+    && /재참여|다시\s*참여/.test(
+      cleanText_(reuseItem.question || "")
+    )
+      ? "재참여 긍정률"
+      : "재이용 긍정률";
+
+} else if (
+  reuseRate === null
+  && recommendRate !== null
+  && npsValue === null
+) {
+  recommendationLabel =
+    "추천 긍정률";
+
+} else if (
+  reuseRate === null
+  && recommendRate === null
+  && npsValue !== null
+) {
+  recommendationLabel =
+    "순추천고객지수(NPS)";
+
+} else if (
+  reuseRate !== null
+  && npsValue !== null
+  && recommendRate === null
+) {
+  recommendationLabel =
+    reuseItem
+    && /재참여|다시\s*참여/.test(
+      cleanText_(reuseItem.question || "")
+    )
+      ? "재참여 긍정률 / NPS"
+      : "재이용 긍정률 / NPS";
+
+} else if (
+  recommendRate !== null
+  && npsValue !== null
+  && reuseRate === null
+) {
+  recommendationLabel =
+    "추천 긍정률 / NPS";
+
+} else if (
+  reuseRate !== null
+  && recommendRate !== null
+  && npsValue === null
+) {
+  recommendationLabel =
+    "재이용 / 추천 긍정률";
+}
+const future = selectDynamicDashboardMultipleQuestion_(
+  analysis.multiple || [],
+  /(?:향후.*(?:희망|원하|이용)|희망.*(?:서비스|프로그램)|원하는.*(?:서비스|프로그램)|참여하고\s*싶은)/i
+);
   const improvement=selectDynamicDashboardMultipleQuestion_(analysis.multiple||[],/(?:개선|불편|보완|필요|요구)/i,future);
   return {title:surveyName+" 대시보드",kpis:[
     {label:"전체 응답자",value:respondentCount,displayText:respondentCount?respondentCount.toLocaleString("ko-KR")+"명":"-"},
@@ -447,16 +553,64 @@ if (
 }
   ],sections:[
     {label:"세부 만족도",valueLabel:"평균",items:buildDynamicDashboardItems_(scale,5,8,true)},
-    {label:"향후 희망 서비스",valueLabel:"선택 수",items:buildDynamicDashboardItems_(future?future.items:[],null,8,false)},
-    {label:"개선 필요사항",valueLabel:"선택 수",items:buildDynamicDashboardItems_(improvement?improvement.items:[],null,8,false)},
+{
+  label: "향후 희망 서비스",
+  valueLabel: "선택 수",
+  items: future
+    ? buildDynamicDashboardItems_(
+        future.items,
+        null,
+        8,
+        false
+      )
+    : [
+        {
+          label: "해당 문항 없음",
+          value: 0,
+          displayText: "-",
+          isMax: false
+        }
+      ]
+},
+{
+  label: "개선 필요사항",
+  valueLabel: "선택 수",
+  items: improvement
+    ? buildDynamicDashboardItems_(
+        improvement.items,
+        null,
+        8,
+        false
+      )
+    : [
+        {
+          label: "해당 문항 없음",
+          value: 0,
+          displayText: "-",
+          isMax: false
+        }
+      ]
+},
     {label:"주관식 범주",valueLabel:"언급 수",items:buildDynamicDashboardOpinionItems_(analysis,8)}
   ]};
 }
 
 
-function selectDynamicDashboardMultipleQuestion_(questions,pattern,excluded){
-  const candidates=(questions||[]).filter(function(question){return question!==excluded;});
-  return candidates.filter(function(question){return pattern.test(cleanText_(question.question));})[0]||candidates[0]||null;
+function selectDynamicDashboardMultipleQuestion_(
+  questions,
+  pattern,
+  excluded
+) {
+  const candidates =
+    (questions || []).filter(function(question) {
+      return question !== excluded;
+    });
+
+  return candidates.find(function(question) {
+    return pattern.test(
+      cleanText_(question.question || "")
+    );
+  }) || null;
 }
 
 
@@ -518,8 +672,8 @@ function createDynamicRespondentSheet_(analysis) {
     row = appendDynamicCategoricalQuestions_(sheet, row, section.questions, analysis.respondentCount);
   });
 
-  sheet.setColumnWidth(1, 380);
-  sheet.setColumnWidths(2, 4, 130);
+sheet.setColumnWidth(1, 450);
+sheet.setColumnWidths(2, 4, 150);
   finishDynamicReportSheet_(sheet, row, 6);
 }
 
@@ -567,8 +721,7 @@ function appendDynamicCategoricalQuestions_(sheet, startRow, questions, responde
       (question.items || []).map(function(item) {
         return !/^(?:무응답|결측|빈값)$/i.test(cleanText_(item.label));
       }));
-    row += rows.length + 2;
-  });
+row += rows.length + 4;  });
   return row;
 }
 
@@ -642,11 +795,10 @@ function createDynamicMultipleSheet_(analysis) {
     setDynamicBarSparklines_(sheet,row+1,(question.items||[]).length,2,3);
     highlightDynamicRowsByMetric_(sheet,row+1,(question.items||[]).length,2,1,6,"max","#FFF2CC",
       (question.items||[]).map(function(item){return !/^(?:무응답|결측|빈값)$/i.test(cleanText_(item.label));}));
-    row += rows.length + 2;
-  });
+row += rows.length + 4;  });
 
-  sheet.setColumnWidth(1, 380);
-  sheet.setColumnWidths(2, 4, 125);
+sheet.setColumnWidth(1, 460);
+sheet.setColumnWidths(2, 4, 145);
 finishDynamicReportSheet_(sheet, row, 6);}
 
 function buildDynamicMultipleTotalRow_(question) {
@@ -980,8 +1132,7 @@ function appendDynamicRecommendationAnalysis_(sheet, startRow, analysis) {
       "#FFF2CC"
     );
 
-    row += rows.length + 2;
-  });
+row += rows.length + 4;  });
 
   return row;
 }
@@ -1380,6 +1531,7 @@ function applyDynamicReportAdaptiveWidths_(sheet, displayValues, columnCount) {
 function finishDynamicReportSheet_(sheet, lastRow, columnCount) {
   const safeLastRow = Math.max(Number(lastRow || 1), 1);
   const safeColumnCount = Math.max(Number(columnCount || 1), 1);
+  sheet.setHiddenGridlines(true);
 
   sheet.setFrozenRows(4);
 
@@ -1468,3 +1620,4 @@ function hideDynamicQualitySheet_() {
     return false;
   }
 }
+
