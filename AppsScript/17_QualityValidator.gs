@@ -27,14 +27,32 @@ function validateDynamicSurveyQuality_(analysis, source) {
       if (countSum > 0 && Math.abs(rateSum-100) > 0.5)
         add_("WARNING","SINGLE_RATE_SUM","단일응답 비율 합계가 반올림 허용범위를 벗어납니다.",question.questionId,{rateSum:rateSum});
     });
-    (analysis.multiple || []).forEach(function(question) {
-      const countSum=(question.items||[]).reduce(function(sum,item){return sum+Number(item.count||0);},0);
-      const rateSum=(question.items||[]).reduce(function(sum,item){return sum+Number(item.selectionRate||0);},0);
-      if(countSum!==Number(question.totalSelections||question.totalSelectionCount||0))
-        add_("ERROR","MULTIPLE_COUNT_MISMATCH","복수응답 항목 합계가 전체 선택건수와 다릅니다.",question.questionId,{countSum:countSum});
-      if(countSum>0&&Math.abs(rateSum-100)>0.5)
-        add_("WARNING","MULTIPLE_RATE_SUM","복수응답 선택건수 비율 합계가 반올림 허용범위를 벗어납니다.",question.questionId,{rateSum:rateSum});
-    });
+(analysis.multiple || []).forEach(function(question) {
+  const totalSelectionCount =
+    Number(
+      question.totalSelections
+      || question.totalSelectionCount
+      || 0
+    );
+
+  const countSum =
+    (question.items || []).reduce(function(sum, item) {
+      return sum + Number(item.count || 0);
+    }, 0);
+
+  if (countSum !== totalSelectionCount) {
+    add_(
+      "ERROR",
+      "MULTIPLE_COUNT_MISMATCH",
+      "복수응답 항목별 선택 건수 합계가 전체 선택 건수와 다릅니다.",
+      question.questionId,
+      {
+        countSum: countSum,
+        totalSelectionCount: totalSelectionCount
+      }
+    );
+  }
+});
     (analysis.scale || []).forEach(function(question) {
       const distributionSum=Object.keys(question.scoreDistribution||{}).reduce(function(sum,key){return sum+question.scoreDistribution[key];},0);
       questionStats.push({questionId:question.questionId,type:"SCALE",validCount:question.validCount,
