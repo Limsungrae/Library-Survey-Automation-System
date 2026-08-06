@@ -120,7 +120,6 @@ function getDynamicExportSheetNames_() {
   }
 
   return [
-    "00_품질검사",
     "01_조사개요",
     "02_대시보드",
     "03_응답자특성",
