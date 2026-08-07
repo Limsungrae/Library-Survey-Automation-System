@@ -106,6 +106,17 @@ function testDynamicSurveyV2RegressionSuite() {
     const result=applyDynamicXlsxPrintLayoutSafely_(blob,[],"report.xlsx",function(){throw new Error("ZIP 변환 실패");},
       function(error){logged=error.message;});
     equal_(result.blob,blob,"원본 Blob");equal_(result.warning,"ZIP 변환 실패","경고 원문");equal_(logged,"ZIP 변환 실패","오류 로그");});
+  test_("XLSX drawing 이미지 relationship 무결성",function(){
+    function entry_(name,content){return {getName:function(){return name;},getDataAsString:function(){return content;}};}
+    const valid=[entry_("xl/drawings/drawing2.xml",'<xdr:wsDr><a:blip r:embed="rId1"/><a:blip r:embed="rId2"/><a:blip r:embed="rId3"/></xdr:wsDr>'),
+      entry_("xl/drawings/_rels/drawing2.xml.rels",'<Relationships><Relationship Id="rId1" Type="x/image" Target="../media/image1.png"/><Relationship Id="rId2" Type="x/image" Target="../media/image2.png"/><Relationship Id="rId3" Type="x/image" Target="../media/image3.png"/></Relationships>'),
+      entry_("xl/media/image1.png","1"),entry_("xl/media/image2.png","2"),entry_("xl/media/image3.png","3")];
+    const validResult=inspectDynamicXlsxDrawingRelationships_(valid);
+    equal_(validResult.mediaCount,3,"media 3개");equal_(validResult.drawingRelationshipCount,3,"relationship 3개");
+    equal_(validResult.drawingEmbedCount,3,"embed 3개");equal_(validResult.errors.length,0,"독립 관계 정상");
+    const broken=[entry_("xl/drawings/drawing2.xml",'<xdr:wsDr><a:blip r:embed="rId1"/><a:blip r:embed="rId1"/><a:blip r:embed="rId1"/></xdr:wsDr>'),
+      entry_("xl/drawings/_rels/drawing2.xml.rels",'<Relationships><Relationship Id="rId1" Type="x/image" Target="../media/image3.png"/></Relationships>'),entry_("xl/media/image3.png","3")];
+    equal_(inspectDynamicXlsxDrawingRelationships_(broken).errors.length>0,true,"중복 relationship 탐지");});
   test_("XLSX worksheet 인쇄 요소 순서",function(){
     const drawing=applyDynamicWorksheetPrintSettingsXml_('<worksheet><sheetData/><drawing r:id="rId1"/></worksheet>');
     equal_(drawing.indexOf("<sheetData")<drawing.indexOf("<pageMargins"),true,"sheetData 다음 인쇄 요소");
@@ -196,7 +207,9 @@ function testDynamicSurveyV2RegressionSuite() {
       getRange:function(a1){return {getMergedRanges:function(){return [];},merge:function(){merged.push(a1);return this;}};}};
     planned.forEach(function(a1){safeMergeDynamicDashboardRange_(sheet,a1,"test");});
     equal_(merged.join(","),planned.join(","),"제목과 KPI 병합 성공");
-    equal_(insertDynamicDashboardChartImage_.toString().indexOf("getBlob")>=0,true,"PNG Blob 변환");
+    equal_(createDynamicDashboardSheet_.toString().indexOf("insertImage"),-1,"손상 가능 이미지 미삽입");
+    equal_(createDynamicDashboardSheet_.toString().indexOf("newChart"),-1,"EmbeddedChart 미생성");
+    equal_(renderDynamicDashboardCellVisualization_.toString().indexOf("buildDynamicDashboardUnicodeBar_")>=0,true,"셀 기반 막대");
     equal_(resetDynamicDashboardSheet_.toString().indexOf("getImages")>=0,true,"기존 PNG 제거");
     equal_(createDynamicDashboardSheet_.toString().indexOf("setFrozenRows(2)"),-1,"최종 고정 행 없음");});
   return {success:results.every(function(r){return r.status==="PASS";}),passed:results.filter(function(r){return r.status==="PASS";}).length,

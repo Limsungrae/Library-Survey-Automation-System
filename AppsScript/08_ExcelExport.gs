@@ -431,6 +431,8 @@ function createDynamicSurveyReportXlsx_(
       fileName
     );
     excelBlob = printLayoutResult.blob;
+    currentStage = "XLSX 이미지 관계 무결성 검사";
+    assertDynamicXlsxDrawingRelationships_(excelBlob);
 
     let diagnosticFiles=[];
     if(isDynamicXlsxDiagnosticMode_(options)){
@@ -770,6 +772,62 @@ function unzipDynamicXlsxBlob_(excelBlob, stage) {
 
 function createDynamicXlsxZipInput_(excelBlob) {
   return excelBlob.copyBlob().setContentType("application/zip");
+}
+
+
+/** XLSX drawing의 이미지 참조·relationship·media 파일 대응 상태를 검사합니다. */
+function inspectDynamicXlsxDrawingRelationships_(entries) {
+  const byName={};
+  (entries||[]).forEach(function(entry){byName[String(entry.getName()||"")]=entry;});
+  const mediaNames=Object.keys(byName).filter(function(name){return /^xl\/media\//i.test(name);});
+  let embedCount=0,relationshipCount=0;
+  const errors=[];
+  Object.keys(byName).filter(function(name){return /^xl\/drawings\/drawing\d+\.xml$/i.test(name);}).forEach(function(drawingName){
+    const drawingXml=byName[drawingName].getDataAsString();
+    const embeds=[];let embedMatch;
+    const embedPattern=/\br:embed=["']([^"']+)["']/gi;
+    while((embedMatch=embedPattern.exec(drawingXml))!==null)embeds.push(embedMatch[1]);
+    embedCount+=embeds.length;
+    const duplicateIds=embeds.filter(function(id,index){return embeds.indexOf(id)!==index;});
+    if(duplicateIds.length)errors.push(drawingName+"에서 동일 이미지 관계를 중복 참조합니다: "+Array.from(new Set(duplicateIds)).join(", "));
+
+    const relName=drawingName.replace(/^xl\/drawings\//,"xl/drawings/_rels/")+".rels";
+    const relationships={};
+    if(byName[relName]){
+      const relXml=byName[relName].getDataAsString();let relMatch;
+      const relPattern=/<Relationship\b[^>]*>/gi;
+      while((relMatch=relPattern.exec(relXml))!==null){
+        const tag=relMatch[0];
+        const id=(tag.match(/\bId=["']([^"']+)["']/i)||[])[1];
+        const target=(tag.match(/\bTarget=["']([^"']+)["']/i)||[])[1];
+        const type=(tag.match(/\bType=["']([^"']+)["']/i)||[])[1]||"";
+        if(id&&target&&/\/image$/i.test(type)){relationships[id]=target;relationshipCount++;}
+      }
+    }
+    embeds.forEach(function(id){
+      const target=relationships[id];
+      if(!target){errors.push(drawingName+"의 "+id+" 이미지 relationship가 없습니다.");return;}
+      const resolved=resolveDynamicXlsxPartPath_(drawingName,target);
+      if(!byName[resolved])errors.push(drawingName+"의 "+id+" 대상 media가 없습니다: "+resolved);
+    });
+  });
+  return {mediaCount:mediaNames.length,drawingEmbedCount:embedCount,drawingRelationshipCount:relationshipCount,errors:errors};
+}
+
+
+function resolveDynamicXlsxPartPath_(sourcePart,target){
+  const parts=String(sourcePart||"").split("/");parts.pop();
+  String(target||"").split("/").forEach(function(part){if(!part||part===".")return;if(part==="..")parts.pop();else parts.push(part);});
+  return parts.join("/");
+}
+
+
+function assertDynamicXlsxDrawingRelationships_(excelBlob){
+  const entries=unzipDynamicXlsxBlob_(excelBlob,"XLSX 이미지 관계 검사");
+  const result=inspectDynamicXlsxDrawingRelationships_(entries);
+  if(result.errors.length)throw new Error("생성된 Excel 이미지 관계가 올바르지 않습니다: "+result.errors.join(" | "));
+  Logger.log("XLSX 이미지 관계 검사 완료: "+JSON.stringify(result));
+  return result;
 }
 
 

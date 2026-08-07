@@ -197,12 +197,9 @@ function createDynamicDashboardSheet_(analysis, settings) {
     .setBackground("#EDF2F7").setFontColor("#64748B").setFontSize(9)
     .setHorizontalAlignment("right").setVerticalAlignment("middle");
 
-  const chartSpecs=[
-    {items:model.chartData.satisfaction,anchor:"A12",fallback:"A12:G20",maximum:5,color:"#2E75B6",alt:"만족도 문항별 평균"},
-    {items:model.chartData.improvement,anchor:"A23",fallback:"A23:G31",maximum:null,color:"#D97706",alt:"개선 필요사항 TOP 5"},
-    {items:model.chartData.future,anchor:"H23",fallback:"H23:N31",maximum:null,color:"#4F81BD",alt:"향후 희망 서비스 TOP 5"}
-  ];
-  chartSpecs.forEach(function(spec){insertDynamicDashboardChartImage_(sheet,spec);});
+  renderDynamicDashboardCellVisualization_(sheet,"A12:G20",model.chartData.satisfaction,5,"#2E75B6");
+  renderDynamicDashboardCellVisualization_(sheet,"A23:G31",model.chartData.improvement,null,"#D97706");
+  renderDynamicDashboardCellVisualization_(sheet,"H23:N31",model.chartData.future,null,"#4F81BD");
 
   sheet.getRange("A1:N40").setFontFamily("맑은 고딕");
   sheet.setColumnWidths(1,14,82);
@@ -258,14 +255,29 @@ function insertDynamicDashboardChartImage_(sheet,spec){
 }
 
 
-function renderDynamicDashboardChartFallback_(sheet,a1,items){
-  const range=sheet.getRange(a1);range.breakApart().clearContent().setBackground("#FFFFFF")
-    .setFontColor("#334155").setFontSize(10).setWrap(true).setVerticalAlignment("middle")
+function styleDynamicDashboardSection_(sheet,a1,title){
+  return safeMergeDynamicDashboardRange_(sheet,a1,"section-"+title).setValue(title)
+    .setBackground("#244D78").setFontColor("#FFFFFF").setFontWeight("bold")
+    .setFontSize(11).setHorizontalAlignment("left").setVerticalAlignment("middle");
+}
+
+
+/**
+ * Google Sheets XLSX exporter의 다중 over-grid 이미지 관계 손상을 피하기 위해
+ * 대시보드 차트를 셀 기반 막대로 렌더링합니다.
+ */
+function renderDynamicDashboardCellVisualization_(sheet,a1,items,fixedMaximum,color){
+  const range=sheet.getRange(a1);
+  range.breakApart().clearContent().setBackground("#FFFFFF").setFontColor("#334155")
+    .setFontSize(10).setWrap(true).setVerticalAlignment("middle")
     .setBorder(true,true,true,true,false,false,"#CBD5E1",SpreadsheetApp.BorderStyle.SOLID);
-  const text=(items||[]).length?items.map(function(item,index){
-    return (index+1)+". "+item.label+"  "+item.displayValue;
-  }).join("\n"):"표시할 분석 데이터가 없습니다.";
+  const maximum=fixedMaximum||Math.max.apply(null,(items||[]).map(function(item){return Number(item.value||0);}).concat([0]));
+  const text=(items||[]).length?(items||[]).map(function(item){
+    return item.label+"\n"+buildDynamicDashboardUnicodeBar_(Number(item.value||0),maximum,item.displayValue||"-");
+  }).join("\n\n"):"표시할 분석 데이터가 없습니다.";
   range.merge().setValue(text);
+  if(color)range.setFontColor(color);
+  return range;
 }
 
 
