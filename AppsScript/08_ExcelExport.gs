@@ -86,7 +86,6 @@ function sanitizeFileName_(
  * ==========================================================================
  *
  * 최종 Excel 시트 순서
- * - 00_품질검사       : 포함하되 숨김 처리
  * - 01_조사개요
  * - 02_대시보드
  * - 03_응답자특성
@@ -116,7 +115,7 @@ function sanitizeFileName_(
  */
 function getDynamicExportSheetNames_() {
   if (typeof getDynamicFinalReportSheetOrder_ === "function") {
-    return getDynamicFinalReportSheetOrder_(true);
+    return getDynamicFinalReportSheetOrder_(false);
   }
 
   return [
@@ -176,32 +175,6 @@ function getDynamicExportQualitySheetName_() {
     && config.SHEETS.QUALITY
     || "00_품질검사"
   );
-}
-
-
-/**
- * 임시 XLSX 변환 문서에서 품질검사 시트를 숨깁니다.
- * 원본 스프레드시트의 표시 상태는 변경하지 않습니다.
- *
- * @param {GoogleAppsScript.Spreadsheet.Spreadsheet} spreadsheet
- */
-function hideDynamicExportQualitySheet_(spreadsheet) {
-  const qualitySheet = spreadsheet.getSheetByName(
-    getDynamicExportQualitySheetName_()
-  );
-
-  if (!qualitySheet) {
-    return;
-  }
-
-  const visibleSheetCount = spreadsheet.getSheets().filter(function(sheet) {
-    return !sheet.isSheetHidden();
-  }).length;
-
-  // Google Sheets는 모든 시트를 숨길 수 없으므로 최소 한 개는 표시합니다.
-  if (visibleSheetCount > 1 && !qualitySheet.isSheetHidden()) {
-    qualitySheet.hideSheet();
-  }
 }
 
 
@@ -368,9 +341,6 @@ function createDynamicSurveyReportXlsx_(
       );
     });
 
-    // 00_품질검사는 최종 Excel에 포함하되 사용자 화면에서는 숨깁니다.
-    hideDynamicExportQualitySheet_(temporarySpreadsheet);
-
     // Google Sheets 전용 수식은 임시 사본에서만 제거합니다.
     // 원본 보고서의 SPARKLINE 보조열과 통계 숫자는 변경하지 않습니다.
     currentStage = "Excel 비호환 수식 제거";
@@ -450,8 +420,16 @@ function createDynamicSurveyReportXlsx_(
     currentStage = "Drive XLSX Blob 확인";
     logDynamicExcelBlobMetadata_("Drive export 이후", excelBlob);
 
-    // Drive export가 만든 XLSX를 압축 해제하거나 XML을 수정하지 않습니다.
-    // SPARKLINE 등은 위의 임시 Google Spreadsheet 단계에서 이미 제거했습니다.
+    // 최종 파일에는 A4 가로, 폭 1페이지, 높이 자동(여러 페이지) 인쇄 설정을 적용합니다.
+    // ZIP/XML 후처리가 실패하면 안전하게 원본 Blob으로 되돌려 내보내기 자체는 유지합니다.
+    currentStage = "XLSX 인쇄 레이아웃 적용";
+    const printLayoutResult = applyDynamicXlsxPrintLayoutSafely_(
+      excelBlob,
+      exportSheets,
+      fileName
+    );
+    excelBlob = printLayoutResult.blob;
+
     let diagnosticFiles=[];
     if(isDynamicXlsxDiagnosticMode_(options)){
       currentStage="XLSX 진단 파일 생성";
