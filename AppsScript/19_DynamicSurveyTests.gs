@@ -117,6 +117,28 @@ function testDynamicSurveyV2RegressionSuite() {
     const broken=[entry_("xl/drawings/drawing2.xml",'<xdr:wsDr><a:blip r:embed="rId1"/><a:blip r:embed="rId1"/><a:blip r:embed="rId1"/></xdr:wsDr>'),
       entry_("xl/drawings/_rels/drawing2.xml.rels",'<Relationships><Relationship Id="rId1" Type="x/image" Target="../media/image3.png"/></Relationships>'),entry_("xl/media/image3.png","3")];
     equal_(inspectDynamicXlsxDrawingRelationships_(broken).errors.length>0,true,"중복 relationship 탐지");});
+  test_("XLSX 빈 drawing 전체 참조 정리",function(){
+    function entry_(name,content){return {getName:function(){return name;},getContentType:function(){return "application/xml";},getDataAsString:function(){return content;}};}
+    function factory_(content,type,name){return entry_(name,content);}
+    const source=[entry_("[Content_Types].xml",'<Types><Override PartName="/xl/drawings/drawing1.xml" ContentType="drawing"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="sheet"/></Types>'),
+      entry_("xl/worksheets/sheet1.xml",'<worksheet><sheetData/><drawing r:id="rId1"/></worksheet>'),
+      entry_("xl/worksheets/_rels/sheet1.xml.rels",'<Relationships><Relationship Id="rId1" Type="x/drawing" Target="../drawings/drawing1.xml"/><Relationship Id="rId2" Type="x/hyperlink" Target="https://example.com"/></Relationships>'),
+      entry_("xl/drawings/drawing1.xml",'<xdr:wsDr xmlns:xdr="x"/>'),
+      entry_("xl/drawings/_rels/drawing1.xml.rels",'<Relationships/>')];
+    const cleaned=cleanupEmptyDynamicXlsxDrawings_(source,factory_),byName={};
+    cleaned.entries.forEach(function(entry){byName[entry.getName()]=entry.getDataAsString();});
+    equal_(cleaned.removedDrawingNames.join(","),"xl/drawings/drawing1.xml","빈 drawing 삭제");
+    equal_(Boolean(byName["xl/drawings/drawing1.xml"]),false,"drawing part 제거");
+    equal_(Boolean(byName["xl/drawings/_rels/drawing1.xml.rels"]),false,"drawing rels 제거");
+    equal_(byName["xl/worksheets/sheet1.xml"].indexOf("<drawing"),-1,"worksheet drawing 제거");
+    equal_(byName["xl/worksheets/_rels/sheet1.xml.rels"].indexOf('Id="rId1"'),-1,"drawing relationship 제거");
+    equal_(byName["xl/worksheets/_rels/sheet1.xml.rels"].indexOf('Id="rId2"')>=0,true,"hyperlink 보존");
+    equal_(byName["[Content_Types].xml"].indexOf("drawing1.xml"),-1,"content type 제거");
+    equal_(inspectDynamicXlsxDrawingRelationships_(cleaned.entries).errors.length,0,"cleanup 후 dangling 참조 없음");
+    const imageDrawing=[entry_("xl/drawings/drawing2.xml",'<xdr:wsDr><xdr:twoCellAnchor><xdr:pic/></xdr:twoCellAnchor></xdr:wsDr>')];
+    const chartDrawing=[entry_("xl/drawings/drawing3.xml",'<xdr:wsDr><xdr:absoluteAnchor><xdr:graphicFrame/></xdr:absoluteAnchor></xdr:wsDr>')];
+    equal_(cleanupEmptyDynamicXlsxDrawings_(imageDrawing,factory_).removedDrawingNames.length,0,"실제 이미지 drawing 보호");
+    equal_(cleanupEmptyDynamicXlsxDrawings_(chartDrawing,factory_).removedDrawingNames.length,0,"실제 chart drawing 보호");});
   test_("XLSX worksheet 인쇄 요소 순서",function(){
     const drawing=applyDynamicWorksheetPrintSettingsXml_('<worksheet><sheetData/><drawing r:id="rId1"/></worksheet>');
     equal_(drawing.indexOf("<sheetData")<drawing.indexOf("<pageMargins"),true,"sheetData 다음 인쇄 요소");

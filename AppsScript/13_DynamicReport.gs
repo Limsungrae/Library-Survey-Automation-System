@@ -262,6 +262,13 @@ function styleDynamicDashboardSection_(sheet,a1,title){
 }
 
 
+function styleDynamicDashboardSection_(sheet,a1,title){
+  return safeMergeDynamicDashboardRange_(sheet,a1,"section-"+title).setValue(title)
+    .setBackground("#244D78").setFontColor("#FFFFFF").setFontWeight("bold")
+    .setFontSize(11).setHorizontalAlignment("left").setVerticalAlignment("middle");
+}
+
+
 /**
  * Google Sheets XLSX exporter의 다중 over-grid 이미지 관계 손상을 피하기 위해
  * 대시보드 차트를 셀 기반 막대로 렌더링합니다.
