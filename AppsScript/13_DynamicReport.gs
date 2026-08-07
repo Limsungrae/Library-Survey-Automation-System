@@ -208,6 +208,50 @@ function createDynamicDashboardSheet_(analysis, settings) {
   sheet.setRowHeight(11,28);sheet.setRowHeight(22,28);sheet.setRowHeight(33,28);
   sheet.setRowHeights(34,5,30);sheet.setRowHeight(40,24);
   sheet.setFrozenRows(0);sheet.setFrozenColumns(0);sheet.setHiddenGridlines(true);
+  applyDynamicReportReadability_(sheet, 19, 8);
+}
+
+
+function styleDynamicDashboardSection_(sheet,a1,title){
+  return safeMergeDynamicDashboardRange_(sheet,a1,"section-"+title).setValue(title)
+    .setBackground("#244D78").setFontColor("#FFFFFF").setFontWeight("bold")
+    .setFontSize(11).setHorizontalAlignment("left").setVerticalAlignment("middle");
+}
+
+
+/** 임시 EmbeddedChart를 PNG로 변환하고 원본 차트를 제거한 뒤 지정 셀에 고정합니다. */
+function insertDynamicDashboardChartImage_(sheet,spec){
+  if(!spec.items||!spec.items.length){renderDynamicDashboardChartFallback_(sheet,spec.fallback,[]);return null;}
+  let embeddedChart=null;
+  try{
+    const helperRows=[["항목","값"]].concat(spec.items.map(function(item){return [item.label,Number(item.value||0)];}));
+    const helperRange=sheet.getRange(1,16,helperRows.length,2);
+    helperRange.clearContent().setValues(helperRows);
+    const builder=sheet.newChart().asBarChart().addRange(helperRange)
+      .setPosition(42,16,0,0).setOption("legend",{position:"none"})
+      .setOption("backgroundColor","#FFFFFF").setOption("colors",[spec.color])
+      .setOption("fontName","맑은 고딕").setOption("width",600).setOption("height",245)
+      .setOption("chartArea",{left:185,top:15,width:"62%",height:"78%"})
+      .setOption("hAxis",spec.maximum?{viewWindow:{min:0,max:spec.maximum},minValue:0,gridlines:{count:4},textStyle:{fontSize:10}}:{minValue:0,gridlines:{count:4},textStyle:{fontSize:10}})
+      .setOption("vAxis",{textStyle:{fontSize:10}});
+    sheet.insertChart(builder.build());SpreadsheetApp.flush();
+    const charts=sheet.getCharts();embeddedChart=charts.length?charts[charts.length-1]:null;
+    if(!embeddedChart||typeof embeddedChart.getBlob!=="function")throw new Error("차트 PNG Blob을 생성할 수 없습니다.");
+    const blob=embeddedChart.getBlob().setName(spec.alt+".png");
+    sheet.removeChart(embeddedChart);embeddedChart=null;
+    const anchor=sheet.getRange(spec.anchor);
+    const image=sheet.insertImage(blob,anchor.getColumn(),anchor.getRow()).setWidth(560).setHeight(220);
+    if(typeof image.setAltTextTitle==="function")image.setAltTextTitle("DYNAMIC_DASHBOARD_CHART");
+    if(typeof image.setAltTextDescription==="function")image.setAltTextDescription(spec.alt);
+    helperRange.clearContent();
+    return image;
+  }catch(error){
+    Logger.log("[DASHBOARD_PNG_FALLBACK] chart="+spec.alt+" error="+(error&&error.message?error.message:String(error)));
+    if(embeddedChart)try{sheet.removeChart(embeddedChart);}catch(ignored){}
+    sheet.getRange(1,16,Math.max((spec.items||[]).length+1,1),2).clearContent();
+    renderDynamicDashboardChartFallback_(sheet,spec.fallback,spec.items||[]);
+    return null;
+  }
 }
 
 
