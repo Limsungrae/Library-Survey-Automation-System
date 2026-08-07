@@ -199,8 +199,10 @@ function createDynamicSurveyReportXlsx_(
     const sourceSpreadsheet =
       SpreadsheetApp.getActiveSpreadsheet();
 
-    const configuredSheets =
-      getDynamicExportSheetNames_();
+    const qualitySheetName=getDynamicExportQualitySheetName_();
+    const configuredSheets=getDynamicExportSheetNames_().filter(function(sheetName){
+      return sheetName!==qualitySheetName;
+    });
 
 
     // ----------------------------------------------------------------------

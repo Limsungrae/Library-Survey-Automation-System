@@ -153,13 +153,16 @@ function testDynamicSurveyV2RegressionSuite() {
         {question:"개선 필요사항",items:[{label:"횟수 확대",count:36},{label:"홍보",count:13}]}],
       text:[],summary:{analyzedQuestionCount:6,opinionCount:0,missingRate:0}};
     const model=buildDynamicDashboardModel_(analysis,{surveyName:"공간혁신 만족도 조사"});
-    equal_(model.title,"공간혁신 만족도 조사 대시보드","동적 제목");equal_(model.kpis[0].value,82,"응답자 원본값");
-    equal_(model.kpis[0].displayText,"82명","응답자 KPI");equal_(model.kpis[1].displayText,"4.70/5점","평균 KPI");
+    equal_(model.title,"공간혁신 만족도 조사 결과 요약","동적 제목");equal_(model.kpis[0].value,82,"응답자 원본값");
+    equal_(model.kpis[0].displayText,"82명","응답자 KPI");equal_(model.kpis[1].displayText,"4.70 / 5","평균 KPI");
     equal_(model.kpis[3].displayText,"98.8%","추천 KPI");
     equal_(model.sections[0].items.length,2,"만족도 중복 없음");equal_(model.sections[0].items[1].isMax,true,"최고 만족 강조");
     equal_(model.sections[1].items[0].label,"AI 교육","희망 서비스 내림차순");
     equal_(model.sections[2].items[0].label,"횟수 확대","개선사항 내림차순");
     equal_(model.sections[3].items[0].label,"분석 결과 없음","주관식 빈 상태");
+    equal_(model.chartData.improvement.length,2,"개선 차트 데이터");
+    equal_(model.coreSummary.indexOf("직원 만족 · 4.90점")>=0,true,"핵심 수치 재사용");
+    equal_(model.interpretation.indexOf("횟수 확대")>=0,true,"비AI 핵심 해석");
     const bar=buildDynamicDashboardUnicodeBar_(5,5,"5.00");
     equal_((bar.match(/█/g)||[]).length,12,"정적 막대 최대 길이");equal_(bar.indexOf("5.00")>0,true,"막대 값 유지");});
   test_("대시보드 텍스트 셀 숫자 형식 미적용과 반복 초기화",function(){
@@ -170,22 +173,22 @@ function testDynamicSurveyV2RegressionSuite() {
       setFontColor:function(){return this;},setFontWeight:function(){return this;},setFontStyle:function(){return this;},
       setHorizontalAlignment:function(){return this;},setVerticalAlignment:function(){return this;},setWrap:function(){return this;},
       setBorder:function(){return this;}};
-    const sheet={getRange:function(a1){equal_(a1,"A1:H19","초기화 범위");return range;}};
+    const sheet={getRange:function(a1){equal_(a1,"A1:N40","초기화 범위");return range;}};
     resetDynamicDashboardRange_(sheet);resetDynamicDashboardRange_(sheet);
     equal_(calls.join(","),"unmerge,content,validation,notes,visual,unmerge,content,validation,notes,visual","연속 초기화 순서");
     equal_(calls.indexOf("content")<calls.indexOf("visual"),true,"typed content 선제 제거");
     equal_(resetDynamicDashboardRange_.toString().indexOf("clearFormat"),-1,"숫자 형식 포함 초기화 없음");});
   test_("대시보드 고정 해제와 병합 계획",function(){
-    [[1,0],[2,0],[0,1]].forEach(function(initial){const calls=[];const merged={getA1Notation:function(){return "A1:H2";}};
+    [[1,0],[2,0],[0,1]].forEach(function(initial){const calls=[];const merged={getA1Notation:function(){return "A1:N2";}};
       const sheet={getName:function(){return "02_대시보드";},getFrozenRows:function(){return initial[0];},
         getFrozenColumns:function(){return initial[1];},setFrozenRows:function(value){calls.push("rows="+value);},
         setFrozenColumns:function(value){calls.push("columns="+value);},getRange:function(){return {getMergedRanges:function(){return [merged];}};}};
       let logged="";prepareDynamicDashboardFreezeState_(sheet,function(message){logged=message;});
       equal_(calls.join(","),"rows=0,columns=0","고정 해제 순서 "+initial.join("/"));
       equal_(logged.indexOf("frozenRows="+initial[0])>=0,true,"기존 고정 행 로그");
-      equal_(logged.indexOf("currentMerges=A1:H2")>=0,true,"기존 병합 로그");});
+      equal_(logged.indexOf("currentMerges=A1:N2")>=0,true,"기존 병합 로그");});
     const planned=getDynamicDashboardPlannedMerges_();
-    equal_(planned.join(","),"A1:H2,A4:B6,A7:B7,C4:D6,C7:D7,E4:F6,E7:F7,G4:H6,G7:H7","병합 계획");
+    equal_(planned.join(","),"A1:N2,A3:N4,A6:C9,D6:F9,G6:I9,J6:N9,A11:G11,H11:N11,H12:N20,A22:G22,H22:N22,A33:N33,A34:N38,A40:N40","병합 계획");
     equal_(new Set(planned).size,planned.length,"중복 병합 없음");
     equal_(validateDynamicDashboardMergePlan_(planned).length,0,"병합 범위 비중첩");
     equal_(validateDynamicDashboardMergePlan_(["A1:H2","A2:B3"]).length,1,"겹침 탐지");
@@ -193,6 +196,8 @@ function testDynamicSurveyV2RegressionSuite() {
       getRange:function(a1){return {getMergedRanges:function(){return [];},merge:function(){merged.push(a1);return this;}};}};
     planned.forEach(function(a1){safeMergeDynamicDashboardRange_(sheet,a1,"test");});
     equal_(merged.join(","),planned.join(","),"제목과 KPI 병합 성공");
+    equal_(insertDynamicDashboardChartImage_.toString().indexOf("getBlob")>=0,true,"PNG Blob 변환");
+    equal_(resetDynamicDashboardSheet_.toString().indexOf("getImages")>=0,true,"기존 PNG 제거");
     equal_(createDynamicDashboardSheet_.toString().indexOf("setFrozenRows(2)"),-1,"최종 고정 행 없음");});
   return {success:results.every(function(r){return r.status==="PASS";}),passed:results.filter(function(r){return r.status==="PASS";}).length,
     failed:results.filter(function(r){return r.status==="FAIL";}).length,results:results};
