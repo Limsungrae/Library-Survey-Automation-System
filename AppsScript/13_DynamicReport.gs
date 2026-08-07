@@ -210,6 +210,7 @@ function createDynamicDashboardSheet_(analysis, settings) {
   sheet.setRowHeights(4,4,24);sheet.setRowHeight(5,32);sheet.setRowHeight(6,32);
   sheet.setRowHeight(10,30);sheet.setRowHeights(11,9,36);
   sheet.setFrozenRows(0);sheet.setFrozenColumns(0);sheet.setHiddenGridlines(true);
+  applyDynamicReportReadability_(sheet, 19, 8);
 }
 
 
@@ -1307,6 +1308,7 @@ function createDynamicRawDataSheet_() {
   targetSheet.setFrozenRows(sourceSheet.getFrozenRows());
   targetSheet.setFrozenColumns(sourceSheet.getFrozenColumns());
   targetSheet.setHiddenGridlines(true);
+  applyDynamicReportReadability_(targetSheet, lastRow, lastColumn);
 
   Logger.log(
     "[DYNAMIC_RAW_SHEET_CREATED]"
@@ -1528,6 +1530,50 @@ function applyDynamicReportAdaptiveWidths_(sheet, displayValues, columnCount) {
 }
 
 
+/**
+ * 최종 보고서 시트별 화면·인쇄 가독성 서식을 적용합니다.
+ * 데이터, 통계값, 행·열 구조는 변경하지 않고 표시 서식만 조정합니다.
+ */
+function applyDynamicReportReadability_(sheet, lastRow, columnCount) {
+  const name=cleanText_(sheet.getName());
+  const rows=Math.max(Number(lastRow||sheet.getLastRow()||1),1);
+  const columns=Math.max(Number(columnCount||sheet.getLastColumn()||1),1);
+  const body=sheet.getRange(1,1,rows,columns);
+  body.setFontFamily("맑은 고딕").setVerticalAlignment("middle");
+  if(name!=="02_대시보드")body.setFontSize(name==="09_원자료"?10:11);
+
+  const widths={
+    "01_조사개요":[180,620,40,40,40,40,40,40],
+    "02_대시보드":[210,190,210,190,210,190,210,190],
+    "03_응답자특성":[380,110,170,170,170,190],
+    "04_복수응답분석":[400,120,170,165,175,175],
+    "05_만족도분석":[380,95,120,95,95,95,95,95,95,95,95,95,95,95,95,95,95,95,95],
+    "06_주관식분석":[90,210,320,520,300,170,430,430],
+    "07_AI총평":[135,135,135,135,135,135,135,135],
+    "08_향후개선방향":[135,135,135,135,135,135,135,135]
+  }[name];
+  if(widths)widths.slice(0,columns).forEach(function(width,index){sheet.setColumnWidth(index+1,width);});
+
+  if(name==="01_조사개요"){
+    sheet.getRange(4,1,Math.max(rows-3,1),2).setWrap(true);
+    sheet.autoResizeRows(4,Math.max(rows-3,1));
+  }else if(name==="03_응답자특성"||name==="04_복수응답분석"){
+    body.setWrap(true);
+    sheet.autoResizeRows(4,Math.max(rows-3,1));
+  }else if(name==="06_주관식분석"){
+    body.setWrap(true).setVerticalAlignment("top");
+    sheet.autoResizeRows(4,Math.max(rows-3,1));
+  }else if(name==="07_AI총평"||name==="08_향후개선방향"){
+    body.setWrap(true);
+  }else if(name==="09_원자료"){
+    body.setWrap(false).setVerticalAlignment("middle");
+    if(rows>1)sheet.setRowHeights(2,rows-1,24);
+    sheet.setRowHeight(1,32);
+  }
+  if(name!=="09_원자료")sheet.setRowHeights(1,2,34);
+}
+
+
 function finishDynamicReportSheet_(sheet, lastRow, columnCount) {
   const safeLastRow = Math.max(Number(lastRow || 1), 1);
   const safeColumnCount = Math.max(Number(columnCount || 1), 1);
@@ -1551,6 +1597,7 @@ function finishDynamicReportSheet_(sheet, lastRow, columnCount) {
     );
 
   applyDynamicPublicReportBaseStyle_(sheet, safeLastRow, safeColumnCount);
+  applyDynamicReportReadability_(sheet, safeLastRow, safeColumnCount);
 }
 
 
@@ -1620,4 +1667,3 @@ function hideDynamicQualitySheet_() {
     return false;
   }
 }
-

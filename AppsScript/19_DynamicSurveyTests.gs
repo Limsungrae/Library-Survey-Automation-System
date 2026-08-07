@@ -88,6 +88,7 @@ function testDynamicSurveyV2RegressionSuite() {
     const worksheet=applyDynamicWorksheetPrintSettingsXml_('<worksheet><sheetData/></worksheet>');
     equal_(worksheet.indexOf('paperSize="9"')>=0,true,"A4");equal_(worksheet.indexOf('orientation="landscape"')>=0,true,"가로");
     equal_(worksheet.indexOf('fitToWidth="1"')>=0,true,"페이지 맞춤");equal_(worksheet.indexOf('left="0.25"')>=0,true,"좁은 여백");
+    equal_(worksheet.indexOf('fitToHeight="0"')>=0,true,"세로 여러 페이지 허용");
     const workbook=applyDynamicWorkbookPrintTitlesXml_('<workbook></workbook>',["01_조사개요"]);
     equal_(workbook.indexOf("$1:$4")>=0,true,"반복 머리글");});
   test_("문항별 최다·최저와 동률 강조 대상",function(){
@@ -137,6 +138,13 @@ function testDynamicSurveyV2RegressionSuite() {
       "report_DRIVE_ORIGINAL.xlsx","원본 진단 파일명");
     equal_(buildDynamicXlsxDiagnosticFileName_("report","POSTPROCESSED"),
       "report_POSTPROCESSED.xlsx","후처리 진단 파일명");});
+  test_("최종 내보내기 품질검사 제외",function(){
+    const names=getDynamicExportSheetNames_();
+    equal_(names.indexOf("00_품질검사"),-1,"품질검사 제외");
+    equal_(names[0],"01_조사개요","첫 결과 시트");});
+  test_("복수응답 구분자와 가운데점 보존",function(){
+    equal_(splitDynamicMultipleValue_("A,B|C;D/E\nF").join("|"),"A|B|C|D|E|F","지원 구분자");
+    equal_(splitDynamicMultipleValue_("문화·예술").join("|"),"문화·예술","가운데점은 응답 일부");});
   test_("한 화면 대시보드 모델과 정적 막대",function(){const analysis={respondentCount:82,
       scale:[{question:"시설 만족",average:4.5,positiveRate:90,validCount:82},{question:"직원 만족",average:4.9,positiveRate:95,validCount:82}],
       scaleSummary:{weightedAverage:4.7,overallConverted100:92.5,overallPositiveRate:93.7},
