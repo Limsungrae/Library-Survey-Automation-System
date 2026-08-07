@@ -117,6 +117,7 @@ function createDynamicAIBlockedSheet_(quality) {
   sheet.getRange(4,1,rows.length,4).setValues(rows);styleDynamicAIHeader_(sheet.getRange(4,1,1,4));
   if(rows.length>1)styleDynamicAITable_(sheet.getRange(4,1,rows.length,4));
   applyDynamicPublicReportBaseStyle_(sheet,rows.length+3,8);
+  applyDynamicReportReadability_(sheet,rows.length+3,8);
 }
 
 /**
@@ -676,6 +677,7 @@ if (categoryRows.length > 0) {
     sheet.setColumnWidth(6, 150);
   }
   applyDynamicPublicReportBaseStyle_(sheet, detailStartRow + Math.max(detailRows.length, 1), 8);
+  applyDynamicReportReadability_(sheet, detailStartRow + Math.max(detailRows.length, 1), 8);
 }
 
 
@@ -713,7 +715,8 @@ function createDynamicAITextSheet_(sheetName, title, bodyText, notice) {
     sheet.getRange(row, 1, 1, 8)
       .merge()
       .setValue(paragraph)
-      .setVerticalAlignment("middle") // 텍스트 중앙 정렬
+      .setFontSize(11)
+      .setVerticalAlignment("top") // 긴 문단은 위에서부터 읽도록 정렬
       .setWrap(true)                  // 셀 너비 넘어가면 줄바꿈
       .setBorder(                     // 개별 카드 테두리 지정
         true, true, true, true, true, true,
@@ -721,16 +724,17 @@ function createDynamicAITextSheet_(sheetName, title, bodyText, notice) {
         SpreadsheetApp.BorderStyle.SOLID
       );
 
-    // 가독성을 극대화하기 위해 데이터가 들어간 병합된 행들의 높이를 넉넉하게 38픽셀씩 지정합니다.
-    sheet.setRowHeight(row, 34);
+    // 문단 길이에 따라 병합 행 높이를 확보해 인쇄 시 본문이 잘리지 않게 합니다.
+    sheet.setRowHeight(row, Math.max(54, Math.min(150, 34 + Math.ceil(paragraph.length / 90) * 20)));
 
-    // 다음 문단은 1행만큼 띄우고 배치하기 위해 3행 아래(row + 3)로 인덱스를 넘깁니다.
+    // 다음 문단 사이에 한 행을 비우기 위해 2행 아래로 이동합니다.
     row += 2;
   });
 
-  // 모든 열(1~8번 열)의 너비를 균등하게 120픽셀로 맞춰 시트의 균형을 잡습니다.
-  sheet.setColumnWidths(1, 8, 120);
+  // 모든 열(1~8번 열)의 너비를 균등하게 확보해 긴 본문의 줄바꿈을 줄입니다.
+  sheet.setColumnWidths(1, 8, 135);
   applyDynamicPublicReportBaseStyle_(sheet, Math.max(row - 1, 6), 8);
+  applyDynamicReportReadability_(sheet, Math.max(row - 1, 6), 8);
 }
 
 
