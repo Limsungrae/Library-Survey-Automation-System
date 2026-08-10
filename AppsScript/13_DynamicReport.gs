@@ -195,10 +195,10 @@ function createDynamicDashboardSheet_(analysis, settings) {
     .setHorizontalAlignment("right").setVerticalAlignment("middle");
 
   sheet.getRange("A1:N40").setFontFamily("맑은 고딕");
-  [150,120,75,70,70,70,70,150,120,75,85,85,85,85].forEach(function(width,index){sheet.setColumnWidth(index+1,width);});
+  [50,130,130,75,70,65,65,50,130,130,75,70,65,65].forEach(function(width,index){sheet.setColumnWidth(index+1,width);});
   sheet.setRowHeights(1,40,24);sheet.setRowHeights(1,2,32);sheet.setRowHeights(3,2,27);sheet.setRowHeights(6,4,30);
   [11,22,33].forEach(function(row){sheet.setRowHeight(row,28);});
-  [12,13,14,15,16,23,24,25,26,27,34,36,38].forEach(function(row){sheet.setRowHeight(row,32);});
+  [28,29,30,31].forEach(function(row){sheet.setRowHeight(row,10);});
   [10,21,32,39].forEach(function(row){sheet.getRange(row,1,1,14).clearContent().setBackground("#FFFFFF");sheet.setRowHeight(row,14);});
   sheet.setFrozenRows(0);sheet.setFrozenColumns(0);sheet.setHiddenGridlines(true);
 }
@@ -219,10 +219,11 @@ function renderDynamicDashboardSatisfactionRows_(sheet,items,hasMore){
   }
   shown.forEach(function(item,index){
     const row=12+index;
-    safeMergeDynamicDashboardRange_(sheet,"A"+row+":B"+row,"satisfaction-label-"+row)
-      .setValue(truncateDynamicDashboardLabel_(item.label,42)).setWrap(true).setFontSize(10).setFontColor("#1F2937");
-    sheet.getRange(row,3).setValue(item.value).setNumberFormat('0.00"점"').setHorizontalAlignment("right").setFontWeight("bold");
-    renderDynamicDashboardBackgroundBar_(sheet,row,4,4,Number(item.value||0)/5,"#4472C4");
+    safeMergeDynamicDashboardRange_(sheet,"A"+row+":C"+row,"satisfaction-label-"+row)
+      .setValue(item.label).setWrap(true).setFontSize(10).setFontColor("#1F2937").setVerticalAlignment("middle");
+    sheet.getRange(row,4).setValue(item.value).setNumberFormat('0.00"점"').setHorizontalAlignment("right").setFontWeight("bold");
+    renderDynamicDashboardBackgroundBar_(sheet,row,5,3,Number(item.value||0)/5,"#4472C4");
+    sheet.setRowHeight(row,getDynamicDashboardRowHeight_(item.label,34,34,76));
   });
   if(hasMore){
     sheet.getRange("A20:G20").setFontSize(9).setFontColor("#64748B").setWrap(true);
@@ -234,25 +235,28 @@ function renderDynamicDashboardSatisfactionRows_(sheet,items,hasMore){
 function renderDynamicDashboardCoreMetricRows_(sheet,metrics){
   (metrics||[]).slice(0,5).forEach(function(metric,index){
     const row=12+index;
-    safeMergeDynamicDashboardRange_(sheet,"H"+row+":I"+row,"core-label-"+row).setValue(metric.label)
+    safeMergeDynamicDashboardRange_(sheet,"H"+row+":J"+row,"core-label-"+row).setValue(metric.label)
       .setBackground("#F3F6F9").setFontWeight("bold").setFontSize(10).setFontColor("#1F4E78");
-    safeMergeDynamicDashboardRange_(sheet,"J"+row+":N"+row,"core-value-"+row).setValue(metric.value)
-      .setBackground("#FFFFFF").setFontSize(10).setFontColor("#1F2937").setWrap(true);
+    safeMergeDynamicDashboardRange_(sheet,"K"+row+":N"+row,"core-value-"+row).setValue(metric.value)
+      .setBackground("#FFFFFF").setFontSize(10).setFontColor("#1F2937").setWrap(true).setHorizontalAlignment("right");
   });
 }
 
 
 function renderDynamicDashboardTopRows_(sheet,items,startRow,startColumn,emptyText,color){
   const shown=(items||[]).slice(0,5),maximum=Math.max.apply(null,shown.map(function(item){return Number(item.value||0);}).concat([0]));
-  if(!shown.length){sheet.getRange(startRow,startColumn).setValue(emptyText).setFontSize(10).setFontColor("#64748B");return;}
+  if(!shown.length){sheet.getRange(startRow,startColumn,1,7).setBackground("#F8FAFC").setBorder(true,true,true,true,false,false,"#D9E2EC",SpreadsheetApp.BorderStyle.SOLID);
+    sheet.getRange(startRow,startColumn).setValue(emptyText).setFontSize(10).setFontColor("#64748B").setWrap(true);
+    sheet.setRowHeight(startRow,40);return;}
   shown.forEach(function(item,index){
     const row=startRow+index,offset=startColumn-1;
     sheet.getRange(row,1+offset).setValue(index+1).setHorizontalAlignment("center").setFontWeight("bold");
     safeMergeDynamicDashboardRange_(sheet,dynamicColumnLetter_(2+offset)+row+":"+dynamicColumnLetter_(3+offset)+row,"top-label-"+startColumn+"-"+row)
-      .setValue(truncateDynamicDashboardLabel_(item.label,36)).setWrap(true).setFontSize(10).setFontColor("#1F2937");
+      .setValue(item.label).setWrap(true).setFontSize(10).setFontColor("#1F2937").setVerticalAlignment("middle");
     sheet.getRange(row,4+offset).setValue(Number(item.value||0)).setNumberFormat('0"건"').setHorizontalAlignment("right");
     sheet.getRange(row,5+offset).setValue(item.rate===null?"-":Number(item.rate)/100).setNumberFormat(item.rate===null?"@":"0.0%").setHorizontalAlignment("right");
     renderDynamicDashboardBackgroundBar_(sheet,row,6+offset,2,maximum>0?Number(item.value||0)/maximum:0,color);
+    sheet.setRowHeight(row,getDynamicDashboardRowHeight_(item.label,34,34,76));
   });
 }
 
@@ -268,13 +272,15 @@ function renderDynamicDashboardInterpretationRows_(sheet,interpretations){
   const rows=[34,36,38],messages=(interpretations||[]).slice(0,3);
   if(!messages.length)messages.push("대시보드 요약에 사용할 분석 결과가 충분하지 않습니다.");
   messages.forEach(function(message,index){safeMergeDynamicDashboardRange_(sheet,"A"+rows[index]+":N"+rows[index],"interpretation-"+rows[index])
-    .setValue("• "+message).setFontSize(11).setFontColor("#1F2937").setWrap(true).setVerticalAlignment("middle");});
+    .setValue("• "+message).setFontSize(11).setFontColor("#1F2937").setWrap(true).setVerticalAlignment("top");
+    sheet.setRowHeight(rows[index],getDynamicDashboardRowHeight_(message,110,38,72));});
 }
 
 
-function truncateDynamicDashboardLabel_(value,maxLength){
-  const text=cleanText_(value),limit=Math.max(Number(maxLength||0),4);
-  return text.length<=limit?text:text.substring(0,limit-1)+"…";
+function getDynamicDashboardRowHeight_(value,charactersPerLine,minimum,maximum){
+  const text=cleanText_(value),lineWidth=Math.max(Number(charactersPerLine||1),1);
+  const visualLines=(text.split("\n").reduce(function(total,line){return total+Math.max(1,Math.ceil(line.length/lineWidth));},0)||1);
+  return Math.max(Number(minimum||24),Math.min(Number(maximum||120),24+visualLines*14));
 }
 
 
@@ -296,7 +302,7 @@ function resetDynamicDashboardSheet_(){
 function getDynamicDashboardPlannedMerges_(){
   const ranges=["A1:N2","A3:N4","A6:C9","D6:F9","G6:I9","J6:N9","A11:G11","H11:N11",
     "A22:G22","H22:N22","A33:N33","A34:N34","A36:N36","A38:N38","A40:N40"];
-  for(let row=12;row<=16;row++)ranges.push("A"+row+":B"+row,"H"+row+":I"+row,"J"+row+":N"+row);
+  for(let row=12;row<=16;row++)ranges.push("A"+row+":C"+row,"H"+row+":J"+row,"K"+row+":N"+row);
   for(let row=23;row<=27;row++)ranges.push("B"+row+":C"+row,"I"+row+":J"+row);
   return ranges;
 }
@@ -470,7 +476,7 @@ function buildDynamicDashboardModel_(analysis,settings){
   const improvementItems=improvement?buildDynamicDashboardItems_(improvement.items,null,5,false):[];
   let highestScale=null;
   scale.forEach(function(item){if(!highestScale||Number(item.average)>Number(highestScale.average))highestScale=item;});
-  const highestText=highestScale?truncateDynamicDashboardLabel_(highestScale.question,38)+" "+Number(highestScale.average).toFixed(2)+"점":"해당 없음";
+  const highestText=highestScale?Number(highestScale.average).toFixed(2)+"점":"해당 없음";
   const averageText=overallAverage!==null&&Number.isFinite(overallAverage)?overallAverage.toFixed(2)+" / 5점":"해당 없음";
   const positiveText=overallPositiveRate!==null&&Number.isFinite(overallPositiveRate)?overallPositiveRate.toFixed(1)+"%":"해당 없음";
   const coreMetrics=[
@@ -482,7 +488,7 @@ function buildDynamicDashboardModel_(analysis,settings){
   ];
   const interpretations=[];
   if(overallAverage!==null&&Number.isFinite(overallAverage))interpretations.push("종합 만족도는 5점 만점에 "+overallAverage.toFixed(2)+"점으로 나타났습니다.");
-  if(highestScale)interpretations.push("가장 높은 만족도 문항은 ‘"+truncateDynamicDashboardLabel_(highestScale.question,52)+"’("+Number(highestScale.average).toFixed(2)+"점)입니다.");
+  if(highestScale)interpretations.push("가장 높은 만족도 문항은 ‘"+cleanText_(highestScale.question)+"’("+Number(highestScale.average).toFixed(2)+"점)입니다.");
   if(improvementItems.length)interpretations.push("가장 많이 선택된 개선 요구는 ‘"+improvementItems[0].label+"’입니다.");
   if(futureItems.length)interpretations.push("향후 희망 서비스는 ‘"+futureItems[0].label+"’ 응답이 가장 많았습니다.");
   const surveyInfo=["조사기간: "+getDynamicSettingDisplay_(settings,"조사기간","surveyPeriod"),
@@ -1454,8 +1460,8 @@ function applyDynamicReportReadability_(sheet, lastRow, columnCount) {
     "03_응답자특성":[380,110,170,170,170,190],
     "04_복수응답분석":[400,120,170,165,175,175],
     "05_만족도분석":[380,95,120,95,95,95,95,95,95,95,95,95,95,95,95,95,95,95,95],
-    "07_AI총평":[135,135,135,135,135,135,135,135],
-    "08_향후개선방향":[135,135,135,135,135,135,135,135]
+    "07_AI총평":[220,220,220,220,220,220,220,220],
+    "08_향후개선방향":[220,220,220,220,220,220,220,220]
   }[name];
   if(name==="06_주관식분석"){
     const opinionWidths=columns===7?[90,180,340,560,280,450,450]:[340,110,120,560,520,90,160,130];
@@ -1472,7 +1478,7 @@ function applyDynamicReportReadability_(sheet, lastRow, columnCount) {
     body.setWrap(true).setVerticalAlignment("top");
     sheet.autoResizeRows(4,Math.max(rows-3,1));
   }else if(name==="07_AI총평"||name==="08_향후개선방향"){
-    body.setWrap(true);
+    body.setFontSize(12).setWrap(true).setVerticalAlignment("top").setHorizontalAlignment("left");
   }else if(name==="09_원자료"){
     body.setWrap(false).setVerticalAlignment("middle");
     if(rows>1)sheet.setRowHeights(2,rows-1,24);

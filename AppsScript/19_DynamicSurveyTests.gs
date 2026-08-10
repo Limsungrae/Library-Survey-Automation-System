@@ -238,11 +238,23 @@ function testDynamicSurveyV2RegressionSuite() {
     const longLabel="매우 긴 문항명을 가진 중원도서관 이용환경 및 자료 서비스 전반에 대한 만족도 조사 문항입니다";
     const e=buildDynamicDashboardModel_({respondentCount:10,scale:[{question:longLabel,average:4.2}],
       scaleSummary:{weightedAverage:4.2,overallPositiveRate:80},recommendation:[],multiple:[],text:[]},{});
-    equal_(truncateDynamicDashboardLabel_(longLabel,20).length,20,"E 긴 라벨 길이");
-    equal_(truncateDynamicDashboardLabel_(longLabel,20).slice(-1),"…","E 말줄임표");equal_(e.satisfactionItems[0].label,longLabel,"E 원본 불변");
+    equal_(e.satisfactionItems[0].label,longLabel,"E 긴 만족도 문항 원문 유지");
+    equal_(e.coreMetrics[0].value,"4.20점","E 최고 만족도 값 분리 표시");
+    equal_(getDynamicDashboardRowHeight_(longLabel,34,34,76)>34,true,"E 긴 문항 행 높이 확대");
     const zeroItems=buildDynamicDashboardItems_(items_(6,"동률 ",true),null,5,false);
     equal_(zeroItems.length,5,"F 0건 TOP5");equal_(zeroItems[0].label,"동률 1","F 동률 원래 순서");
-    equal_(zeroItems[4].label,"동률 5","F 동률 안정 정렬");});
+    equal_(zeroItems[4].label,"동률 5","F 동률 안정 정렬");
+    const onlyFive=buildDynamicDashboardModel_(analysis_(10,1,0,0,[{question:"재이용",scaleKind:"RECOMMENDATION_1_5",positiveRate:81.2}]),{});
+    const onlyNps=buildDynamicDashboardModel_(analysis_(10,1,0,0,[{question:"추천",scaleKind:"NPS_0_10",nps:-5.5}]),{});
+    equal_(onlyFive.kpis[3].displayText,"81.2%","I 5점 의향만 존재");equal_(onlyNps.kpis[3].displayText,"-5.5","J NPS만 존재");
+    equal_(b.coreMetrics.length,5,"K 양쪽 지표 독립 행");equal_(d.coreMetrics[3].value,"해당 없음","L 의향 없음 명시");});
+  test_("AI 문서형 본문 폭과 문단 높이",function(){
+    equal_(getDynamicAIParagraphRowHeight_("짧은 문단"),54,"짧은 문단");
+    equal_(getDynamicAIParagraphRowHeight_(new Array(320).join("가")),84,"중간 문단");
+    equal_(getDynamicAIParagraphRowHeight_(new Array(920).join("가")),150,"긴 문단");
+    const source=createDynamicAITextSheet_.toString();
+    equal_(source.indexOf("setColumnWidths(1, 8, 220)")>=0,true,"07·08 A:H 문서 폭");
+    equal_(source.indexOf("getDynamicAIParagraphRowHeight_")>=0,true,"07·08 동적 행 높이");});
   test_("대시보드 텍스트 셀 숫자 형식 미적용과 반복 초기화",function(){
     equal_(createDynamicDashboardSheet_.toString().indexOf("setNumberFormat"),-1,"렌더러 숫자 형식 없음");
     const calls=[];const range={breakApart:function(){calls.push("unmerge");return this;},
@@ -282,6 +294,8 @@ function testDynamicSurveyV2RegressionSuite() {
     ["newChart","insertChart","insertImage","getBlob","SPARKLINE","█","░"].forEach(function(token){
       equal_(dashboardSource.indexOf(token),-1,"대시보드 금지 구현: "+token);});
     equal_(renderDynamicDashboardBackgroundBar_.toString().indexOf("setBackground")>=0,true,"배경색 막대");
+    equal_(renderDynamicDashboardSatisfactionRows_.toString().indexOf("truncate")<0,true,"만족도 문항 축약 없음");
+    equal_(renderDynamicDashboardTopRows_.toString().indexOf("truncate")<0,true,"TOP 항목 축약 없음");
     equal_(resetDynamicDashboardSheet_.toString().indexOf("getImages")>=0,true,"기존 PNG 제거");
     equal_(createDynamicDashboardSheet_.toString().indexOf("setFrozenRows(2)"),-1,"최종 고정 행 없음");});
   return {success:results.every(function(r){return r.status==="PASS";}),passed:results.filter(function(r){return r.status==="PASS";}).length,

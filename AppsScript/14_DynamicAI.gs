@@ -690,11 +690,14 @@ function createDynamicAITextSheet_(sheetName, title, bodyText, notice) {
   let row = 6; // 본문을 채워넣기 시작할 행 번호
 
   // 각 문단별로 루프를 돌며 카드를 배치하듯 셀을 큼직하게 병합하여 기록합니다.
+  const paragraphRows=[];
   paragraphs.forEach(function(paragraph) {
+    paragraphRows.push(row);
     sheet.getRange(row, 1, 1, 8)
       .merge()
       .setValue(paragraph)
-      .setFontSize(11)
+      .setFontSize(12)
+      .setHorizontalAlignment("left")
       .setVerticalAlignment("top") // 긴 문단은 위에서부터 읽도록 정렬
       .setWrap(true)                  // 셀 너비 넘어가면 줄바꿈
       .setBorder(                     // 개별 카드 테두리 지정
@@ -704,16 +707,34 @@ function createDynamicAITextSheet_(sheetName, title, bodyText, notice) {
       );
 
     // 문단 길이에 따라 병합 행 높이를 확보해 인쇄 시 본문이 잘리지 않게 합니다.
-    sheet.setRowHeight(row, Math.max(54, Math.min(150, 34 + Math.ceil(paragraph.length / 90) * 20)));
+    sheet.setRowHeight(row, getDynamicAIParagraphRowHeight_(paragraph));
 
     // 다음 문단 사이에 한 행을 비우기 위해 2행 아래로 이동합니다.
     row += 2;
   });
 
   // 모든 열(1~8번 열)의 너비를 균등하게 확보해 긴 본문의 줄바꿈을 줄입니다.
-  sheet.setColumnWidths(1, 8, 135);
   applyDynamicPublicReportBaseStyle_(sheet, Math.max(row - 1, 6), 8);
   applyDynamicReportReadability_(sheet, Math.max(row - 1, 6), 8);
+  sheet.setColumnWidths(1, 8, 220);
+  sheet.getRange(4,1,1,8).setFontSize(10).setWrap(true).setVerticalAlignment("middle").setHorizontalAlignment("left");
+  paragraphRows.forEach(function(paragraphRow){
+    sheet.getRange(paragraphRow,1,1,8).setFontSize(12).setWrap(true)
+      .setVerticalAlignment("top").setHorizontalAlignment("left");
+    sheet.setRowHeight(paragraphRow,getDynamicAIParagraphRowHeight_(sheet.getRange(paragraphRow,1).getDisplayValue()));
+  });
+}
+
+
+/** 넓은 A:H 문서 폭과 실제 줄바꿈을 기준으로 AI 문단 높이를 계산합니다. */
+function getDynamicAIParagraphRowHeight_(value) {
+  const text=String(value||""),visualLines=text.split("\n").reduce(function(total,line){
+    return total+Math.max(1,Math.ceil(line.length/150));
+  },0)||1;
+  if(visualLines<=1)return 54;
+  if(visualLines<=3)return 84;
+  if(visualLines<=5)return 116;
+  return 150;
 }
 
 
