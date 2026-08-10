@@ -105,7 +105,8 @@ SpreadsheetApp.flush();
     ];
     const summary={validOpinionCount:opinionAnalysis.validCount,categoryCount:opinionAnalysis.categories.length};
     return {success:true,message:"범용 AI 보고서 생성이 완료되었습니다.",
-      generatedSheets:generatedSheets,quality:quality,summary:summary};
+      generatedSheets:generatedSheets,quality:quality,summary:summary,
+      report:{summaryText:summaryText,futurePlanText:futurePlanText}};
   } catch(error){throw new Error(error&&error.message?error.message:String(error));}
   finally{if(lock){try{lock.releaseLock();}catch(ignored){}}}
 }
