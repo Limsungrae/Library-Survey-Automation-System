@@ -553,14 +553,13 @@ function createDynamicAIOpinionSheet_(analysis, opinionAnalysis) {
   const sheet = getOrResetDynamicAISheet_(getDynamicAIReportSheetName_("OPINION", "06_주관식분석"));
 
   // 시트 맨 상단에 제목(1~2행 병합)을 배치합니다.
-  setDynamicAISheetTitle_(sheet, "Ⅵ. 주관식 분석", 8);
+  setDynamicAISheetTitle_(sheet, "Ⅵ. 주관식 분석", 7);
 
   // 4행에 카테고리 요약 통계 테이블의 머리글(헤더)을 작성합니다.
-  sheet.getRange(4, 1, 1, 8).setValues([[
+  sheet.getRange(4, 1, 1, 7).setValues([[
     "순위",
     "의미 범주",
     "분류 건수",
-    "시각화",
     "유효 의견 대비 비율(%)",
     "응답 번호",
     "대표 의견 1",
@@ -568,49 +567,35 @@ function createDynamicAIOpinionSheet_(analysis, opinionAnalysis) {
   ]]);
 
   // 머리글 영역에 배경색, 정렬 등 공공기관 스타일 서식을 입힙니다.
-  styleDynamicAIHeader_(sheet.getRange(4, 1, 1, 8));
+  styleDynamicAIHeader_(sheet.getRange(4, 1, 1, 7));
 
   // 2차원 배열 형태로 시트에 입력할 카테고리별 요약 행 데이터를 가공합니다.
-  const categoryRows = opinionAnalysis.categories.map(function(category, index) {
-    return [
-      index + 1,                   // 순위 (1등부터 시작)
-      category.category,            // AI가 명사형으로 정한 의미 범주명
-      category.count,               // 검증 완료된 소속 답변 개수
-      "",
-      opinionAnalysis.validCount > 0
-        ? round_(category.count / opinionAnalysis.validCount * 100, 1) // 비율 소수점 첫째자리 계산
-        : 0,
-      category.responseNumbers.join("· "), // 매핑된 응답자들의 행 번호들을 쉼표로 나열
-      category.representativeOpinions[0] || "", // AI 요약 대표의견 1
-      category.representativeOpinions[1] || ""  // AI 요약 대표의견 2
-    ];
-  });
+  const categoryRows = buildDynamicAIOpinionCategoryRows_(opinionAnalysis);
 
   // 뿌려줄 카테고리 데이터가 하나 이상 존재한다면
 if (categoryRows.length > 0) {
 
-    // 응답번호 열(C?)이 아니라 6열(F)을 먼저 텍스트로 지정
+    // 응답 번호가 숫자로 자동 변환되지 않도록 5열을 텍스트로 지정합니다.
     sheet
-      .getRange(5,6,categoryRows.length,1)
+      .getRange(5,5,categoryRows.length,1)
       .setNumberFormat("@");
 
     sheet
-      .getRange(5,1,categoryRows.length,8)
+      .getRange(5,1,categoryRows.length,7)
       .setValues(categoryRows);
 
     sheet
-      .getRange(5,5,categoryRows.length,1)
+      .getRange(5,4,categoryRows.length,1)
       .setNumberFormat("0.0");
-    sheet.getRange(5, 6, categoryRows.length, 1)
+    sheet.getRange(5, 5, categoryRows.length, 1)
   .setNumberFormat("@");
     
     // 테이블 전체 영역에 회색 테두리 등의 기본 격자 서식을 적용합니다.
-    styleDynamicAITable_(sheet.getRange(4, 1, categoryRows.length + 1, 8));
-    setDynamicBarSparklines_(sheet,5,categoryRows.length,3,4);
+    styleDynamicAITable_(sheet.getRange(4, 1, categoryRows.length + 1, 7));
 
   } else {
     // 데이터가 아예 없을 때 예외적으로 출력할 안내 문구 세팅입니다.
-    sheet.getRange(5, 1, 1, 8)
+    sheet.getRange(5, 1, 1, 7)
       .merge()
       .setValue("AI로 분류할 유효한 주관식 의견이 없습니다.")
       .setHorizontalAlignment("center");
@@ -643,16 +628,7 @@ if (categoryRows.length > 0) {
   styleDynamicAIHeader_(sheet.getRange(detailStartRow, 1, 1, 6));
 
   // 2차원 배열 형태로 개별 답변별 상세 행 데이터를 구축합니다.
-  const detailRows = opinionAnalysis.opinionAssignments.map(function(item) {
-    return [
-      item.id,
-      item.responseNumber,
-      item.question,
-      item.text,
-      item.categories.length ? item.categories.join(" | ") : "미분류", // 중복 배정 시 | 기호로 구분
-      "담당자 검토 필요" // 담당자가 최종 컨펌할 수 있도록 상태 초안 지정
-    ];
-  });
+  const detailRows = buildDynamicAIOpinionDetailRows_(opinionAnalysis);
 
   // 상세 행 데이터가 있다면 시트에 일괄 기록하고 테두리 서식을 씌워줍니다.
   if (detailRows.length > 0) {
@@ -660,24 +636,27 @@ if (categoryRows.length > 0) {
     styleDynamicAITable_(sheet.getRange(detailStartRow, 1, detailRows.length + 1, 6));
   }
 
-  // 상단 요약 표 기준에 맞춰 초기 열 너비를 보기 좋게 수동 설정합니다.
-  sheet.setColumnWidth(1, 75);
-  sheet.setColumnWidth(2, 210);
-  sheet.setColumnWidth(3, 95);
-  sheet.setColumnWidth(4, 130);
-  sheet.setColumnWidth(5, 210);
-  sheet.setColumnWidth(6, 360);
-  sheet.setColumnWidth(7, 360);
+  // 요약과 상세 표가 공유하는 열을 긴 문항·의견 중심으로 배치합니다.
+  [90,180,340,560,280,450,450].forEach(function(width,index){sheet.setColumnWidth(index+1,width);});
+  applyDynamicPublicReportBaseStyle_(sheet, detailStartRow + Math.max(detailRows.length, 1), 7);
+  applyDynamicReportReadability_(sheet, detailStartRow + Math.max(detailRows.length, 1), 7);
+}
 
-  // 하단 상세 리스트 표가 추가되었으므로 긴 텍스트가 많이 들어가는 문항/원문 열 너비를 넉넉하게 확장합니다.
-  if (detailRows.length > 0) {
-    sheet.setColumnWidth(3, 360);
-    sheet.setColumnWidth(4, 520);
-    sheet.setColumnWidth(5, 260);
-    sheet.setColumnWidth(6, 150);
-  }
-  applyDynamicPublicReportBaseStyle_(sheet, detailStartRow + Math.max(detailRows.length, 1), 8);
-  applyDynamicReportReadability_(sheet, detailStartRow + Math.max(detailRows.length, 1), 8);
+
+function buildDynamicAIOpinionCategoryRows_(opinionAnalysis) {
+  return (opinionAnalysis.categories||[]).map(function(category,index){return [
+    index+1,category.category,category.count,
+    opinionAnalysis.validCount>0?round_(category.count/opinionAnalysis.validCount*100,1):0,
+    category.responseNumbers.join("· "),category.representativeOpinions[0]||"",category.representativeOpinions[1]||""
+  ];});
+}
+
+
+function buildDynamicAIOpinionDetailRows_(opinionAnalysis) {
+  return (opinionAnalysis.opinionAssignments||[]).map(function(item){return [
+    item.id,item.responseNumber,item.question,item.text,
+    item.categories.length?item.categories.join(" | "):"미분류","담당자 검토 필요"
+  ];});
 }
 
 
