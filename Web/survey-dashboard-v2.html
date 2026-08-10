@@ -58,7 +58,7 @@
             <div><p class="v2-eyebrow">OVERVIEW</p><h2 id="v2DashboardTitle">업무 대시보드</h2><p>새 분석을 시작하거나 저장된 작업 상태를 확인하세요.</p></div>
             <button id="v2StartButton" class="v2-button v2-button--primary" type="button">새 설문 분석 시작</button>
           </div>
-          <div class="v2-dashboard-grid">
+          <div id="v2DashboardWorkflow" class="v2-dashboard-grid">
             <article class="v2-card v2-card--wide">
               <div class="v2-card__heading"><h3>전체 Workflow</h3><span id="v2ProgressText">0 / 8 단계</span></div>
               <div class="v2-progress" aria-hidden="true"><span id="v2ProgressBar"></span></div>
@@ -75,13 +75,18 @@
             </article>
           </div>
           <section id="v2DashboardResults" class="v2-dashboard-results" aria-label="완료된 설문 핵심 결과" hidden>
+            <article id="v2DashboardHero" class="v2-dashboard-hero">
+              <div><span id="v2DashboardHeroBadge" class="v2-badge v2-badge--success">✓ 통계 분석 완료</span><h3 id="v2DashboardHeroTitle">설문 결과</h3><p id="v2DashboardHeroMeta"></p></div>
+              <button id="v2DashboardPrimaryAction" class="v2-button v2-button--primary" type="button">다음 단계 계속</button>
+            </article>
             <div id="v2DashboardKpis" class="v2-result-kpis"></div>
-            <div class="v2-result-columns">
-              <article class="v2-card"><h3>만족도 핵심 결과</h3><div id="v2DashboardSatisfaction"></div></article>
-              <article class="v2-card"><h3>개선사항 TOP</h3><div id="v2DashboardImprovement"></div></article>
-              <article class="v2-card"><h3>향후 희망 서비스 TOP</h3><div id="v2DashboardFuture"></div></article>
+            <div id="v2DashboardMainGrid" class="v2-dashboard-main-grid">
+              <article class="v2-card v2-dashboard-chart-card"><div class="v2-card__heading"><div><p class="v2-eyebrow">SATISFACTION</p><h3>만족도 문항별 평균</h3></div><button id="v2DashboardAnalysisButton" class="v2-button v2-button--quiet" type="button">통계 분석 보기</button></div><div id="v2DashboardSatisfaction"></div></article>
+              <article id="v2DashboardRespondentCard" class="v2-card v2-dashboard-chart-card" hidden><div class="v2-card__heading"><div><p class="v2-eyebrow">RESPONDENTS</p><h3 id="v2DashboardRespondentTitle">응답자 특성</h3></div></div><div id="v2DashboardRespondent"></div></article>
             </div>
+            <section id="v2DashboardMultipleSection" hidden><div class="v2-section-heading"><div><p class="v2-eyebrow">MULTIPLE RESPONSE</p><h3>복수응답 핵심 결과</h3></div></div><div id="v2DashboardMultipleCards" class="v2-dashboard-top-grid"></div></section>
             <article class="v2-card v2-dashboard-interpretation"><h3>핵심 해석</h3><div id="v2DashboardInterpretation"></div></article>
+            <article id="v2DashboardAiSummary" class="v2-card v2-dashboard-ai-summary" hidden><p class="v2-eyebrow">AI SUMMARY</p><h3>AI 분석 요약</h3><p id="v2DashboardAiText"></p></article>
           </section>
         </section>
 
