@@ -208,6 +208,7 @@ function createDynamicDashboardSheet_(analysis, settings) {
   sheet.setRowHeight(11,28);sheet.setRowHeight(22,28);sheet.setRowHeight(33,28);
   sheet.setRowHeights(34,5,30);sheet.setRowHeight(40,24);
   sheet.setFrozenRows(0);sheet.setFrozenColumns(0);sheet.setHiddenGridlines(true);
+  applyDynamicReportReadability_(sheet, 19, 8);
 }
 
 
