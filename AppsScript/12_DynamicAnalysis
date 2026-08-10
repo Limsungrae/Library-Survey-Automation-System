@@ -680,6 +680,7 @@ function buildDynamicScaleSummary_(scaleResults) {
  * - ;
  * - 줄바꿈
  * - 쉼표
+ * - 슬래시
  *
  * @param {string} value 원본 복수응답
  * @return {Array<string>}
@@ -722,7 +723,6 @@ function splitDynamicMultipleValue_(value) {
         || ch === "\n"
         || ch === ","
         || ch === "/"
-        || ch === "·"
       );
 
     if (isSeparator) {
