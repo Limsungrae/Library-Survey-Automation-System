@@ -140,6 +140,18 @@ function testDynamicSurveyV2RegressionSuite() {
     equal_(cleanupEmptyDynamicXlsxDrawings_(imageDrawing,factory_).removedDrawingNames.length,0,"실제 이미지 drawing 보호");
     equal_(cleanupEmptyDynamicXlsxDrawings_(chartDrawing,factory_).removedDrawingNames.length,0,"실제 chart drawing 보호");});
   test_("XLSX worksheet 인쇄 요소 순서",function(){
+    const outlined=applyDynamicWorksheetPrintSettingsXml_(
+      '<worksheet><sheetPr><outlinePr summaryBelow="1"/></sheetPr><sheetData/></worksheet>');
+    equal_(outlined.indexOf("<outlinePr")<outlined.indexOf("<pageSetUpPr"),true,"outlinePr 뒤 pageSetUpPr");
+    equal_(outlined.indexOf("<pageSetUpPr")<outlined.indexOf("</sheetPr>"),true,"pageSetUpPr는 sheetPr 내부");
+    equal_(outlined.indexOf("<pageSetUpPr")<outlined.indexOf("<outlinePr"),false,"잘못된 자식 순서 방지");
+    const existingFit=applyDynamicWorksheetPrintSettingsXml_(
+      '<worksheet><sheetPr><outlinePr/><pageSetUpPr autoPageBreaks="0" fitToPage="0"/></sheetPr><sheetData/></worksheet>');
+    equal_((existingFit.match(/<pageSetUpPr\b/g)||[]).length,1,"pageSetUpPr 중복 없음");
+    equal_(existingFit.indexOf('fitToPage="1"')>=0,true,"기존 fitToPage 갱신");
+    equal_(existingFit.indexOf('autoPageBreaks="0"')>=0,true,"기존 pageSetUpPr 속성 보존");
+    const withoutSheetPr=applyDynamicWorksheetPrintSettingsXml_('<worksheet><dimension ref="A1"/><sheetData/></worksheet>');
+    equal_(withoutSheetPr.indexOf("<sheetPr")<withoutSheetPr.indexOf("<dimension"),true,"sheetPr 최상위 스키마 위치");
     const drawing=applyDynamicWorksheetPrintSettingsXml_('<worksheet><sheetData/><drawing r:id="rId1"/></worksheet>');
     equal_(drawing.indexOf("<sheetData")<drawing.indexOf("<pageMargins"),true,"sheetData 다음 인쇄 요소");
     equal_(drawing.indexOf("<pageSetup")<drawing.indexOf("<drawing"),true,"drawing 앞 pageSetup");

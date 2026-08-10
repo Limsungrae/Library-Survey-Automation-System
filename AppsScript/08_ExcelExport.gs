@@ -953,16 +953,48 @@ function logDynamicExportError_(stage, error) {
 
 
 function applyDynamicWorksheetPrintSettingsXml_(content) {
-  let xml=String(content||"");
-  if(xml.indexOf("<pageSetUpPr")===-1){
-    if(/<sheetPr\b[^>]*\/>/.test(xml))xml=xml.replace(/<sheetPr\b([^>]*)\/>/,'<sheetPr$1><pageSetUpPr fitToPage="1"/></sheetPr>');
-    else if(xml.indexOf("<sheetPr")!==-1)xml=xml.replace(/<sheetPr([^>]*)>/,'<sheetPr$1><pageSetUpPr fitToPage="1"/>');
-    else xml=xml.replace(/(<worksheet[^>]*>)/,'$1<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>');
-  }
+  let xml=ensureDynamicWorksheetFitToPage_(String(content||""));
   xml=removeDynamicWorksheetPrintElements_(xml);
   return insertDynamicWorksheetPrintElements_(xml,
     '<pageMargins left="0.25" right="0.25" top="0.5" bottom="0.5" header="0.2" footer="0.2"/>'+
     '<pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/>');
+}
+
+
+/** sheetPr 자식 순서를 보존하면서 pageSetUpPr의 fitToPage를 활성화합니다. */
+function ensureDynamicWorksheetFitToPage_(content) {
+  let xml=String(content||"");
+  const existing=/<(?:[A-Za-z_][\w.-]*:)?pageSetUpPr\b[^>]*>/i.exec(xml);
+  if(existing){
+    const updated=existing[0].replace(/\bfitToPage=["'][^"']*["']/i,'fitToPage="1"');
+    const normalized=/\bfitToPage=/i.test(updated)?updated:updated.replace(/\s*(\/?>)$/,' fitToPage="1"$1');
+    return xml.slice(0,existing.index)+normalized+xml.slice(existing.index+existing[0].length);
+  }
+
+  const selfClosing=/<((?:[A-Za-z_][\w.-]*:)?sheetPr)\b([^>]*)\/>/i.exec(xml);
+  if(selfClosing){
+    const prefix=selfClosing[1].indexOf(":")>=0?selfClosing[1].split(":")[0]+":" : "";
+    const replacement="<"+selfClosing[1]+selfClosing[2]+"><"+prefix+'pageSetUpPr fitToPage="1"/></'+selfClosing[1]+">";
+    return xml.slice(0,selfClosing.index)+replacement+xml.slice(selfClosing.index+selfClosing[0].length);
+  }
+
+  const sheetPr=/<((?:[A-Za-z_][\w.-]*:)?sheetPr)\b([^>]*)>([\s\S]*?)<\/\1\s*>/i.exec(xml);
+  if(sheetPr){
+    const prefix=sheetPr[1].indexOf(":")>=0?sheetPr[1].split(":")[0]+":" : "";
+    const pageSetUp="<"+prefix+'pageSetUpPr fitToPage="1"/>';
+    let body=sheetPr[3];
+    const outline=new RegExp("<(?:[A-Za-z_][\\w.-]*:)?outlinePr\\b[^>]*(?:\\/>|>[\\s\\S]*?<\\/(?:[A-Za-z_][\\w.-]*:)?outlinePr\\s*>)","i").exec(body);
+    if(outline)body=body.slice(0,outline.index+outline[0].length)+pageSetUp+body.slice(outline.index+outline[0].length);
+    else body+=pageSetUp;
+    const replacement="<"+sheetPr[1]+sheetPr[2]+">"+body+"</"+sheetPr[1]+">";
+    return xml.slice(0,sheetPr.index)+replacement+xml.slice(sheetPr.index+sheetPr[0].length);
+  }
+
+  const worksheet=/<((?:[A-Za-z_][\w.-]*:)?worksheet)\b[^>]*>/i.exec(xml);
+  if(!worksheet)throw new Error("worksheet 시작 태그를 찾을 수 없습니다.");
+  const prefix=worksheet[1].indexOf(":")>=0?worksheet[1].split(":")[0]+":" : "";
+  const newSheetPr="<"+prefix+"sheetPr><"+prefix+'pageSetUpPr fitToPage="1"/></'+prefix+"sheetPr>";
+  return xml.slice(0,worksheet.index+worksheet[0].length)+newSheetPr+xml.slice(worksheet.index+worksheet[0].length);
 }
 
 
