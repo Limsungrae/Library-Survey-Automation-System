@@ -287,6 +287,29 @@ function testDynamicSurveyV2RegressionSuite() {
     const source=createDynamicAITextSheet_.toString();
     equal_(source.indexOf("setColumnWidths(1, 8, 220)")>=0,true,"07·08 A:H 문서 폭");
     equal_(source.indexOf("getDynamicAIParagraphRowHeight_")>=0,true,"07·08 동적 행 높이");});
+  test_("07·08 공공기관 보고서 프롬프트 계약",function(){
+    const context={respondentCount:3,satisfactionSummary:{weightedAverage:4.51,overallPositiveRate:92.3},
+      satisfactionQuestions:[],recommendation:[],multipleResponses:[],respondentCharacteristics:[],opinionSummary:{validCount:0,categories:[]}};
+    const summary=buildDynamicAISummaryPrompt_(context),future=buildDynamicAIFuturePlanPrompt_(context,"○ 검증된 총평");
+    ["행정 실무자","Ⅶ. 총평","○ ","⇒ ","나타남","상대적 최저","만들지 않는다","데이터가 있는 항목만"].forEach(function(token){
+      equal_(summary.indexOf(token)>=0,true,"총평 지침 "+token);});
+    ["Ⅷ. 향후계획","총평을 반복하는 문서가 아니며","반영","확대·개편 검토","단계적 추진","확정되지 않은 사업"].forEach(function(token){
+      equal_(future.indexOf(token)>=0,true,"향후계획 지침 "+token);});
+    equal_(summary.indexOf('"weightedAverage": 4.51')>=0,true,"검증 평균 원문 유지");
+    equal_(summary.indexOf('"overallPositiveRate": 92.3')>=0,true,"검증 긍정률 원문 유지");
+    equal_(future.indexOf("○ 검증된 총평")>=0,true,"기존 총평 전달 유지");
+    const common=buildDynamicAIInterpretationRules_();
+    ["합산·재계산·추정","인과 표현","마크다운 제목","해당 분석 데이터가 없으면"].forEach(function(token){
+      equal_(common.indexOf(token)>=0,true,"공통 사실성 지침 "+token);});});
+  test_("AI plain text 최소 후처리",function(){
+    const markdown="# Ⅶ. 총평\n\n**○ 결과가 확인됨**\n* 운영 검토\n| 구분 | 내용 |\n|---|---|\n```text\n⇒ 시사점\n```";
+    const normalized=normalizeDynamicAIReportText_(markdown);
+    ["#","**","```","|---|"].forEach(function(token){equal_(normalized.indexOf(token),-1,"마크다운 제거 "+token);});
+    equal_(normalized.indexOf("Ⅶ. 총평")>=0,true,"제목 텍스트 보존");
+    equal_(normalized.indexOf("○ 결과가 확인됨")>=0,true,"주요 결과 기호 보존");
+    equal_(normalized.indexOf("- 운영 검토")>=0,true,"하위항목 통일");
+    equal_(normalized.indexOf("⇒ 시사점")>=0,true,"시사점 기호 보존");
+    equal_(splitDynamicAIParagraphs_("○ 결과\n⇒ 시사점\n- 실행\n⦁ 세부").join("|") ,"○ 결과|⇒ 시사점|- 실행|⦁ 세부","보고서 기호 문단 보존");});
   test_("대시보드 텍스트 셀 숫자 형식 미적용과 반복 초기화",function(){
     equal_(createDynamicDashboardSheet_.toString().indexOf("setNumberFormat"),-1,"렌더러 숫자 형식 없음");
     const calls=[];const range={breakApart:function(){calls.push("unmerge");return this;},
