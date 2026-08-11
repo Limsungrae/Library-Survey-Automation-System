@@ -41,19 +41,17 @@ function getDynamicSurveySystemStatusFromWeb() {
 
     const statisticalSheetNames = [
       "01_조사개요",
-      "00_품질검사",
       "02_대시보드",
       "03_응답자특성",
-      "04_단일응답분석",
-      "05_복수응답분석",
-      "06_척도분석",
-      "07_추천의향분석",
-      "08_주관식분석"
+      "04_복수응답분석",
+      "05_만족도분석",
+      "06_주관식분석",
+      "09_원자료"
     ];
 
     const aiSheetNames = [
-      "09_AI총평",
-      "10_향후계획"
+      "07_AI총평",
+      "08_향후개선방향"
     ];
 
     const statisticalSheetCount =
@@ -251,6 +249,10 @@ function getDynamicSurveyDashboardDataFromWeb() {
             positiveRate:
               item.positiveRate,
 
+            validCount: item.validCount,
+            missingCount: item.missingCount,
+            scoreDistribution: item.scoreDistribution,
+
             rank:
               item.rank
           };
@@ -285,6 +287,18 @@ function getDynamicSurveyDashboardDataFromWeb() {
 
       respondent: (analysis.respondent || []).map(function(question) {
         return {question: question.question, items: (question.items || []).slice(0, 10)};
+      }),
+
+      single: (analysis.single || []).map(function(question) {
+        return {question: question.question, validResponses: question.validResponses,
+          missingResponses: question.missingResponses, items: question.items || []};
+      }),
+
+      text: (analysis.text || []).map(function(question) {
+        return {question: question.question, validCount: question.validCount,
+          missingResponses: question.missingResponses, opinions: (question.opinions || []).map(function(opinion) {
+            return {responseNumber: opinion.responseNumber, text: opinion.maskedText || ""};
+          })};
       }),
 
       composition: (analysis.scale || []).map(function(item) {
