@@ -37,7 +37,8 @@ assert.strictEqual(formatMetric(null, '%', 1), '해당 없음');
 const dashboardContext = {Number, String, Math, Array, escapeHtml:value => String(value), formatMetric_:formatMetric};
 vm.createContext(dashboardContext);
 ['dashboardMultipleFallbackTitle_', 'classifyDashboardMultipleQuestion_', 'selectDashboardMultipleCards_',
-  'dashboardKpis_', 'dashboardBarChartHtml_', 'dashboardStatusPresentation_'].forEach(name => vm.runInContext(extractFunctionSource(name), dashboardContext));
+  'dashboardKpis_', 'dashboardBarChartHtml_', 'dashboardInterpretations_', 'dashboardStatusPresentation_',
+  'buildDynamicVisualizationReportModel_'].forEach(name => vm.runInContext(extractFunctionSource(name), dashboardContext));
 const question = (text, counts=[3, 2, 1]) => ({question:text, items:counts.map((count,index) => ({label:`항목 ${index + 1}`,count}))});
 const titles = questions => dashboardContext.selectDashboardMultipleCards_(questions).map(item => item.title);
 assert.deepStrictEqual([...titles([question('개선할 점'), question('향후 희망 서비스')])], ['개선 필요사항 TOP 5', '향후 희망 서비스 TOP 5']);
@@ -63,6 +64,9 @@ assert.strictEqual((dashboardContext.dashboardBarChartHtml_(new Array(10).fill(n
 }).match(/v2-dashboard-bar"/g) || []).length, 5, 'dashboard chart limits to five rows');
 
 const kpiBase = {totalRespondents:72,overallAverage:4.14,overallPositiveRate:79.9};
+const visualization=dashboardContext.buildDynamicVisualizationReportModel_({summary:kpiBase||{},satisfaction:[],multiple:[{question:'개선할 점',items:[{label:'횟수 확대',count:36,selectionRate:28.6,respondentRate:43.9}]}]}, {}, null);
+assert.strictEqual(visualization.multipleSections[0].items[0].respondentRate,43.9,'visualization uses respondent rate');
+assert.strictEqual(visualization.satisfaction.length,0,'missing panels remain absent');
 assert.deepStrictEqual([...dashboardContext.dashboardKpis_({...kpiBase,recommendationPositiveRate:null,nps:34.7}).map(item => item.value)], ['72명','4.14 / 5','79.9%','NPS +34.7']);
 assert(dashboardContext.dashboardKpis_({...kpiBase,recommendationPositiveRate:85,nps:null})[3].value.includes('85.0%'));
 assert(dashboardContext.dashboardKpis_({...kpiBase,recommendationPositiveRate:85,nps:34.7})[3].value.includes('NPS +34.7'));
@@ -109,6 +113,9 @@ assert(aiService.includes('report:{summaryText:summaryText,futurePlanText:future
 assert(appHtml.includes('downloadStatus:state.downloadResult?"stale"'), 'downstream report stale');
 assert(appHtml.includes('quality.aiAllowed') || appHtml.includes('qualityAiAllowed'), 'quality aiAllowed remains gate');
 assert(appHtml.includes('getQualityUserMessage_'), 'quality code translation');
+assert(html.includes('v2MappingPreflight') && html.includes('v2AnalysisConfirmMapping'), 'mapping preflight is explicit');
+assert(appHtml.includes('mappingPreflightModel_') && appHtml.includes('이 설정으로 통계 분석'), 'analysis confirmation contract');
+assert(html.includes('v2VisualizationPreview') && appHtml.includes('buildDynamicVisualizationReportModel_'), 'visualization preview model');
 assert(!html.includes('scoreMapText'), 'no scoreMap JSON editor');
 assert(!html.includes('00_품질검사') || html.includes('내부 품질검사 시트는 포함되지 않습니다'), 'quality excluded wording');
 assert(css.includes('overflow-wrap:anywhere'), 'long text wrapping');

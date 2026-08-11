@@ -513,8 +513,9 @@ function buildDynamicAISummaryPrompt_(context){
 ${buildDynamicAIInterpretationRules_()}
 
 문체와 형식:
-- 내부 제목은 "Ⅶ. 총평"으로 작성한다.
+- 제목은 시트 렌더러가 표시하므로 제목을 출력하지 않고 첫 줄부터 "○ "로 시작한다.
 - 주요 결과는 "○ ", 통계에 직접 근거한 시사점은 "⇒ ", 필요한 세부사항은 "- " 또는 "⦁ "로 시작한다.
+- 서로 관련된 통계는 하나의 ○ 문단에 묶고, "- "는 의미 범주를 구분해야 할 때만 제한적으로 사용한다.
 - 문장은 짧은 개조식으로 작성하고 '~나타남', '~확인됨', '~파악됨', '~차지함', '~검토할 필요가 있음' 등으로 종결한다.
 - '~입니다', '~했습니다', '추천합니다', '제안합니다', '기대됩니다', '~하는 것이 좋습니다' 문체를 사용하지 않는다.
 - 가용 데이터 범위에서 주요 ○ 문단 4~7개와 시사점 1~3개를 권장하되, 근거가 부족하면 개수를 줄인다.
@@ -531,6 +532,8 @@ ${buildDynamicAIInterpretationRules_()}
 추가 제한:
 - 만족도 문항을 모두 나열하지 말고 전체 지표와 최고·상대적 최저 중심으로 작성한다.
 - 복수응답 비율은 컨텍스트의 selectionRate, respondentRate, validRespondentRate 의미를 바꾸지 않는다.
+- 복수응답 주요 결과에는 건수와 respondentRate를 함께 쓰며, 값이 없을 때 다른 비율을 응답자 선택률이라고 부르지 않는다.
+- 평균은 소수점 둘째 자리, 백분율과 NPS는 소수점 첫째 자리, 응답자와 건수는 정수로 표시하되 값을 재계산하지 않는다.
 - 주관식 의견이 없으면 주관식 결과를 언급하지 않는다.
 - 개선 요구를 분류할 때는 실제 자료에서 의미가 명확한 경우에만 범주화하고 고정 범주를 억지로 만들지 않는다.
 - 구체적인 예산, 일정, 담당 부서, 신규 사업명 또는 확정되지 않은 운영 약속을 작성하지 않는다.
@@ -549,7 +552,7 @@ function buildDynamicAIFuturePlanPrompt_(context,summaryText){
 ${buildDynamicAIInterpretationRules_()}
 
 문체와 형식:
-- 내부 제목은 "Ⅷ. 향후계획"으로 작성한다.
+- 제목은 시트 렌더러가 표시하므로 제목을 출력하지 않고 첫 줄부터 "○ "로 시작한다.
 - 주요 추진방향은 "○ ", 하위 실행방안은 "- ", 필요한 세부항목은 "⦁ "로 시작한다.
 - 주요 ○ 항목은 3~6개를 권장하되 실제 근거가 부족하면 개수를 줄인다.
 - 각 항목의 하위 실행방안은 필요한 경우에만 1~3개로 제한한다.
@@ -578,7 +581,8 @@ function normalizeDynamicAIReportText_(value){
     .replace(/^\s*\*\s+/gm,"- ").replace(/^\s*\|(.+)\|\s*$/gm,function(_,content){
       if(/^\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)+$/.test(content))return "";
       return content.split("|").map(function(item){return cleanText_(item);}).filter(Boolean).join(" · ");
-    }).replace(/\n{3,}/g,"\n\n").trim();
+    }).replace(/^\s*[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\.\s*(?:AI\s*)?(?:총평|향후계획|향후개선방향)\s*\n?/i,"")
+    .replace(/\n{3,}/g,"\n\n").trim();
 }
 
 
