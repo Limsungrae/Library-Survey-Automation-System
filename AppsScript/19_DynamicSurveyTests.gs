@@ -83,6 +83,14 @@ function testDynamicSurveyV2RegressionSuite() {
     equal_(calls.setWrap,true,"긴 문항명 줄바꿈");
     styleDynamicReportTotalRow_(range);equal_(calls.setBackground,"#E7E6E6","합계행 배경");
     equal_(calls.setFontWeight,"bold","합계행 굵게");});
+  test_("01 조사개요 핵심 7개 항목",function(){
+    const source=createDynamicOverviewSheet_.toString();
+    ["조사명","조사목적","조사기간","조사대상","조사방법","표본 수","분석방법"].forEach(function(label){
+      equal_(source.indexOf('"'+label+'"')>=0,true,"개요 필수 항목 "+label);});
+    ["담당부서","문의처","생성기관","분석 문항 수","유효응답 기준","개인정보 처리"].forEach(function(label){
+      equal_(source.indexOf('"'+label+'"'),-1,"개요 제외 항목 "+label);});
+    equal_(source.indexOf('"A4:B4"')>=0,true,"구분 병합");
+    equal_(source.indexOf('"C4:H4"')>=0,true,"내용 병합");});
   test_("보고서 제목·문항 제목·인쇄 설정",function(){
     equal_(formatDynamicQuestionTitle_({question:"Q1 시설 및 환경 만족도"},0),"Q1. 시설 및 환경 만족도","Q 제목");
     equal_(formatDynamicQuestionTitle_({questionId:"Q2",originalHeader:"이용자 유형을 선택해 주세요.",question:"가공 문항"},1),
@@ -240,7 +248,7 @@ function testDynamicSurveyV2RegressionSuite() {
       scaleSummary:{weightedAverage:4.2,overallPositiveRate:80},recommendation:[],multiple:[],text:[]},{});
     equal_(e.satisfactionItems[0].label,longLabel,"E 긴 만족도 문항 원문 유지");
     equal_(e.coreMetrics[0].value,"4.20점","E 최고 만족도 값 분리 표시");
-    equal_(getDynamicDashboardRowHeight_(longLabel,34,34,76)>34,true,"E 긴 문항 행 높이 확대");
+    equal_(getDynamicDashboardRowHeight_(longLabel,42,32,56)>32,true,"E 긴 문항 행 높이 확대");
     const zeroItems=buildDynamicDashboardItems_(items_(6,"동률 ",true),null,5,false);
     equal_(zeroItems.length,5,"F 0건 TOP5");equal_(zeroItems[0].label,"동률 1","F 동률 원래 순서");
     equal_(zeroItems[4].label,"동률 5","F 동률 안정 정렬");
@@ -263,22 +271,24 @@ function testDynamicSurveyV2RegressionSuite() {
       setFontColor:function(){return this;},setFontWeight:function(){return this;},setFontStyle:function(){return this;},
       setHorizontalAlignment:function(){return this;},setVerticalAlignment:function(){return this;},setWrap:function(){return this;},
       setBorder:function(){return this;}};
-    const sheet={getRange:function(a1){equal_(a1,"A1:N40","초기화 범위");return range;}};
+    const sheet={getRange:function(a1){equal_(a1,"A1:V40","초기화 범위");return range;}};
     resetDynamicDashboardRange_(sheet);resetDynamicDashboardRange_(sheet);
     equal_(calls.join(","),"unmerge,content,validation,notes,visual,unmerge,content,validation,notes,visual","연속 초기화 순서");
     equal_(calls.indexOf("content")<calls.indexOf("visual"),true,"typed content 선제 제거");
     equal_(resetDynamicDashboardRange_.toString().indexOf("clearFormat"),-1,"숫자 형식 포함 초기화 없음");});
   test_("대시보드 고정 해제와 병합 계획",function(){
-    [[1,0],[2,0],[0,1]].forEach(function(initial){const calls=[];const merged={getA1Notation:function(){return "A1:N2";}};
+    [[1,0],[2,0],[0,1]].forEach(function(initial){const calls=[];const merged={getA1Notation:function(){return "A1:V2";}};
       const sheet={getName:function(){return "02_대시보드";},getFrozenRows:function(){return initial[0];},
         getFrozenColumns:function(){return initial[1];},setFrozenRows:function(value){calls.push("rows="+value);},
         setFrozenColumns:function(value){calls.push("columns="+value);},getRange:function(){return {getMergedRanges:function(){return [merged];}};}};
       let logged="";prepareDynamicDashboardFreezeState_(sheet,function(message){logged=message;});
       equal_(calls.join(","),"rows=0,columns=0","고정 해제 순서 "+initial.join("/"));
       equal_(logged.indexOf("frozenRows="+initial[0])>=0,true,"기존 고정 행 로그");
-      equal_(logged.indexOf("currentMerges=A1:N2")>=0,true,"기존 병합 로그");});
+      equal_(logged.indexOf("currentMerges=A1:V2")>=0,true,"기존 병합 로그");});
     const planned=getDynamicDashboardPlannedMerges_();
-    equal_(planned.length,40,"동적 행 병합 계획 수");
+    equal_(planned.length,46,"동적 행 병합 계획 수");
+    equal_(planned.indexOf("A1:V2")>=0,true,"A:V 제목 영역");
+    equal_(planned.indexOf("A17:N17")>=0,true,"만족도 상세 안내 영역");
     equal_(planned.indexOf("H12:N20"),-1,"핵심 결과 대형 병합 제거");equal_(planned.indexOf("A34:N38"),-1,"해석 대형 병합 제거");
     equal_(new Set(planned).size,planned.length,"중복 병합 없음");
     equal_(validateDynamicDashboardMergePlan_(planned).length,0,"병합 범위 비중첩");
@@ -293,7 +303,10 @@ function testDynamicSurveyV2RegressionSuite() {
       renderDynamicDashboardTopRows_.toString()+renderDynamicDashboardBackgroundBar_.toString();
     ["newChart","insertChart","insertImage","getBlob","SPARKLINE","█","░"].forEach(function(token){
       equal_(dashboardSource.indexOf(token),-1,"대시보드 금지 구현: "+token);});
-    equal_(renderDynamicDashboardBackgroundBar_.toString().indexOf("setBackground")>=0,true,"배경색 막대");
+    equal_(renderDynamicDashboardBackgroundBar_.toString().indexOf("setBackgrounds")>=0,true,"배경색 막대 batch write");
+    [[-1,0],[0,0],[0.5,5],[0.902,9],[0.978,10],[1,10],[2,10],[null,0],[NaN,0]].forEach(function(item){
+      equal_(getDynamicDashboardFilledCells_(item[0],10),item[1],"10칸 막대 "+String(item[0]));});
+    equal_(getDynamicDashboardFilledCells_(0.313,5),2,"TOP 5칸 실제 비율 막대");
     equal_(renderDynamicDashboardSatisfactionRows_.toString().indexOf("truncate")<0,true,"만족도 문항 축약 없음");
     equal_(renderDynamicDashboardTopRows_.toString().indexOf("truncate")<0,true,"TOP 항목 축약 없음");
     equal_(resetDynamicDashboardSheet_.toString().indexOf("getImages")>=0,true,"기존 PNG 제거");
