@@ -231,6 +231,7 @@ function testDynamicSurveyV2RegressionSuite() {
     const a=buildDynamicDashboardModel_(analysis_(30,3,2,4,[{question:"재이용",scaleKind:"RECOMMENDATION_1_5",positiveRate:85}]),{});
     equal_(a.kpis[0].displayText,"30명","A 응답자");equal_(a.satisfactionItems.length,3,"A 만족도 3개");
     equal_(a.improvementItems.length,2,"A 개선 2개");equal_(a.futureItems.length,4,"A 희망 4개");
+    equal_(a.multipleSections.length,2,"A 대시보드 복수응답 2개");
     equal_(a.kpis[3].displayText,"85.0%","A NPS 없음");
     const b=buildDynamicDashboardModel_(analysis_(80,5,7,8,[{question:"재이용",scaleKind:"RECOMMENDATION_1_5",positiveRate:85},
       {question:"추천",scaleKind:"NPS_0_10",nps:30.4}]),{});
@@ -256,6 +257,29 @@ function testDynamicSurveyV2RegressionSuite() {
     const onlyNps=buildDynamicDashboardModel_(analysis_(10,1,0,0,[{question:"추천",scaleKind:"NPS_0_10",nps:-5.5}]),{});
     equal_(onlyFive.kpis[3].displayText,"81.2%","I 5점 의향만 존재");equal_(onlyNps.kpis[3].displayText,"-5.5","J NPS만 존재");
     equal_(b.coreMetrics.length,5,"K 양쪽 지표 독립 행");equal_(d.coreMetrics[3].value,"해당 없음","L 의향 없음 명시");});
+  test_("대시보드 복수응답 의미 분류와 동적 선택",function(){
+    function q_(question,count){return {question:question,items:[{label:"항목",count:count,selectionRate:25,respondentRate:20,validRespondentRate:20}]};}
+    const sections=buildDynamicDashboardMultipleSections_([
+      q_("프로그램에서 좋았던 점을 모두 선택",3),q_("앞으로 참여하고 싶은 프로그램",4),
+      q_("도서관 이용 목적",8),q_("개선이 필요한 사항",2)]);
+    equal_(sections.length,2,"최대 2개");equal_(sections[0].title,"개선 필요사항 TOP 5","개선 우선");
+    equal_(sections[1].title,"향후 희망 프로그램 TOP 5","향후 프로그램 다음");
+    equal_(buildDynamicDashboardMultipleSections_([]).length,0,"복수응답 없음");
+    equal_(buildDynamicDashboardMultipleSections_([q_("도서관 이용 목적",1)])[0].title,"도서관 이용 목적 TOP 5","기타 원문 제목");});
+  test_("04 복수응답 표시 모델",function(){
+    const source=[{label:"동률 B",count:3,selectionRate:30,respondentRate:20,validRespondentRate:20},
+      {label:"최다",count:5,selectionRate:50,respondentRate:40,validRespondentRate:50},
+      {label:"동률 A",count:3,selectionRate:20,respondentRate:20,validRespondentRate:20}];
+    const display=getDynamicMultipleDisplayItems_(source);
+    equal_(display.map(function(item){return item.label;}).join(","),"최다,동률 B,동률 A","count 내림차순 및 동률 안정 정렬");
+    equal_(source[0].label,"동률 B","원본 배열 불변");
+    equal_(shouldShowDynamicValidRespondentRate_(display),true,"선택률 차이 열 표시");
+    equal_(shouldShowDynamicValidRespondentRate_([{respondentRate:20,validRespondentRate:20+1e-10}]),false,"epsilon 동일 처리");
+    equal_(buildDynamicMultipleQuestionSummary_({validRespondents:4,totalSelections:6}),"유효 응답자 4명 · 총 선택 6건 · 1인 평균 1.50개 선택","문항 요약");
+    equal_(buildDynamicMultipleQuestionSummary_({validRespondents:0,totalSelections:0}).indexOf("해당 없음")>=0,true,"0 분모 안전");
+    const renderer=createDynamicMultipleSheet_.toString();
+    ["setDynamicBarSparklines_","newChart","insertChart","insertImage","getBlob","SPARKLINE","█","░"].forEach(function(token){
+      equal_(renderer.indexOf(token),-1,"04 금지 구현 "+token);});});
   test_("AI 문서형 본문 폭과 문단 높이",function(){
     equal_(getDynamicAIParagraphRowHeight_("짧은 문단"),54,"짧은 문단");
     equal_(getDynamicAIParagraphRowHeight_(new Array(320).join("가")),84,"중간 문단");
@@ -271,24 +295,26 @@ function testDynamicSurveyV2RegressionSuite() {
       setFontColor:function(){return this;},setFontWeight:function(){return this;},setFontStyle:function(){return this;},
       setHorizontalAlignment:function(){return this;},setVerticalAlignment:function(){return this;},setWrap:function(){return this;},
       setBorder:function(){return this;}};
-    const sheet={getRange:function(a1){equal_(a1,"A1:V40","초기화 범위");return range;}};
+    const sheet={getRange:function(a1){equal_(a1,"A1:V40","이전 A:V 색상까지 초기화");return range;}};
     resetDynamicDashboardRange_(sheet);resetDynamicDashboardRange_(sheet);
     equal_(calls.join(","),"unmerge,content,validation,notes,visual,unmerge,content,validation,notes,visual","연속 초기화 순서");
     equal_(calls.indexOf("content")<calls.indexOf("visual"),true,"typed content 선제 제거");
     equal_(resetDynamicDashboardRange_.toString().indexOf("clearFormat"),-1,"숫자 형식 포함 초기화 없음");});
   test_("대시보드 고정 해제와 병합 계획",function(){
-    [[1,0],[2,0],[0,1]].forEach(function(initial){const calls=[];const merged={getA1Notation:function(){return "A1:V2";}};
+    [[1,0],[2,0],[0,1]].forEach(function(initial){const calls=[];const merged={getA1Notation:function(){return "A1:P2";}};
       const sheet={getName:function(){return "02_대시보드";},getFrozenRows:function(){return initial[0];},
         getFrozenColumns:function(){return initial[1];},setFrozenRows:function(value){calls.push("rows="+value);},
         setFrozenColumns:function(value){calls.push("columns="+value);},getRange:function(){return {getMergedRanges:function(){return [merged];}};}};
       let logged="";prepareDynamicDashboardFreezeState_(sheet,function(message){logged=message;});
       equal_(calls.join(","),"rows=0,columns=0","고정 해제 순서 "+initial.join("/"));
       equal_(logged.indexOf("frozenRows="+initial[0])>=0,true,"기존 고정 행 로그");
-      equal_(logged.indexOf("currentMerges=A1:V2")>=0,true,"기존 병합 로그");});
+      equal_(logged.indexOf("currentMerges=A1:P2")>=0,true,"기존 병합 로그");});
     const planned=getDynamicDashboardPlannedMerges_();
-    equal_(planned.length,46,"동적 행 병합 계획 수");
-    equal_(planned.indexOf("A1:V2")>=0,true,"A:V 제목 영역");
-    equal_(planned.indexOf("A17:N17")>=0,true,"만족도 상세 안내 영역");
+    equal_(planned.length,35,"동적 행 병합 계획 수");
+    equal_(planned.indexOf("A1:P2")>=0,true,"A:P 제목 영역");
+    equal_(planned.indexOf("A18:P18")>=0,true,"만족도 상세 안내 영역");
+    equal_(getDynamicDashboardPlannedMerges_(0).length,23,"복수응답 없음 동적 당김");
+    equal_(getDynamicDashboardPlannedMerges_(1).length,29,"복수응답 1개 동적 당김");
     equal_(planned.indexOf("H12:N20"),-1,"핵심 결과 대형 병합 제거");equal_(planned.indexOf("A34:N38"),-1,"해석 대형 병합 제거");
     equal_(new Set(planned).size,planned.length,"중복 병합 없음");
     equal_(validateDynamicDashboardMergePlan_(planned).length,0,"병합 범위 비중첩");
