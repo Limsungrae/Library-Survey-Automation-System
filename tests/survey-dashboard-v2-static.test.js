@@ -129,6 +129,22 @@ assert(!html.includes('v2AnalysisConfirmMapping'), 'non-validating confirmation 
 });
 assert(appHtml.includes('normalized==="error"') && appHtml.includes('details.open=true'), 'error details automatically open');
 assert(appHtml.includes('removeAttribute("aria-valuenow")'), 'indeterminate progress does not claim a percentage');
+assert(appHtml.includes('options.globalLoading===true'), 'global loading is opt-in');
+['validateToken','login','logout'].forEach(name => {
+  const source=appHtml.slice(appHtml.indexOf(`${name}:function`),appHtml.indexOf('\n',appHtml.indexOf(`${name}:function`)));
+  assert(source.includes('globalLoading:true'), `${name} may use bootstrap/auth overlay`);
+});
+['settings','saveSettings','systemStatus','createRawData','inspectMapping','inspectMappingByRule','savedMappings','saveMappings','generateAnalysis','dashboardData','runQuality','generateAiReport','exportReport'].forEach(name => {
+  const source=appHtml.slice(appHtml.indexOf(`${name}:function`),appHtml.indexOf('\n',appHtml.indexOf(`${name}:function`)));
+  assert(!source.includes('globalLoading:true'), `${name} does not block the full screen`);
+});
+assert(appHtml.includes('function setButtonBusy_') && appHtml.includes('setAttribute("aria-busy"'), 'shared button busy contract');
+['v2AnalysisProcessing','v2QualityProcessing','v2AiProcessing','v2DownloadProcessing'].forEach(id => {
+  assert(html.includes(`id="${id}"`) && html.includes('aria-busy="false"'), `${id} exposes busy semantics`);
+});
+assert(html.includes('v2-processing-flow--ai') && html.includes('AI 분석은 설문 규모에 따라'), 'long-running AI processing guidance');
+assert(appHtml.includes('AI 분석 요청이 일시적으로 많아'), 'AI quota error has a user-safe message');
+assert(css.includes('prefers-reduced-motion') && css.includes('button[aria-busy="true"]'), 'busy animation is accessible');
 assert(appHtml.includes('if(state.analysisStatus==="running")return') && appHtml.includes('if(state.qualityRunStatus==="running")return') && appHtml.includes('if(state.aiRunStatus==="running")return') && appHtml.includes('if(state.downloadStatus==="running")return'), 'duplicate execution guards remain');
 const startQualitySource=extractFunctionSource('startQuality');
 assert(!startQualitySource.includes('{analysis:true,quality:true'), 'quality run does not stale analysis');

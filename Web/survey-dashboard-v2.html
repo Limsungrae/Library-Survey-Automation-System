@@ -204,13 +204,14 @@
           </section>
 
           <div class="v2-processing-layout">
-            <article id="v2AnalysisProcessing" class="v2-card v2-processing-card" data-processing-state="idle" role="status" aria-live="polite">
+            <article id="v2AnalysisProcessing" class="v2-card v2-processing-card" data-processing-state="idle" role="status" aria-live="polite" aria-busy="false">
               <div class="v2-card__heading">
                 <div><h3 id="v2AnalysisState">분석 준비</h3></div>
                 <span id="v2AnalysisBadge" class="v2-badge v2-badge--neutral">대기</span>
               </div>
               <p id="v2AnalysisStage" class="v2-analysis-stage">분석 시작 버튼을 눌러 주세요.</p>
               <div id="v2AnalysisProgress" class="v2-analysis-progress" role="progressbar" aria-label="통계 분석 진행률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="v2AnalysisProgressBar"></span></div>
+              <ul class="v2-processing-flow" aria-label="통계 분석 처리 흐름 안내"><li>응답 데이터 확인</li><li>문항별 통계 계산</li><li>분석 결과 구성</li></ul>
               <p id="v2AnalysisProgressText" class="v2-analysis-progress-text">처리 중</p>
               <details id="v2AnalysisLogDetails" class="v2-processing-details"><summary>상세 처리정보 보기</summary><ol id="v2AnalysisLog" class="v2-analysis-log"><li>분석을 시작하면 처리 단계가 표시됩니다.</li></ol></details>
             </article>
@@ -246,7 +247,7 @@
             <button id="v2QualityStartButton" class="v2-button v2-button--primary" type="button">품질검사 실행</button>
           </div>
 
-          <article id="v2QualityProcessing" class="v2-card v2-processing-card v2-quality-status-card" data-processing-state="idle" role="status" aria-live="polite">
+          <article id="v2QualityProcessing" class="v2-card v2-processing-card v2-quality-status-card" data-processing-state="idle" role="status" aria-live="polite" aria-busy="false">
             <div class="v2-card__heading">
               <div><h3 id="v2QualityState">검사 준비</h3></div>
               <span id="v2QualityBadge" class="v2-badge v2-badge--neutral">검사 전</span>
@@ -290,15 +291,16 @@
           </div>
 
           <div class="v2-ai-grid">
-            <article id="v2AiProcessing" class="v2-card v2-processing-card v2-ai-status-card" data-processing-state="idle" role="status" aria-live="polite">
+            <article id="v2AiProcessing" class="v2-card v2-processing-card v2-ai-status-card" data-processing-state="idle" role="status" aria-live="polite" aria-busy="false">
               <div class="v2-card__heading">
                 <div><h3 id="v2AiState">생성 준비</h3></div>
                 <span id="v2AiBadge" class="v2-badge v2-badge--neutral">대기</span>
               </div>
               <p id="v2AiStage" class="v2-analysis-stage">품질검사 통과 후 AI 총평을 생성할 수 있습니다.</p>
               <div id="v2AiProgress" class="v2-analysis-progress" role="progressbar" aria-label="AI 보고서 생성 진행률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="v2AiProgressBar"></span></div>
+              <ul class="v2-processing-flow v2-processing-flow--ai" aria-label="AI 보고서 처리 흐름 안내"><li>통계 결과 확인</li><li>의견 및 주요 요구 분석</li><li>종합 총평 구성</li><li>향후계획 구성</li></ul>
               <p id="v2AiProgressText" class="v2-analysis-progress-text">완료율을 임의로 표시하지 않습니다.</p>
-              <p id="v2AiWaitNote" class="v2-muted" hidden>AI 분석은 다른 단계보다 시간이 조금 더 걸릴 수 있습니다.</p>
+              <p id="v2AiWaitNote" class="v2-muted" hidden>AI 분석은 설문 규모에 따라 다소 시간이 걸릴 수 있습니다. 현재 페이지를 닫지 말고 잠시 기다려 주세요.</p>
               <details id="v2AiLogDetails" class="v2-processing-details"><summary>상세 처리정보 보기</summary><ol id="v2AiLog" class="v2-analysis-log"><li>AI 총평 생성을 시작하면 처리 로그가 표시됩니다.</li></ol></details>
               <dl class="v2-ai-meta">
                 <div><dt>사용 모델</dt><dd id="v2AiModel">Gemini · 서버 설정 모델</dd></div>
@@ -340,7 +342,7 @@
             <button id="v2ExportButton" class="v2-button v2-button--primary" type="button">Excel 보고서 생성</button>
           </div>
 
-          <article id="v2DownloadProcessing" class="v2-card v2-processing-card v2-download-status-card" data-processing-state="idle" role="status" aria-live="polite">
+          <article id="v2DownloadProcessing" class="v2-card v2-processing-card v2-download-status-card" data-processing-state="idle" role="status" aria-live="polite" aria-busy="false">
             <div class="v2-card__heading">
               <div><h3 id="v2DownloadState">생성 준비</h3></div>
               <span id="v2DownloadBadge" class="v2-badge v2-badge--neutral">대기</span>
@@ -351,6 +353,7 @@
             </label>
             <p id="v2DownloadMessage" class="v2-upload-status" aria-live="polite">AI 보고서 완료 후 Excel 파일을 생성할 수 있습니다.</p>
             <div id="v2DownloadProgress" class="v2-analysis-progress" role="progressbar" aria-label="Excel 보고서 생성 중" hidden><span></span></div>
+            <ul class="v2-processing-flow" aria-label="Excel 보고서 처리 흐름 안내"><li>결과 시트 구성</li><li>보고서 서식 적용</li><li>Excel 파일 생성</li></ul>
           </article>
 
           <section class="v2-download-files" aria-labelledby="v2DownloadFilesTitle">
