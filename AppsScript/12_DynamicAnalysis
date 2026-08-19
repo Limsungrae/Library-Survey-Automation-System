@@ -721,8 +721,6 @@ function splitDynamicMultipleValue_(value) {
         || ch === ";"
         || ch === "\n"
         || ch === ","
-        || ch === "/"
-        || ch === "·"
       );
 
     if (isSeparator) {
