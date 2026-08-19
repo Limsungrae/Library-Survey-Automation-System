@@ -71,6 +71,19 @@ function testDynamicSurveyV2RegressionSuite() {
   test_("복수응답 동의어",function(){const values=["홈페이지","도서관 홈페이지","도서관 누리집"];
     const r=analyzeDynamicMultipleQuestions_({respondentCount:3,rows:values.map(function(v){return[v];}),mappings:[{columnNumber:1,originalHeader:"경로",selectedType:"MULTIPLE",analysisTarget:true}]})[0];
     equal_(r.items.length,1,"동의어 항목수");equal_(r.items[0].count,3,"동의어 빈도");});
+  test_("복수응답 집계 key와 원문 표시 label 분리",function(){const values=[
+    "생성형AI활용교육",
+    "프로그램 횟수 확대|AI·디지털 심화 프로그램 운영|생성형 AI 활용 교육|로봇·코딩 교육|VR·AR·XR 체험"
+  ];
+    const r=analyzeDynamicMultipleQuestions_({respondentCount:2,rows:values.map(function(v){return[v];}),mappings:[
+      {columnNumber:1,originalHeader:"개선 요구",selectedType:"MULTIPLE",analysisTarget:true}
+    ]})[0];
+    const labels=r.items.map(function(item){return item.label;});
+    ["프로그램 횟수 확대","AI·디지털 심화 프로그램 운영","생성형 AI 활용 교육","로봇·코딩 교육","VR·AR·XR 체험"]
+      .forEach(function(label){equal_(labels.indexOf(label)>=0,true,"원문 label 보존: "+label);});
+    const aiItem=r.items.filter(function(item){return item.key==="생성형ai활용교육";})[0];
+    equal_(aiItem.count,2,"정규화 key count 합산");equal_(aiItem.label,"생성형 AI 활용 교육","최초 원문 표시");
+    equal_(aiItem.normalizedLabel,"생성형ai활용교육","기존 normalizedLabel 호환");});
   test_("명시적 NPS",function(){const m={columnNumber:1,originalHeader:"추천",selectedType:"RECOMMENDATION",analysisTarget:true,scaleKind:"NPS_0_10"};
     const r=analyzeDynamicRecommendationQuestions_({respondentCount:6,rows:[["10"],["9"],["8"],["7"],["6"],["0"]],mappings:[m]})[0];
     equal_(r.promoterCount,2,"추천자");equal_(r.passiveCount,2,"중립자");equal_(r.detractorCount,2,"비추천자");equal_(r.nps,0,"NPS");});
@@ -272,6 +285,12 @@ function testDynamicSurveyV2RegressionSuite() {
     const third=sheet_("3행헤더",[["만족도 조사 결과",""],["2026년 상반기",""],["응답일시","Q1"],["1","A"],["2","B"]]);
     equal_(readSurveySheetStructureForMapping_(first).headerRow,1,"1행 헤더 호환");
     equal_(readSurveySheetStructureForMapping_(third).headerRow,3,"3행 헤더 탐지");
+    equal_(readSurveySheetStructureForMapping_(first).responseCount,2,"1행 헤더 응답 2건");
+    equal_(readSurveySheetStructureForMapping_(third).responseCount,2,"3행 헤더 응답 2건");
+    const blanks=sheet_("빈행포함",[["응답일시","Q1"],["1","A"],["",""],["2","B"],["",""]]);
+    equal_(readSurveySheetStructureForMapping_(blanks).responseCount,2,"중간·마지막 빈 행 제외");
+    const eightyTwo=sheet_("82명",[["응답일시","Q1"]].concat(new Array(82).fill(null).map(function(_,index){return [String(index+1),"A"];})));
+    equal_(readSurveySheetStructureForMapping_(eightyTwo).responseCount,82,"82명 server preview count");
     const selected=findBestSurveySheetForMapping_({getSheets:function(){return [sheet_("안내",[["제목","설명"],["내용",""]]),third];}});
     equal_(selected.getName(),"3행헤더","실제 응답 시트 선택");
     const rawSource=createGenericRawSheetFromWeb.toString();

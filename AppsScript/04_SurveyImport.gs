@@ -411,23 +411,14 @@ function readSurveySheetStructureForMapping_(
   // 프로파일 통계는 실행 시간과 개인정보 노출을 제한하기 위해 최대
   // 200개 응답만 읽습니다. Gemini에는 이 중 열별 최대 3개 샘플만
   // 마스킹하여 전달합니다.
-  const profileRowCount =
-    Math.min(
-      Math.max(lastRow - headerRow, 0),
-      200
-    );
-
-  const responseRows =
-    profileRowCount > 0
-      ? sheet
-          .getRange(
-            headerRow + 1,
-            1,
-            profileRowCount,
-            lastColumn
-          )
-          .getDisplayValues()
-      : [];
+  const rawResponseRowCount = Math.max(lastRow - headerRow, 0);
+  const allResponseRows = rawResponseRowCount > 0
+    ? sheet.getRange(headerRow + 1, 1, rawResponseRowCount, lastColumn).getDisplayValues()
+    : [];
+  const nonEmptyResponseRows = allResponseRows.filter(function(row) {
+    return row.some(function(value) { return cleanText_(value) !== ""; });
+  });
+  const responseRows = nonEmptyResponseRows.slice(0, 200);
 
   return {
     headerRow:
@@ -443,10 +434,7 @@ function readSurveySheetStructureForMapping_(
       responseRows,
 
     responseCount:
-      Math.max(
-        lastRow - headerRow,
-        0
-      )
+      nonEmptyResponseRows.length
   };
 }
 /**

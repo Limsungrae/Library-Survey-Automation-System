@@ -152,6 +152,9 @@ assert(aiService.includes('assertDynamicQualityFresh_(null,true)'), 'AI write is
 assert(qualityService.includes('assertDynamicStatisticsFresh_()') && qualityService.includes('markDynamicQualityRevision_'), 'quality binds to current statistics revision');
 assert(exportService.includes('assertDynamicAIReportFresh_()'), 'XLSX export blocks mixed revisions before copying sheets');
 assert(extractFunctionSource('selectFile').includes('state.dashboardData=null') && extractFunctionSource('selectFile').includes('state.dashboardStatus="idle"'), 'new raw selection clears the previous dashboard');
+assert(extractFunctionSource('selectFile').includes('state.respondentCount=0'), 'new file selection clears the previous respondent preview');
+assert(extractFunctionSource('renderUpload').includes('"확인 중"'), 'respondent preview avoids an unverified estimate');
+assert(extractFunctionSource('applyMappingResult').includes('result.responseCount'), 'server mapping response is the preview count source of truth');
 assert(css.includes('prefers-reduced-motion') && css.includes('button[aria-busy="true"]'), 'busy animation is accessible');
 assert(appHtml.includes('if(state.analysisStatus==="running")return') && appHtml.includes('if(state.qualityRunStatus==="running")return') && appHtml.includes('if(state.aiRunStatus==="running")return') && appHtml.includes('if(state.downloadStatus==="running")return'), 'duplicate execution guards remain');
 const startQualitySource=extractFunctionSource('startQuality');
