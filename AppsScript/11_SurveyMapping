@@ -154,6 +154,13 @@ function suggestSurveyQuestionType_(
       sample
     );
 
+  // 원 설문을 가공한 내부 파생열은 기본 분석 대상에서 제외합니다.
+  // "평균 만족도"처럼 실제 문항일 수 있는 일반 표현은 제외하지 않고,
+  // 시스템 산출물로 식별되는 보수적인 패턴만 적용합니다.
+  if (isSuspectedDerivedSurveyHeader_(normalizedHeader)) {
+    return "EXCLUDE";
+  }
+
 
   // ------------------------------------------------------------------------
   // 1. 응답일시 등 시스템 자동 생성 정보
@@ -277,9 +284,13 @@ function suggestSurveyQuestionType_(
     || normalizedHeader.includes("기관유형")
     || normalizedHeader.includes("소속기관")
     || normalizedHeader.includes("이용자유형")
+    || normalizedHeader.includes("이용자구분")
+    || normalizedHeader.includes("방문자유형")
     || normalizedHeader.includes("연령대")
     || normalizedHeader.includes("연령")
+    || normalizedHeader.includes("나이")
     || normalizedHeader.includes("거주지역")
+    || normalizedHeader.includes("거주지")
     || normalizedHeader.includes("성별")
     || normalizedHeader.includes("학년")
     || normalizedHeader.includes("직업")
@@ -354,6 +365,18 @@ function suggestSurveyQuestionType_(
   // ------------------------------------------------------------------------
 
   return "SINGLE";
+}
+
+
+function isSuspectedDerivedSurveyHeader_(header) {
+  const value=normalizeHeader_(cleanText_(header));
+  if(!value)return false;
+  return value.includes("정규화")
+    || value.includes("파생")
+    || value.includes("derived")
+    || /^(?:q\d+|문항\d+|추천)점수$/.test(value)
+    || /^\d+문항평균$/.test(value)
+    || /^(?:선택수|주관식유효여부|유효여부)$/.test(value);
 }
 
 
