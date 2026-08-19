@@ -282,26 +282,23 @@ function findBestSurveySheetForMapping_(
     return null;
   }
 
-  candidates.sort(function(a, b) {
-    const aResponseCount =
-      Math.max(
-        a.getLastRow() - 1,
-        0
-      );
+  const ranked = candidates.map(function(sheet, index) {
+    try {
+      return {
+        sheet: sheet,
+        responseCount: readSurveySheetStructureForMapping_(sheet).responseCount,
+        index: index
+      };
+    } catch (error) {
+      return null;
+    }
+  }).filter(Boolean);
 
-    const bResponseCount =
-      Math.max(
-        b.getLastRow() - 1,
-        0
-      );
-
-    return (
-      bResponseCount
-      - aResponseCount
-    );
+  ranked.sort(function(a, b) {
+    return b.responseCount - a.responseCount || a.index - b.index;
   });
 
-  return candidates[0];
+  return ranked.length ? ranked[0].sheet : null;
 }
 
 
@@ -548,22 +545,8 @@ function createGenericRawSheetFromWeb(fileData) {
         convertedFileId
       );
 
-    // 응답 데이터가 가장 많은 시트를 선택합니다.
-    const sourceSheet =
-      sourceSpreadsheet
-        .getSheets()
-        .filter(function(sheet) {
-          return (
-            sheet.getLastRow() >= 2
-            && sheet.getLastColumn() >= 2
-          );
-        })
-        .sort(function(a, b) {
-          return (
-            b.getLastRow()
-            - a.getLastRow()
-          );
-        })[0];
+    // Mapping과 동일한 시트 선택 및 헤더 탐지 규칙을 사용합니다.
+    const sourceSheet = findBestSurveySheetForMapping_(sourceSpreadsheet);
 
     if (!sourceSheet) {
       throw new Error(
@@ -571,10 +554,13 @@ function createGenericRawSheetFromWeb(fileData) {
       );
     }
 
-    const values =
-      sourceSheet
-        .getDataRange()
-        .getDisplayValues();
+    const structure = readSurveySheetStructureForMapping_(sourceSheet);
+    const values = sourceSheet.getRange(
+      structure.headerRow,
+      1,
+      sourceSheet.getLastRow() - structure.headerRow + 1,
+      sourceSheet.getLastColumn()
+    ).getDisplayValues();
 
     if (values.length > 20001 || values[0].length > 300
         || values.length * values[0].length > 2000000) {
@@ -661,6 +647,7 @@ removeAllCharts_(targetSheet);
     );
     targetSheet.getRange(1, 1).setNote(JSON.stringify({
       sourceFileName: fileName, sourceSheetName: sourceSheet.getName(), importedAt: new Date().toISOString(),
+      headerRow: structure.headerRow,
       blankRowsRemoved: values.length - nonEmptyValues.length
     }));
 

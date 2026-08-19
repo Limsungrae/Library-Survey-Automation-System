@@ -214,8 +214,28 @@ function testDynamicSurveyV2RegressionSuite() {
     equal_(names.indexOf("00_품질검사"),-1,"품질검사 제외");
     equal_(names[0],"01_조사개요","첫 결과 시트");});
   test_("복수응답 구분자와 가운데점 보존",function(){
-    equal_(splitDynamicMultipleValue_("A,B|C;D/E\nF").join("|"),"A|B|C|D|E|F","지원 구분자");
+    equal_(splitDynamicMultipleValue_("A|B|C").join("|"),"A|B|C","파이프 구분자");
+    equal_(splitDynamicMultipleValue_("A;B;C").join("|"),"A|B|C","세미콜론 구분자");
+    equal_(splitDynamicMultipleValue_("A\nB\nC").join("|"),"A|B|C","줄바꿈 구분자");
+    equal_(splitDynamicMultipleValue_("AI/VR/AR/XR 체험").join("|"),"AI/VR/AR/XR 체험","슬래시 항목 보존");
+    equal_(splitDynamicMultipleValue_("온/오프라인").join("|"),"온/오프라인","온오프라인 보존");
+    equal_(splitDynamicMultipleValue_("부모/보호자").join("|"),"부모/보호자","부모 보호자 보존");
+    equal_(splitDynamicMultipleValue_("AI/VR 체험|로봇/코딩 교육").join("|"),"AI/VR 체험|로봇/코딩 교육","파이프만 분리");
     equal_(splitDynamicMultipleValue_("문화·예술").join("|"),"문화·예술","가운데점은 응답 일부");});
+  test_("Mapping과 원자료 헤더 탐지 규칙 공유",function(){
+    function sheet_(name,values){return {getName:function(){return name;},getLastRow:function(){return values.length;},
+      getLastColumn:function(){return values.reduce(function(max,row){return Math.max(max,row.length);},0);},
+      getRange:function(row,column,rowCount,columnCount){return {getDisplayValues:function(){return values.slice(row-1,row-1+rowCount).map(function(source){const result=source.slice(column-1,column-1+columnCount);while(result.length<columnCount)result.push("");return result;});}};}};}
+    const first=sheet_("1행헤더",[["응답일시","Q1"],["1","A"],["2","B"]]);
+    const third=sheet_("3행헤더",[["만족도 조사 결과",""],["2026년 상반기",""],["응답일시","Q1"],["1","A"],["2","B"]]);
+    equal_(readSurveySheetStructureForMapping_(first).headerRow,1,"1행 헤더 호환");
+    equal_(readSurveySheetStructureForMapping_(third).headerRow,3,"3행 헤더 탐지");
+    const selected=findBestSurveySheetForMapping_({getSheets:function(){return [sheet_("안내",[["제목","설명"],["내용",""]]),third];}});
+    equal_(selected.getName(),"3행헤더","실제 응답 시트 선택");
+    const rawSource=createGenericRawSheetFromWeb.toString();
+    equal_(rawSource.indexOf("findBestSurveySheetForMapping_")>=0,true,"원자료 동일 시트 helper");
+    equal_(rawSource.indexOf("readSurveySheetStructureForMapping_")>=0,true,"원자료 동일 헤더 helper");
+    equal_(rawSource.indexOf("structure.headerRow")>=0,true,"헤더부터 원자료 읽기");});
   test_("동적 대시보드 호환성 시나리오",function(){
     function scales_(count,prefix){return new Array(count).fill(null).map(function(_,index){return {question:(prefix||"만족도 문항 ")+(index+1),average:4.8-index*0.1};});}
     function items_(count,prefix,zero){return new Array(count).fill(null).map(function(_,index){return {label:prefix+(index+1),count:zero?0:count-index,respondentRate:zero?0:(count-index)*10};});}

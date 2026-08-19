@@ -26,6 +26,7 @@ function extractFunctionSource(name) {
 }
 const formatMetric = extractFunction('formatMetric_');
 const qualityLabel = extractFunction('qualityLabel');
+const normalizedProcessingState = extractFunction('normalizedProcessingState_');
 assert.strictEqual(formatMetric(1, '명', 0), '1명');
 assert.strictEqual(formatMetric(30, '명', 0), '30명');
 assert.strictEqual(formatMetric(80, '명', 0), '80명');
@@ -33,6 +34,10 @@ assert.strictEqual(formatMetric(250, '명', 0), '250명');
 assert.strictEqual(formatMetric(1250, '명', 0), '1,250명');
 assert.strictEqual(formatMetric(null, '%', 1), '해당 없음');
 ['PASS', 'WARNING', 'FAIL', 'ERROR', 'STALE'].forEach(status => assert.notStrictEqual(qualityLabel(status), '검사 전'));
+assert.strictEqual(normalizedProcessingState('idle'),'idle');
+assert.strictEqual(normalizedProcessingState('saving'),'running');
+assert.strictEqual(normalizedProcessingState('existing'),'success');
+assert.strictEqual(normalizedProcessingState('error'),'error');
 
 const dashboardContext = {Number, String, Math, Array, escapeHtml:value => String(value), formatMetric_:formatMetric};
 vm.createContext(dashboardContext);
@@ -113,8 +118,44 @@ assert(aiService.includes('report:{summaryText:summaryText,futurePlanText:future
 assert(appHtml.includes('downloadStatus:state.downloadResult?"stale"'), 'downstream report stale');
 assert(appHtml.includes('quality.aiAllowed') || appHtml.includes('qualityAiAllowed'), 'quality aiAllowed remains gate');
 assert(appHtml.includes('getQualityUserMessage_'), 'quality code translation');
-assert(html.includes('v2MappingPreflight') && html.includes('v2AnalysisConfirmMapping'), 'mapping preflight is explicit');
-assert(appHtml.includes('mappingPreflightModel_') && appHtml.includes('이 설정으로 통계 분석'), 'analysis confirmation contract');
+assert(html.includes('v2MappingPreflight') && html.includes('v2MappingPreflightDetails'), 'mapping preflight is explicit');
+assert(appHtml.includes('mappingPreflightModel_') && html.includes('통계 분석 시작'), 'analysis preflight action contract');
+assert(!html.includes('v2AnalysisConfirmMapping'), 'non-validating confirmation checkbox is removed');
+['Analysis','Quality','Ai','Download'].forEach(prefix => assert(html.includes(`v2${prefix}Processing`), `${prefix} common processing card`));
+['idle','running','success','error'].forEach(status => assert(appHtml.includes(`"${status}"`), `processing state ${status}`));
+['v2AnalysisLogDetails','v2QualityLogDetails','v2AiLogDetails'].forEach(id => {
+  const tag=html.match(new RegExp(`<details[^>]+id="${id}"[^>]*>`));
+  assert(tag && !tag[0].includes(' open'), `${id} is collapsed by default`);
+});
+assert(appHtml.includes('normalized==="error"') && appHtml.includes('details.open=true'), 'error details automatically open');
+assert(appHtml.includes('removeAttribute("aria-valuenow")'), 'indeterminate progress does not claim a percentage');
+assert(appHtml.includes('options.globalLoading===true'), 'global loading is opt-in');
+['validateToken','login','logout'].forEach(name => {
+  const source=appHtml.slice(appHtml.indexOf(`${name}:function`),appHtml.indexOf('\n',appHtml.indexOf(`${name}:function`)));
+  assert(source.includes('globalLoading:true'), `${name} may use bootstrap/auth overlay`);
+});
+['settings','saveSettings','systemStatus','createRawData','inspectMapping','inspectMappingByRule','savedMappings','saveMappings','generateAnalysis','dashboardData','runQuality','generateAiReport','exportReport'].forEach(name => {
+  const source=appHtml.slice(appHtml.indexOf(`${name}:function`),appHtml.indexOf('\n',appHtml.indexOf(`${name}:function`)));
+  assert(!source.includes('globalLoading:true'), `${name} does not block the full screen`);
+});
+assert(appHtml.includes('function setButtonBusy_') && appHtml.includes('setAttribute("aria-busy"'), 'shared button busy contract');
+['v2AnalysisProcessing','v2QualityProcessing','v2AiProcessing','v2DownloadProcessing'].forEach(id => {
+  assert(html.includes(`id="${id}"`) && html.includes('aria-busy="false"'), `${id} exposes busy semantics`);
+});
+assert(html.includes('v2-processing-flow--ai') && html.includes('AI 분석은 설문 규모에 따라'), 'long-running AI processing guidance');
+assert(appHtml.includes('AI 분석 요청이 일시적으로 많아'), 'AI quota error has a user-safe message');
+assert(css.includes('prefers-reduced-motion') && css.includes('button[aria-busy="true"]'), 'busy animation is accessible');
+assert(appHtml.includes('if(state.analysisStatus==="running")return') && appHtml.includes('if(state.qualityRunStatus==="running")return') && appHtml.includes('if(state.aiRunStatus==="running")return') && appHtml.includes('if(state.downloadStatus==="running")return'), 'duplicate execution guards remain');
+const startQualitySource=extractFunctionSource('startQuality');
+assert(!startQualitySource.includes('{analysis:true,quality:true'), 'quality run does not stale analysis');
+assert(startQualitySource.includes('{quality:true,ai:true,report:true}'), 'quality run stales only downstream results');
+assert(startQualitySource.includes('{quality:false}'), 'quality success marks quality fresh');
+const startAnalysisSource=extractFunctionSource('startAnalysis');
+assert(startAnalysisSource.includes('{analysis:false,quality:true,ai:true,report:true}'), 'analysis success refreshes analysis and stales downstream results');
+const startAiSource=extractFunctionSource('startAiReport');
+assert(startAiSource.includes('{ai:false,report:true}'), 'AI success refreshes AI and stales report');
+const startExportSource=extractFunctionSource('startExport');
+assert(startExportSource.includes('{report:false}'), 'export success refreshes report only');
 assert(html.includes('v2VisualizationPreview') && appHtml.includes('buildDynamicVisualizationReportModel_'), 'visualization preview model');
 assert(!html.includes('scoreMapText'), 'no scoreMap JSON editor');
 assert(!html.includes('00_품질검사') || html.includes('내부 품질검사 시트는 포함되지 않습니다'), 'quality excluded wording');
