@@ -26,10 +26,13 @@ function generateDynamicStatisticalReport_() {
     const settings = getSurveySettings_();
     currentStage = "문항 매핑 및 범용 원자료 조회";
     const source = getDynamicSurveySource_();
+    const rawRevision = getDynamicSurveyRevisionState_().rawRevision;
+    if (!rawRevision) throw new Error("원자료 revision이 없습니다. Excel 원자료를 다시 생성해 주세요.");
     currentStage = "동적 통계 계산";
     const analysis = calculateDynamicSurveyAnalysis_(source);
     currentStage = "통계 품질검사";
     const quality = validateDynamicSurveyQuality_(analysis, source);
+    invalidateDynamicStatisticsRevision_();
 
     currentStage = "조사개요 시트 생성";
     createDynamicOverviewSheet_(analysis, settings);
@@ -50,6 +53,7 @@ function generateDynamicStatisticalReport_() {
     currentStage = "통계 시트 정렬 및 저장";
     moveDynamicStatisticalSheetsInOrder_();
     SpreadsheetApp.flush();
+    markDynamicStatisticsRevision_(rawRevision);
 
     return {
       success: true,

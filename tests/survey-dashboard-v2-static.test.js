@@ -7,6 +7,8 @@ const appHtml = fs.readFileSync('Web/survey-dashboard-v2-app.html', 'utf8');
 const css = fs.readFileSync('Web/survey-dashboard-v2-css.html', 'utf8');
 const service = fs.readFileSync('AppsScript/10_WebService', 'utf8');
 const aiService = fs.readFileSync('AppsScript/14_DynamicAI.gs', 'utf8');
+const qualityService = fs.readFileSync('AppsScript/17_QualityValidator.gs', 'utf8');
+const exportService = fs.readFileSync('AppsScript/08_ExcelExport.gs', 'utf8');
 const script = appHtml.slice(appHtml.indexOf('<script>') + 8, appHtml.lastIndexOf('</script>'));
 new vm.Script(script, { filename: 'survey-dashboard-v2-app.js' });
 
@@ -144,6 +146,12 @@ assert(appHtml.includes('function setButtonBusy_') && appHtml.includes('setAttri
 });
 assert(html.includes('v2-processing-flow--ai') && html.includes('AI 분석은 설문 규모에 따라'), 'long-running AI processing guidance');
 assert(appHtml.includes('AI 분석 요청이 일시적으로 많아'), 'AI quota error has a user-safe message');
+assert(service.includes('statisticsRevision === rawRevision') && service.includes('statisticsSheetsComplete'), 'statistics completion is revision-aware');
+assert(service.includes('qualityRevision === rawRevision') && service.includes('aiRevision === rawRevision'), 'quality and AI freshness are revision-aware');
+assert(aiService.includes('assertDynamicQualityFresh_(null,true)'), 'AI write is blocked for stale statistics or quality');
+assert(qualityService.includes('assertDynamicStatisticsFresh_()') && qualityService.includes('markDynamicQualityRevision_'), 'quality binds to current statistics revision');
+assert(exportService.includes('assertDynamicAIReportFresh_()'), 'XLSX export blocks mixed revisions before copying sheets');
+assert(extractFunctionSource('selectFile').includes('state.dashboardData=null') && extractFunctionSource('selectFile').includes('state.dashboardStatus="idle"'), 'new raw selection clears the previous dashboard');
 assert(css.includes('prefers-reduced-motion') && css.includes('button[aria-busy="true"]'), 'busy animation is accessible');
 assert(appHtml.includes('if(state.analysisStatus==="running")return') && appHtml.includes('if(state.qualityRunStatus==="running")return') && appHtml.includes('if(state.aiRunStatus==="running")return') && appHtml.includes('if(state.downloadStatus==="running")return'), 'duplicate execution guards remain');
 const startQualitySource=extractFunctionSource('startQuality');

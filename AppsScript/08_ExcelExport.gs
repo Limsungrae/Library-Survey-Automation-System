@@ -196,6 +196,7 @@ function createDynamicSurveyReportXlsx_(
 
   try {
     currentStage = "보고서 시트 확인";
+    const exportRevision = assertDynamicAIReportFresh_();
     const sourceSpreadsheet =
       SpreadsheetApp.getActiveSpreadsheet();
 
@@ -447,6 +448,11 @@ function createDynamicSurveyReportXlsx_(
     // ----------------------------------------------------------------------
     // 최종 Excel 파일을 Google Drive에 저장
     // ----------------------------------------------------------------------
+
+    const finalRevision = assertDynamicAIReportFresh_();
+    if (finalRevision.rawRevision !== exportRevision.rawRevision) {
+      throw new Error("원자료가 보고서 생성 중 변경되었습니다. 통계 분석부터 다시 실행해 주세요.");
+    }
 
     const savedFile =
       DriveApp.createFile(

@@ -9,6 +9,48 @@ function testDynamicSurveyV2RegressionSuite() {
   }
   function scale_(values){return analyzeDynamicScaleQuestions_({respondentCount:values.length,
     rows:values.map(function(v){return [v];}),mappings:[{columnNumber:1,originalHeader:"척도",selectedType:"SCALE",analysisTarget:true,scoreMap:{}}]})[0];}
+  function propertyStore_(initial){const values=Object.assign({},initial||{});return {
+    getProperty:function(key){return Object.prototype.hasOwnProperty.call(values,key)?values[key]:null;},
+    setProperty:function(key,value){values[key]=String(value);return this;},
+    setProperties:function(items){Object.keys(items||{}).forEach(function(key){values[key]=String(items[key]);});return this;},
+    deleteProperty:function(key){delete values[key];return this;}
+  };}
+
+  test_("60명에서 80명 원자료 교체 시 lineage stale 보호",function(){
+    const store=propertyStore_();
+    markDynamicRawRevision_(store,"RAW_A_60");
+    markDynamicStatisticsRevision_("RAW_A_60",store);
+    markDynamicQualityRevision_("RAW_A_60",{status:"PASS",aiAllowed:true},store);
+    markDynamicAIRevision_("RAW_A_60",store);
+    let state=buildDynamicSurveyFreshnessState_(getDynamicSurveyRevisionState_(store),{
+      statisticsSheetsComplete:true,aiSheetsComplete:true});
+    equal_(state.statisticsFresh,true,"60명 통계 최신");equal_(state.exportReady,true,"60명 내보내기 가능");
+
+    markDynamicRawRevision_(store,"RAW_B_80");
+    state=buildDynamicSurveyFreshnessState_(getDynamicSurveyRevisionState_(store),{
+      statisticsSheetsComplete:true,aiSheetsComplete:true});
+    equal_(state.statisticsFresh,false,"이전 통계 시트가 있어도 stale");
+    equal_(state.qualityFresh,false,"이전 품질검사 stale");equal_(state.aiFresh,false,"이전 AI stale");
+    equal_(state.exportReady,false,"혼합 보고서 내보내기 차단");
+    let aiBlocked=false,exportBlocked=false;
+    try{assertDynamicQualityFresh_(store,true);}catch(error){aiBlocked=/통계 분석/.test(error.message);}
+    try{assertDynamicAIReportFresh_(store);}catch(error){exportBlocked=/통계 분석/.test(error.message);}
+    equal_(aiBlocked,true,"80명 통계 재실행 전 AI 차단");equal_(exportBlocked,true,"80명 통계 재실행 전 Export 차단");
+
+    markDynamicStatisticsRevision_("RAW_B_80",store);
+    state=buildDynamicSurveyFreshnessState_(getDynamicSurveyRevisionState_(store),{
+      statisticsSheetsComplete:true,aiSheetsComplete:true});
+    equal_(state.statisticsFresh,true,"80명 통계 재실행 후 최신");equal_(state.exportReady,false,"품질 및 AI 전 Export 차단");
+    markDynamicQualityRevision_("RAW_B_80",{status:"PASS",aiAllowed:true},store);
+    markDynamicAIRevision_("RAW_B_80",store);
+    state=buildDynamicSurveyFreshnessState_(getDynamicSurveyRevisionState_(store),{
+      statisticsSheetsComplete:true,aiSheetsComplete:true});
+    equal_(state.qualityFresh,true,"80명 품질 최신");equal_(state.aiFresh,true,"80명 AI 최신");
+    equal_(state.exportReady,true,"모든 stage가 같은 revision일 때만 Export 가능");
+
+    markDynamicRawRevision_(store,"RAW_B_80_REUPLOAD");
+    equal_(getDynamicSurveyRevisionState_(store).rawRevision,"RAW_B_80_REUPLOAD","동일 파일 재업로드도 새 revision");
+  });
 
   test_("한글 5점 척도와 결측/미매핑",function(){const r=scale_(["매우 만족","만족","보통","불만족","매우 불만족","","알 수 없음"]);
     equal_(r.validCount,5,"유효");equal_(r.missingCount,1,"결측");equal_(r.unmappedCount,1,"미매핑");

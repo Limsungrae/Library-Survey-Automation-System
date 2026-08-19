@@ -1,5 +1,131 @@
 /** Dynamic survey web services. */
 
+const DYNAMIC_SURVEY_REVISION_KEYS_ = Object.freeze({
+  RAW: "DYNAMIC_SURVEY_RAW_REVISION",
+  STATISTICS: "DYNAMIC_SURVEY_STATISTICS_REVISION",
+  QUALITY: "DYNAMIC_SURVEY_QUALITY_REVISION",
+  QUALITY_STATUS: "DYNAMIC_SURVEY_QUALITY_STATUS",
+  QUALITY_AI_ALLOWED: "DYNAMIC_SURVEY_QUALITY_AI_ALLOWED",
+  AI: "DYNAMIC_SURVEY_AI_REVISION"
+});
+
+function getDynamicSurveyRevisionStore_() {
+  return PropertiesService.getDocumentProperties();
+}
+
+function getDynamicSurveyRevisionState_(store) {
+  const properties = store || getDynamicSurveyRevisionStore_();
+  return {
+    rawRevision: properties.getProperty(DYNAMIC_SURVEY_REVISION_KEYS_.RAW) || "",
+    statisticsRevision: properties.getProperty(DYNAMIC_SURVEY_REVISION_KEYS_.STATISTICS) || "",
+    qualityRevision: properties.getProperty(DYNAMIC_SURVEY_REVISION_KEYS_.QUALITY) || "",
+    qualityStatus: properties.getProperty(DYNAMIC_SURVEY_REVISION_KEYS_.QUALITY_STATUS) || "",
+    qualityAiAllowed: properties.getProperty(DYNAMIC_SURVEY_REVISION_KEYS_.QUALITY_AI_ALLOWED) === "true",
+    aiRevision: properties.getProperty(DYNAMIC_SURVEY_REVISION_KEYS_.AI) || ""
+  };
+}
+
+function buildDynamicSurveyFreshnessState_(revisionState, sheetState) {
+  const revisions = revisionState || {};
+  const sheets = sheetState || {};
+  const rawRevision = revisions.rawRevision || "";
+  const statisticsFresh = Boolean(rawRevision && sheets.statisticsSheetsComplete
+    && revisions.statisticsRevision === rawRevision);
+  const qualityFresh = Boolean(statisticsFresh && revisions.qualityRevision === rawRevision);
+  const aiFresh = Boolean(qualityFresh && sheets.aiSheetsComplete && revisions.aiRevision === rawRevision);
+  return {
+    statisticsFresh: statisticsFresh,
+    qualityFresh: qualityFresh,
+    aiFresh: aiFresh,
+    exportReady: Boolean(aiFresh && revisions.qualityAiAllowed)
+  };
+}
+
+function markDynamicRawRevision_(store, revision) {
+  const properties = store || getDynamicSurveyRevisionStore_();
+  const rawRevision = revision || Utilities.getUuid();
+  properties.setProperty(DYNAMIC_SURVEY_REVISION_KEYS_.RAW, rawRevision);
+  [DYNAMIC_SURVEY_REVISION_KEYS_.STATISTICS, DYNAMIC_SURVEY_REVISION_KEYS_.QUALITY,
+    DYNAMIC_SURVEY_REVISION_KEYS_.QUALITY_STATUS, DYNAMIC_SURVEY_REVISION_KEYS_.QUALITY_AI_ALLOWED,
+    DYNAMIC_SURVEY_REVISION_KEYS_.AI].forEach(function(key) { properties.deleteProperty(key); });
+  return rawRevision;
+}
+
+function markDynamicStatisticsRevision_(rawRevision, store) {
+  const properties = store || getDynamicSurveyRevisionStore_();
+  const current = properties.getProperty(DYNAMIC_SURVEY_REVISION_KEYS_.RAW) || "";
+  if (!rawRevision || current !== rawRevision) throw new Error("원자료가 분석 중 변경되었습니다. 통계 분석을 다시 실행해 주세요.");
+  properties.setProperty(DYNAMIC_SURVEY_REVISION_KEYS_.STATISTICS, rawRevision);
+  [DYNAMIC_SURVEY_REVISION_KEYS_.QUALITY, DYNAMIC_SURVEY_REVISION_KEYS_.QUALITY_STATUS,
+    DYNAMIC_SURVEY_REVISION_KEYS_.QUALITY_AI_ALLOWED, DYNAMIC_SURVEY_REVISION_KEYS_.AI]
+    .forEach(function(key) { properties.deleteProperty(key); });
+}
+
+function invalidateDynamicStatisticsRevision_(store) {
+  const properties = store || getDynamicSurveyRevisionStore_();
+  [DYNAMIC_SURVEY_REVISION_KEYS_.STATISTICS, DYNAMIC_SURVEY_REVISION_KEYS_.QUALITY,
+    DYNAMIC_SURVEY_REVISION_KEYS_.QUALITY_STATUS, DYNAMIC_SURVEY_REVISION_KEYS_.QUALITY_AI_ALLOWED,
+    DYNAMIC_SURVEY_REVISION_KEYS_.AI].forEach(function(key) { properties.deleteProperty(key); });
+}
+
+function invalidateDynamicAIRevision_(store) {
+  (store || getDynamicSurveyRevisionStore_()).deleteProperty(DYNAMIC_SURVEY_REVISION_KEYS_.AI);
+}
+
+function markDynamicQualityRevision_(rawRevision, quality, store) {
+  const properties = store || getDynamicSurveyRevisionStore_();
+  assertDynamicStatisticsFresh_(properties);
+  if (properties.getProperty(DYNAMIC_SURVEY_REVISION_KEYS_.RAW) !== rawRevision) {
+    throw new Error("원자료가 품질검사 중 변경되었습니다. 통계 분석부터 다시 실행해 주세요.");
+  }
+  properties.setProperties((function() {
+    const values = {};
+    values[DYNAMIC_SURVEY_REVISION_KEYS_.QUALITY] = rawRevision;
+    values[DYNAMIC_SURVEY_REVISION_KEYS_.QUALITY_STATUS] = String(quality && quality.status || "NOT_RUN");
+    values[DYNAMIC_SURVEY_REVISION_KEYS_.QUALITY_AI_ALLOWED] = String(Boolean(quality && quality.aiAllowed));
+    return values;
+  })());
+  properties.deleteProperty(DYNAMIC_SURVEY_REVISION_KEYS_.AI);
+}
+
+function markDynamicAIRevision_(rawRevision, store) {
+  const properties = store || getDynamicSurveyRevisionStore_();
+  assertDynamicQualityFresh_(properties, true);
+  if (properties.getProperty(DYNAMIC_SURVEY_REVISION_KEYS_.RAW) !== rawRevision) {
+    throw new Error("원자료가 AI 보고서 생성 중 변경되었습니다. 통계 분석부터 다시 실행해 주세요.");
+  }
+  properties.setProperty(DYNAMIC_SURVEY_REVISION_KEYS_.AI, rawRevision);
+}
+
+function assertDynamicStatisticsFresh_(store) {
+  const revisions = getDynamicSurveyRevisionState_(store);
+  if (!revisions.rawRevision || revisions.statisticsRevision !== revisions.rawRevision) {
+    throw new Error("원자료가 변경되어 통계 결과가 최신 상태가 아닙니다. 통계 분석을 다시 실행해 주세요.");
+  }
+  return revisions;
+}
+
+function assertDynamicQualityFresh_(store, requireAiAllowed) {
+  const properties = store || getDynamicSurveyRevisionStore_();
+  const revisions = assertDynamicStatisticsFresh_(properties);
+  if (revisions.qualityRevision !== revisions.rawRevision) {
+    throw new Error("현재 통계 결과에 대한 품질검사가 필요합니다. 품질검사를 다시 실행해 주세요.");
+  }
+  if (requireAiAllowed && !revisions.qualityAiAllowed) {
+    throw new Error("품질검사 오류를 먼저 해결해 주세요.");
+  }
+  return revisions;
+}
+
+function assertDynamicAIReportFresh_(store) {
+  const properties = store || getDynamicSurveyRevisionStore_();
+  const revisions = assertDynamicQualityFresh_(properties, true);
+  if (revisions.aiRevision !== revisions.rawRevision) {
+    throw new Error("현재 원자료에 대한 AI 보고서가 없습니다. AI 분석을 다시 실행해 주세요.");
+  }
+  return revisions;
+}
+
 /**
  * 범용 만족도 조사 시스템의 현재 상태를 반환합니다.
  *
@@ -26,12 +152,6 @@ function getDynamicSurveySystemStatusFromWeb() {
     const qualitySheet = spreadsheet.getSheetByName(
       DYNAMIC_SURVEY_CONFIG.SHEETS.QUALITY
     );
-    const qualityStatus = qualitySheet
-      ? cleanText_(qualitySheet.getRange("B5").getDisplayValue())
-      : "NOT_RUN";
-    const qualityAiAllowed = qualitySheet
-      ? qualitySheet.getRange("B8").getDisplayValue() === "가능"
-      : false;
 
     const mappingSheet = spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.MAPPING)
       || spreadsheet.getSheetByName(DYNAMIC_SURVEY_CONFIG.SHEETS.LEGACY_MAPPING);
@@ -101,20 +221,22 @@ function getDynamicSurveySystemStatusFromWeb() {
     const rawSheetExists =
       respondentCount > 0;
 
-    const statisticsComplete =
-      statisticalSheetCount
-      === statisticalSheetNames.length;
-
-    const aiComplete =
-      aiSheetCount
-      === aiSheetNames.length;
-
+    const revisions = getDynamicSurveyRevisionState_();
+    const freshness = buildDynamicSurveyFreshnessState_(revisions, {
+      statisticsSheetsComplete: statisticalSheetCount === statisticalSheetNames.length,
+      aiSheetsComplete: aiSheetCount === aiSheetNames.length
+    });
+    const statisticsComplete = freshness.statisticsFresh;
+    const aiComplete = freshness.aiFresh;
+    const qualityStatus = freshness.qualityFresh
+      ? (revisions.qualityStatus || "NOT_RUN")
+      : (revisions.qualityRevision || qualitySheet ? "STALE" : "NOT_RUN");
+    const qualityAiAllowed = freshness.qualityFresh && revisions.qualityAiAllowed;
     const exportReady =
       settingsExists
       && mappingExists
       && rawSheetExists
-      && statisticsComplete
-      && qualityStatus !== "FAIL";
+      && freshness.exportReady;
 
     return {
       success: true,
@@ -146,6 +268,11 @@ function getDynamicSurveySystemStatusFromWeb() {
       statisticsComplete:
         statisticsComplete,
 
+      statisticsStale: rawSheetExists && !statisticsComplete,
+
+      rawRevision: revisions.rawRevision,
+      statisticsRevision: revisions.statisticsRevision,
+
       aiSheetCount:
         aiSheetCount,
 
@@ -155,11 +282,16 @@ function getDynamicSurveySystemStatusFromWeb() {
       aiComplete:
         aiComplete,
 
+      aiRevision: revisions.aiRevision,
+      aiStale: rawSheetExists && !aiComplete,
+
       exportReady:
         exportReady,
 
       qualityStatus: qualityStatus,
       qualityAiAllowed: qualityAiAllowed,
+      qualityRevision: revisions.qualityRevision,
+      qualityStale: rawSheetExists && !freshness.qualityFresh,
 
       message:
         "범용 시스템 상태를 확인했습니다."
@@ -194,6 +326,7 @@ function getDynamicSurveySystemStatusFromWeb() {
  */
 function getDynamicSurveyDashboardDataFromWeb() {
   try {
+    assertDynamicStatisticsFresh_();
     const source=getDynamicSurveySource_();
     const analysis=calculateDynamicSurveyAnalysis_(source);
     const quality=validateDynamicSurveyQuality_(analysis,source);

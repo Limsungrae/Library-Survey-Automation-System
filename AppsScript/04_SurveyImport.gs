@@ -591,6 +591,10 @@ function createGenericRawSheetFromWeb(fileData) {
         );
     }
 
+    // 쓰기 전에 기존 분석 lineage를 먼저 무효화합니다. 이후 시트 쓰기가
+    // 실패하더라도 이전 결과가 현재 원자료 결과로 다시 인정되지 않습니다.
+    const rawRevision = markDynamicRawRevision_();
+
 // 기존 시트에 병합 셀이 남아 있을 경우를 대비하여
 // 전체 병합을 해제한 뒤 내용을 초기화합니다.
 targetSheet
@@ -647,6 +651,7 @@ removeAllCharts_(targetSheet);
     );
     targetSheet.getRange(1, 1).setNote(JSON.stringify({
       sourceFileName: fileName, sourceSheetName: sourceSheet.getName(), importedAt: new Date().toISOString(),
+      rawRevision: rawRevision,
       headerRow: structure.headerRow,
       blankRowsRemoved: values.length - nonEmptyValues.length
     }));
@@ -695,10 +700,13 @@ removeAllCharts_(targetSheet);
         .forEach(function(mapping){if(mapping.columnNumber<=targetSheet.getMaxColumns())targetSheet.hideColumns(mapping.columnNumber);});
     }
 
+    SpreadsheetApp.flush();
+
     return {
       success: true,
       sheetName: targetSheetName,
       sourceSheet: sourceSheet.getName(),
+      rawRevision: rawRevision,
       rowCount: nonEmptyValues.length - 1,
       columnCount: actualColumnCount,
       message:

@@ -39,6 +39,7 @@ function generateDynamicAIReport(onStage) {
     ? onStage
     : function() {};
   try {
+    const revisions=assertDynamicQualityFresh_(null,true);
     updateStage("조사 설정 조회");
     const settings=getSurveySettings_();
     updateStage("동적 분석 결과 조회");
@@ -64,6 +65,7 @@ function generateDynamicAIReport(onStage) {
     updateStage("Gemini 향후계획 응답 처리");
     updateStage("보고서 저장 잠금 획득");
     lock=LockService.getScriptLock();lock.waitLock(30000);
+    invalidateDynamicAIRevision_();
     updateStage("06_주관식분석 시트 생성");
     createDynamicAIOpinionSheet_(analysis,opinionAnalysis);
     updateStage("07_AI총평 시트 생성");
@@ -98,6 +100,7 @@ createDynamicDashboardSheet_(analysis, settings);
 updateStage("AI 보고서 시트 정렬 및 저장");
 moveDynamicAISheetsInOrder_();
 SpreadsheetApp.flush();
+    markDynamicAIRevision_(revisions.rawRevision);
     const generatedSheets=[
       getDynamicAIReportSheetName_("OPINION", "06_주관식분석"),
       getDynamicAIReportSheetName_("AI_SUMMARY", "07_AI총평"),
