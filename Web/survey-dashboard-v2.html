@@ -375,9 +375,13 @@
 
           <section class="v2-card v2-visualization-report" aria-labelledby="v2VisualizationTitle">
             <div class="v2-card__heading"><div><p class="v2-eyebrow">VISUALIZATION REPORT</p><h3 id="v2VisualizationTitle">붙임용 핵심결과 시각화</h3></div>
-              <button id="v2VisualizationPreviewButton" class="v2-button v2-button--secondary" type="button">미리보기</button></div>
+              <div class="v2-visualization-actions">
+                <button id="v2VisualizationPreviewButton" class="v2-button v2-button--secondary" type="button">미리보기</button>
+                <button id="v2VisualizationPdfButton" class="v2-button v2-button--secondary" type="button" aria-busy="false">PDF 다운로드</button>
+                <button id="v2VisualizationPngButton" class="v2-button v2-button--secondary" type="button" aria-busy="false">PNG 다운로드</button>
+              </div></div>
             <p>검증된 집계 통계만 사용하며 주관식 원문이나 개인정보는 포함하지 않습니다.</p>
-            <p class="v2-muted">PNG 다운로드는 Apps Script 브라우저 환경 검증 후 제공하며, 현재는 외부 전송 없는 미리보기를 지원합니다.</p>
+            <p id="v2VisualizationStatus" class="v2-muted" role="status" aria-live="polite">미리보기와 다운로드는 동일한 검증 집계 모델을 사용합니다.</p>
             <div id="v2VisualizationPreview" class="v2-visualization-preview" hidden></div>
           </section>
 

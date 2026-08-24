@@ -9,6 +9,7 @@ const service = fs.readFileSync('AppsScript/10_WebService', 'utf8');
 const aiService = fs.readFileSync('AppsScript/14_DynamicAI.gs', 'utf8');
 const qualityService = fs.readFileSync('AppsScript/17_QualityValidator.gs', 'utf8');
 const exportService = fs.readFileSync('AppsScript/08_ExcelExport.gs', 'utf8');
+const secureService = fs.readFileSync('AppsScript/16_SecureWebApi.gs', 'utf8');
 const script = appHtml.slice(appHtml.indexOf('<script>') + 8, appHtml.lastIndexOf('</script>'));
 new vm.Script(script, { filename: 'survey-dashboard-v2-app.js' });
 
@@ -70,11 +71,15 @@ assert.strictEqual((dashboardContext.dashboardBarChartHtml_(new Array(10).fill(n
   limit:5, maxValue:5, value:item => item.value, label:item => item.label, valueFormatter:value => String(value)
 }).match(/v2-dashboard-bar"/g) || []).length, 5, 'dashboard chart limits to five rows');
 
-const kpiBase = {totalRespondents:72,overallAverage:4.14,overallPositiveRate:79.9};
+const kpiBase = {totalRespondents:82,overallAverage:4.73,overallPositiveRate:93.7};
 const visualization=dashboardContext.buildDynamicVisualizationReportModel_({summary:kpiBase||{},satisfaction:[],multiple:[{question:'개선할 점',items:[{label:'횟수 확대',count:36,selectionRate:28.6,respondentRate:43.9}]}]}, {}, null);
 assert.strictEqual(visualization.multipleSections[0].items[0].respondentRate,43.9,'visualization uses respondent rate');
 assert.strictEqual(visualization.satisfaction.length,0,'missing panels remain absent');
-assert.deepStrictEqual([...dashboardContext.dashboardKpis_({...kpiBase,recommendationPositiveRate:null,nps:34.7}).map(item => item.value)], ['72명','4.14 / 5','79.9%','NPS +34.7']);
+assert.strictEqual(visualization.respondentCount,82,'visualization preserves respondent count');
+assert.strictEqual(visualization.kpis[1].value,'4.73 / 5','visualization preserves satisfaction formatting');
+assert.strictEqual(visualization.kpis[2].value,'93.7%','visualization preserves positive-rate formatting');
+assert.strictEqual(Object.prototype.hasOwnProperty.call(visualization,'text'),false,'visualization excludes opinion source text');
+assert.deepStrictEqual([...dashboardContext.dashboardKpis_({...kpiBase,recommendationPositiveRate:null,nps:34.7}).map(item => item.value)], ['82명','4.73 / 5','93.7%','NPS +34.7']);
 assert(dashboardContext.dashboardKpis_({...kpiBase,recommendationPositiveRate:85,nps:null})[3].value.includes('85.0%'));
 assert(dashboardContext.dashboardKpis_({...kpiBase,recommendationPositiveRate:85,nps:34.7})[3].value.includes('NPS +34.7'));
 assert.strictEqual(dashboardContext.dashboardKpis_({...kpiBase,recommendationPositiveRate:null,nps:null})[3].value, '해당 없음');
@@ -155,6 +160,14 @@ assert(extractFunctionSource('selectFile').includes('state.dashboardData=null') 
 assert(extractFunctionSource('selectFile').includes('state.respondentCount=0'), 'new file selection clears the previous respondent preview');
 assert(extractFunctionSource('renderUpload').includes('"확인 중"'), 'respondent preview avoids an unverified estimate');
 assert(extractFunctionSource('applyMappingResult').includes('result.responseCount'), 'server mapping response is the preview count source of truth');
+['v2VisualizationPreviewButton','v2VisualizationPdfButton','v2VisualizationPngButton'].forEach(id => assert(html.includes(`id="${id}"`), `${id} exists`));
+assert(secureService.includes('securePrepareDynamicVisualizationPdfExportFromWeb') && secureService.includes('securePrepareDynamicVisualizationPngExportFromWeb'), 'secure PDF and PNG export APIs exist');
+const visualizationExportSource=extractFunctionSource('startVisualizationExport_');
+assert(visualizationExportSource.includes('visualizationModel_()') && visualizationExportSource.includes('buildDynamicVisualizationSvg_(model)'), 'PDF and PNG share the preview model and SVG renderer');
+assert(visualizationExportSource.includes('if(state[statusKey]==="running")return'), 'PDF and PNG duplicate execution is blocked');
+assert(visualizationExportSource.includes('prepare(authorization.rawRevision)'), 'revision is checked again before download');
+assert(extractFunctionSource('setVisualizationBusy_').includes('setButtonBusy_'), 'visualization buttons expose disabled and aria-busy state');
+assert(!extractFunctionSource('buildDynamicVisualizationReportModel_').match(/opinions|maskedText|email|phone/i), 'visualization model excludes personal and raw opinion fields');
 assert(css.includes('prefers-reduced-motion') && css.includes('button[aria-busy="true"]'), 'busy animation is accessible');
 assert(appHtml.includes('if(state.analysisStatus==="running")return') && appHtml.includes('if(state.qualityRunStatus==="running")return') && appHtml.includes('if(state.aiRunStatus==="running")return') && appHtml.includes('if(state.downloadStatus==="running")return'), 'duplicate execution guards remain');
 const startQualitySource=extractFunctionSource('startQuality');

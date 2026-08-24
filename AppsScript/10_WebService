@@ -126,6 +126,28 @@ function assertDynamicAIReportFresh_(store) {
   return revisions;
 }
 
+function prepareDynamicVisualizationExportFromWeb_(format, expectedRawRevision, store) {
+  const revisions = assertDynamicAIReportFresh_(store);
+  const expected = cleanText_(expectedRawRevision);
+  if (expected && expected !== revisions.rawRevision) {
+    throw new Error("시각화 파일 생성 중 원자료가 변경되었습니다. 최신 결과를 다시 확인해 주세요.");
+  }
+  return {
+    success: true,
+    format: String(format || "").toUpperCase(),
+    rawRevision: revisions.rawRevision,
+    message: "현재 설문 결과의 시각화 Export를 확인했습니다."
+  };
+}
+
+function prepareDynamicVisualizationPdfExportFromWeb(expectedRawRevision) {
+  return prepareDynamicVisualizationExportFromWeb_("PDF", expectedRawRevision);
+}
+
+function prepareDynamicVisualizationPngExportFromWeb(expectedRawRevision) {
+  return prepareDynamicVisualizationExportFromWeb_("PNG", expectedRawRevision);
+}
+
 /**
  * 범용 만족도 조사 시스템의 현재 상태를 반환합니다.
  *

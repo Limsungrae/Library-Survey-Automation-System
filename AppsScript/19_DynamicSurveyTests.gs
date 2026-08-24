@@ -51,6 +51,18 @@ function testDynamicSurveyV2RegressionSuite() {
     markDynamicRawRevision_(store,"RAW_B_80_REUPLOAD");
     equal_(getDynamicSurveyRevisionState_(store).rawRevision,"RAW_B_80_REUPLOAD","동일 파일 재업로드도 새 revision");
   });
+  test_("Visualization PDF·PNG freshness guard",function(){
+    const store=propertyStore_();markDynamicRawRevision_(store,"VIS_A");markDynamicStatisticsRevision_("VIS_A",store);
+    markDynamicQualityRevision_("VIS_A",{status:"PASS",aiAllowed:true},store);markDynamicAIRevision_("VIS_A",store);
+    equal_(prepareDynamicVisualizationExportFromWeb_("PDF","VIS_A",store).rawRevision,"VIS_A","PDF current revision");
+    equal_(prepareDynamicVisualizationExportFromWeb_("PNG","VIS_A",store).format,"PNG","PNG API format");
+    let changed=false;try{prepareDynamicVisualizationExportFromWeb_("PDF","VIS_OLD",store);}catch(error){changed=/변경/.test(error.message);}
+    equal_(changed,true,"생성 중 expected revision 변경 차단");
+    markDynamicRawRevision_(store,"VIS_B");let stalePdf=false,stalePng=false;
+    try{prepareDynamicVisualizationExportFromWeb_("PDF","VIS_A",store);}catch(error){stalePdf=/통계 분석/.test(error.message);}
+    try{prepareDynamicVisualizationExportFromWeb_("PNG","VIS_A",store);}catch(error){stalePng=/통계 분석/.test(error.message);}
+    equal_(stalePdf,true,"stale Raw PDF 차단");equal_(stalePng,true,"stale Raw PNG 차단");
+  });
 
   test_("한글 5점 척도와 결측/미매핑",function(){const r=scale_(["매우 만족","만족","보통","불만족","매우 불만족","","알 수 없음"]);
     equal_(r.validCount,5,"유효");equal_(r.missingCount,1,"결측");equal_(r.unmappedCount,1,"미매핑");
@@ -454,7 +466,9 @@ function testDynamicSurveyPublicApiContracts() {
     "secureGetDynamicSurveyDashboardDataFromWeb",
     "secureGetDynamicSurveyQualityFromWeb",
     "secureGenerateDynamicAIReportFromWeb",
-    "secureExportDynamicSurveyReportFromWeb"
+    "secureExportDynamicSurveyReportFromWeb",
+    "securePrepareDynamicVisualizationPdfExportFromWeb",
+    "securePrepareDynamicVisualizationPngExportFromWeb"
   ];
   const missing = requiredApis.filter(function(apiName) {
     return typeof globalThis[apiName] !== "function";
