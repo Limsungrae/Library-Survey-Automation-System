@@ -610,7 +610,57 @@ case "SCALE_UNMAPPED_VALUE":
   function buildVisualizationPdfBlob_(canvas){const encoded=canvas.toDataURL("image/jpeg",.96).split(",")[1],binary=window.atob(encoded),jpeg=new Uint8Array(binary.length);for(let index=0;index<binary.length;index++)jpeg[index]=binary.charCodeAt(index);const parts=[],offsets=[0];let length=0;function add(bytes){parts.push(bytes);length+=bytes.length;}function object(number,before,data,after){offsets[number]=length;add(asciiBytes_(number+" 0 obj\n"+before));if(data)add(data);add(asciiBytes_((after||"")+"\nendobj\n"));}add(asciiBytes_("%PDF-1.4\n%PDFVIS\n"));object(1,"<< /Type /Catalog /Pages 2 0 R >>");object(2,"<< /Type /Pages /Kids [3 0 R] /Count 1 >>");object(3,"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>");object(4,"<< /Type /XObject /Subtype /Image /Width "+canvas.width+" /Height "+canvas.height+" /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length "+jpeg.length+" >>\nstream\n",jpeg,"\nendstream");const content=asciiBytes_("q\n595.28 0 0 841.89 0 0 cm\n/Im0 Do\nQ\n");object(5,"<< /Length "+content.length+" >>\nstream\n",content,"endstream");const xref=length;let table="xref\n0 6\n0000000000 65535 f \n";for(let number=1;number<=5;number++)table+=String(offsets[number]).padStart(10,"0")+" 00000 n \n";table+="trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n"+xref+"\n%%EOF";add(asciiBytes_(table));return new Blob([concatBytes_(parts)],{type:"application/pdf"});}
   function downloadVisualizationBlob_(blob,fileName){const url=URL.createObjectURL(blob),link=document.createElement("a");link.href=url;link.download=fileName;document.body.appendChild(link);link.click();link.remove();window.setTimeout(function(){URL.revokeObjectURL(url);},1000);}
   function setVisualizationBusy_(format,busy){const upper=String(format).toUpperCase(),button=el(upper==="PDF"?"v2VisualizationPdfButton":"v2VisualizationPngButton");setButtonBusy_(button,busy,upper+" 생성 중…",upper+" 다운로드");}
-  function startVisualizationExport_(format){const upper=String(format).toUpperCase(),statusKey=upper==="PDF"?"visualizationPdfStatus":"visualizationPngStatus";if(state[statusKey]==="running")return;let model,authorization;try{model=visualizationModel_();}catch(error){showStatus(friendlyError(error),"error");return;}state[statusKey]="running";setVisualizationBusy_(upper,true);el("v2VisualizationStatus").textContent=upper+" 시각화 파일을 생성하고 있습니다.";const prepare=upper==="PDF"?api.prepareVisualizationPdf:api.prepareVisualizationPng;prepare(model.rawRevision).then(function(result){authorization=result;const svg=buildDynamicVisualizationSvg_(model);return svgToVisualizationCanvas_(svg);}).then(function(canvas){return (upper==="PDF"?Promise.resolve(buildVisualizationPdfBlob_(canvas)):canvasPngBlob_(canvas)).then(function(blob){return {blob:blob};});}).then(function(output){return prepare(authorization.rawRevision).then(function(){downloadVisualizationBlob_(output.blob,visualizationFileName_(model,upper.toLowerCase()));state[statusKey]="success";el("v2VisualizationStatus").textContent=upper+" 다운로드를 완료했습니다.";showStatus(upper+" 시각화 파일을 생성했습니다.","success");});}).catch(function(error){state[statusKey]="error";state.visualizationError=friendlyError(error);el("v2VisualizationStatus").textContent=upper+" 파일을 생성하지 못했습니다. "+state.visualizationError;showStatus(state.visualizationError,"error");}).finally(function(){setVisualizationBusy_(upper,false);});}
+  function startVisualizationExport_(format){
+    const upper=String(format).toUpperCase(),lower=upper.toLowerCase(),statusKey=upper==="PDF"?"visualizationPdfStatus":"visualizationPngStatus";
+    console.info("[VIS EXPORT] "+lower+" click");
+    if(state[statusKey]==="running")return;
+    let model,authorization;
+    const prepare=function(revision){
+      console.info("[VIS EXPORT] "+lower+" authorization start");
+      return upper==="PDF"?api.prepareVisualizationPdf(revision):api.prepareVisualizationPng(revision);
+    };
+    try{
+      state[statusKey]="running";
+      setVisualizationBusy_(upper,true);
+      el("v2VisualizationStatus").textContent=upper+" 시각화 파일을 생성하고 있습니다.";
+    }catch(error){
+      state[statusKey]="error";
+      state.visualizationError=friendlyError(error);
+      try{setVisualizationBusy_(upper,false);}catch(ignored){}
+      showStatus(state.visualizationError,"error");
+      return;
+    }
+    Promise.resolve().then(function(){
+      model=visualizationModel_();
+      console.info("[VIS EXPORT] model built");
+      return prepare(model.rawRevision);
+    }).then(function(result){
+      authorization=result;
+      console.info("[VIS EXPORT] "+lower+" authorization success");
+      const svg=buildDynamicVisualizationSvg_(model);
+      console.info("[VIS EXPORT] svg built");
+      return svgToVisualizationCanvas_(svg);
+    }).then(function(canvas){
+      console.info("[VIS EXPORT] canvas built");
+      return (upper==="PDF"?Promise.resolve(buildVisualizationPdfBlob_(canvas)):canvasPngBlob_(canvas)).then(function(blob){return {blob:blob};});
+    }).then(function(output){
+      return prepare(authorization.rawRevision).then(function(){
+        console.info("[VIS EXPORT] "+lower+" authorization success");
+        downloadVisualizationBlob_(output.blob,visualizationFileName_(model,lower));
+        state[statusKey]="success";
+        el("v2VisualizationStatus").textContent=upper+" 다운로드를 완료했습니다.";
+        showStatus(upper+" 시각화 파일을 생성했습니다.","success");
+      });
+    }).catch(function(error){
+      console.error("[VIS EXPORT] "+lower+" failed",error);
+      state[statusKey]="error";
+      state.visualizationError=friendlyError(error);
+      el("v2VisualizationStatus").textContent=upper+" 파일을 생성하지 못했습니다. "+state.visualizationError;
+      showStatus(state.visualizationError,"error");
+    }).finally(function(){
+      setVisualizationBusy_(upper,false);
+    });
+  }
   function renderDownload(){applyProcessingState_("Download",state.downloadStatus,{idle:"AI 보고서 완료 후 Excel 파일을 생성할 수 있습니다.",running:"분석 결과를 Excel 보고서로 정리하고 있습니다.",success:"Excel 보고서가 준비되었습니다.",error:"Excel 보고서를 생성하지 못했습니다. 다시 시도해 주세요."});const running=state.downloadStatus==="running",success=state.downloadStatus==="success",stale=state.downloadStatus==="stale",failed=state.downloadStatus==="error",hasFile=Boolean(state.downloadResult);el("v2DownloadState").textContent=running?"Excel 결과보고서를 만들고 있습니다":stale?"기존 보고서 업데이트 필요":success?"Excel 보고서 생성 완료":failed?"Excel 보고서 생성 실패":"생성 준비";const badge=el("v2DownloadBadge");badge.textContent=running?"처리 중":stale?"⚠ STALE":success?"✓ 완료":failed?"⛔ 실패":"대기";badge.className="v2-badge "+(running?"v2-badge--ai":stale?"v2-badge--warning":success?"v2-badge--success":failed?"v2-badge--error":"v2-badge--neutral");const button=el("v2ExportButton"),allowed=state.accessibleSteps.indexOf("download")>=0;setButtonBusy_(button,running,"Excel 보고서 생성 중…",hasFile?"Excel 다시 생성":"Excel 보고서 생성");button.disabled=running||!allowed;button.title=!allowed?"품질검사 통과 또는 경고 상태에서 AI 보고서를 먼저 완료해 주세요.":"";const message=el("v2DownloadMessage");message.textContent=running?"최종 보고서 파일을 생성하고 있습니다.":stale?"분석 또는 AI 결과가 변경되었습니다. 기존 파일은 내려받을 수 있지만 최신 결과를 반영하려면 다시 생성해 주세요.":success?"Excel 보고서가 준비되었습니다. 아래 버튼으로 다시 내려받을 수 있습니다.":failed?state.downloadError:state.qualityStatus==="WARNING"?"주의사항을 확인했습니다. AI 보고서 완료 후 Excel을 생성할 수 있습니다.":"AI 보고서 완료 후 Excel 파일을 생성할 수 있습니다.";message.className="v2-upload-status"+(success?" v2-upload-status--success":stale?" v2-upload-status--warning":failed?" v2-upload-status--error":"");el("v2DownloadEmpty").hidden=hasFile;el("v2DownloadFileCard").hidden=!hasFile;el("v2DownloadCompleteActions").hidden=!hasFile;el("v2DownloadError").hidden=!failed;el("v2DownloadErrorMessage").textContent=hasFile?"기존 파일은 유지되었습니다. 잠시 후 다시 생성해 주세요.":"파일명과 이전 단계의 완료 상태를 확인한 후 다시 시도해 주세요.";el("v2DownloadErrorDetail").textContent=state.downloadError||"상세 오류 정보가 없습니다.";if(hasFile){el("v2DownloadFileName").textContent=state.downloadResult.fileName||"만족도조사_결과보고서.xlsx";el("v2DownloadFileMeta").textContent=(stale?"업데이트 필요 · ":"")+"생성 시각: "+(state.downloadGeneratedAt||"확인 필요");el("v2DownloadIncludedSheets").textContent=state.downloadResult.includedSheets&&state.downloadResult.includedSheets.length?"포함 시트: "+state.downloadResult.includedSheets.join(", "):"포함 시트: 01_조사개요 ~ 09_원자료";}el("v2DownloadFileButton").disabled=!hasFile;}
   function downloadExportResult(result){if(!result||!result.base64Data)throw new Error("다운로드할 Excel 데이터가 없습니다.");const binary=window.atob(result.base64Data);const bytes=new Uint8Array(binary.length);for(let index=0;index<binary.length;index+=1)bytes[index]=binary.charCodeAt(index);const blob=new Blob([bytes],{type:result.mimeType||"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});const url=URL.createObjectURL(blob);const link=document.createElement("a");link.href=url;link.download=result.fileName||"만족도조사_결과보고서.xlsx";document.body.appendChild(link);link.click();link.remove();window.setTimeout(function(){URL.revokeObjectURL(url);},1000);}
   function startExport(){if(state.downloadStatus==="running")return;if(state.accessibleSteps.indexOf("download")<0){showStatus("문제: Excel을 생성할 수 없습니다. 영향: 최종 보고서 생성이 차단되었습니다. 해결: Quality와 AI Report 단계를 완료해 주세요.","error");return;}const requestedName=el("v2ExportFileName").value.trim(),previous=state.downloadResult,previousAt=state.downloadGeneratedAt;setState({downloadStatus:"running",downloadError:""},false);api.exportReport(requestedName).then(function(result){const generatedAt=new Date().toLocaleString("ko-KR");setState({downloadStatus:"success",downloadResult:result,downloadError:"",downloadGeneratedAt:generatedAt,lastSavedAt:generatedAt,stale:Object.assign({},state.stale,{report:false})},false);downloadExportResult(result);showStatus("Excel 보고서 생성과 다운로드가 완료되었습니다.","success");}).catch(function(error){setState({downloadStatus:"error",downloadResult:previous,downloadGeneratedAt:previousAt,downloadError:error.message},false);});}

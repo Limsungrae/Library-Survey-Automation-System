@@ -166,6 +166,10 @@ const visualizationExportSource=extractFunctionSource('startVisualizationExport_
 assert(visualizationExportSource.includes('visualizationModel_()') && visualizationExportSource.includes('buildDynamicVisualizationSvg_(model)'), 'PDF and PNG share the preview model and SVG renderer');
 assert(visualizationExportSource.includes('if(state[statusKey]==="running")return'), 'PDF and PNG duplicate execution is blocked');
 assert(visualizationExportSource.includes('prepare(authorization.rawRevision)'), 'revision is checked again before download');
+assert(visualizationExportSource.includes('api.prepareVisualizationPdf(revision)') && visualizationExportSource.includes('api.prepareVisualizationPng(revision)'), 'visualization authorization keeps the api method receiver');
+assert(!visualizationExportSource.includes('const prepare=upper==="PDF"?api.prepareVisualizationPdf'), 'visualization API methods are never detached from api');
+assert(visualizationExportSource.includes('Promise.resolve().then') && visualizationExportSource.includes('.finally(function(){'), 'synchronous export failures enter the shared cleanup chain');
+assert(visualizationExportSource.includes('setVisualizationBusy_(upper,false)') && visualizationExportSource.includes('[VIS EXPORT]'), 'busy state is restored and export diagnostics remain available');
 assert(extractFunctionSource('setVisualizationBusy_').includes('setButtonBusy_'), 'visualization buttons expose disabled and aria-busy state');
 assert(!extractFunctionSource('buildDynamicVisualizationReportModel_').match(/opinions|maskedText|email|phone/i), 'visualization model excludes personal and raw opinion fields');
 assert(css.includes('prefers-reduced-motion') && css.includes('button[aria-busy="true"]'), 'busy animation is accessible');
