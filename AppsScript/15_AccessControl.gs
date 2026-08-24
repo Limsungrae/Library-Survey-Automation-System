@@ -14,6 +14,79 @@ function getWebAccessSessionSeconds_() {
   return 8 * 60 * 60;
 }
 
+/** Script Cache는 영속 세션보다 짧게 유지하는 조회 가속 계층입니다. */
+function getWebAccessCacheSeconds_() {
+  return 60 * 60;
+}
+
+function normalizeWebAccessToken_(token) {
+  return String(token || "").trim();
+}
+
+function getWebAccessTokenHash_(token) {
+  const digest = Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256,
+    normalizeWebAccessToken_(token),
+    Utilities.Charset.UTF_8
+  );
+  return digest.map(function(byte) {
+    return ((byte + 256) % 256).toString(16).padStart(2, "0");
+  }).join("");
+}
+
+function getWebAccessSessionPropertyKey_(token) {
+  return "WEB_ACCESS_SESSION_" + getWebAccessTokenHash_(token);
+}
+
+function getWebAccessCacheKey_(token) {
+  return "WEB_ACCESS_" + getWebAccessTokenHash_(token);
+}
+
+function refreshWebAccessCache_(token, expiresAt) {
+  const remainingSeconds = Math.floor((Number(expiresAt) - Date.now()) / 1000);
+  if (remainingSeconds <= 0) return;
+  CacheService.getScriptCache().put(
+    getWebAccessCacheKey_(token),
+    JSON.stringify({expiresAt: Number(expiresAt)}),
+    Math.min(getWebAccessCacheSeconds_(), remainingSeconds)
+  );
+}
+
+function createWebAccessSession_(token) {
+  const createdAt = Date.now();
+  const session = {
+    createdAt: createdAt,
+    expiresAt: createdAt + getWebAccessSessionSeconds_() * 1000
+  };
+  PropertiesService.getScriptProperties().setProperty(
+    getWebAccessSessionPropertyKey_(token),
+    JSON.stringify(session)
+  );
+  refreshWebAccessCache_(token, session.expiresAt);
+  return session;
+}
+
+function removeWebAccessSession_(token) {
+  const normalizedToken = normalizeWebAccessToken_(token);
+  if (!normalizedToken) return;
+  CacheService.getScriptCache().remove(getWebAccessCacheKey_(normalizedToken));
+  PropertiesService.getScriptProperties().deleteProperty(
+    getWebAccessSessionPropertyKey_(normalizedToken)
+  );
+}
+
+function parseWebAccessSession_(serialized) {
+  try {
+    const session = JSON.parse(String(serialized || ""));
+    if (!session || typeof session !== "object" || !Number.isFinite(Number(session.expiresAt))) {
+      return null;
+    }
+    return {createdAt: Number(session.createdAt || 0), expiresAt: Number(session.expiresAt)};
+  } catch (ignored) {
+    return null;
+  }
+}
+
 /**
  * 프론트엔드에서 입력한 비밀번호를 확인하고 임시 접근 토큰을 발급합니다.
  *
@@ -51,12 +124,8 @@ function verifyWebAppPasscodeFromWeb(passcode) {
     // 3. 인증 성공 시 고유 토큰(UUID) 생성
     const token = Utilities.getUuid() + Utilities.getUuid();
 
-    // 4. 구글 스크립트 캐시 시스템에 8시간 동안 토큰 저장
-    CacheService.getScriptCache().put(
-      "WEB_ACCESS_" + token,
-      "AUTHORIZED",
-      getWebAccessSessionSeconds_()
-    );
+    // 4. ScriptProperties에 8시간 세션을 저장하고 Script Cache를 예열
+    createWebAccessSession_(token);
 
     return {
       success: true,
@@ -89,19 +158,38 @@ function validateWebAppTokenFromWeb(token) {
 }
 
 /**
- * 내부용 토큰 유효성 조회 검사 (Cache 확인)
+ * 내부용 토큰 유효성 검사. ScriptProperties가 source of truth이며 Cache는 가속 계층입니다.
  *
  * @param {string} token
  * @return {boolean}
  */
 function isValidWebAccessToken_(token) {
-  const normalizedToken = String(token || "").trim();
+  const normalizedToken = normalizeWebAccessToken_(token);
 
-  if (!normalizedToken) {
+  if (!normalizedToken) return false;
+
+  const cache = CacheService.getScriptCache();
+  const cacheKey = getWebAccessCacheKey_(normalizedToken);
+  const cachedSession = parseWebAccessSession_(cache.get(cacheKey));
+  if (cachedSession && cachedSession.expiresAt > Date.now()) return true;
+
+  const properties = PropertiesService.getScriptProperties();
+  const propertyKey = getWebAccessSessionPropertyKey_(normalizedToken);
+  const serialized = properties.getProperty(propertyKey);
+  if (!serialized) {
+    cache.remove(cacheKey);
     return false;
   }
 
-  return CacheService.getScriptCache().get("WEB_ACCESS_" + normalizedToken) === "AUTHORIZED";
+  const session = parseWebAccessSession_(serialized);
+  if (!session || session.expiresAt <= Date.now()) {
+    properties.deleteProperty(propertyKey);
+    cache.remove(cacheKey);
+    return false;
+  }
+
+  refreshWebAccessCache_(normalizedToken, session.expiresAt);
+  return true;
 }
 
 /**
@@ -116,17 +204,13 @@ function requireWebAccessToken_(token) {
 }
 
 /**
- * 사용자가 로그아웃 버튼을 누르거나 세션을 파기할 때 캐시에서 토큰 삭제
+ * 사용자가 로그아웃하면 영속 세션과 조회 캐시를 함께 삭제합니다.
  *
  * @param {string} token
  * @return {Object}
  */
 function logoutWebAppFromWeb(token) {
-  const normalizedToken = String(token || "").trim();
-
-  if (normalizedToken) {
-    CacheService.getScriptCache().remove("WEB_ACCESS_" + normalizedToken);
-  }
+  removeWebAccessSession_(token);
 
   return {
     success: true,

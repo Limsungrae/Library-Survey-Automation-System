@@ -101,6 +101,9 @@ function getDynamicSurveySource_() {
         matrixId: cleanText_(mappingValue_(row, "행렬 ID", 12)),
         scaleKind: cleanText_(mappingValue_(row, "척도 유형", 13)),
         scoreMap: parseSurveyMappingScoreMap_(mappingValue_(row, "점수 매핑 JSON", 14)),
+        scaleValueMap: mappingHeaders.indexOf("척도 값 매핑 JSON") >= 0
+          ? parseSurveyMappingScoreMap_(mappingValue_(row, "척도 값 매핑 JSON", 20))
+          : null,
         reviewStatus: cleanText_(mappingValue_(row, "검토 상태", 19))
       };
     });
@@ -412,7 +415,7 @@ function analyzeDynamicMultipleQuestions_(source) {
     });
     const items = Object.keys(counts).map(function(key) {
       const count = counts[key];
-      return {label: normalizeDynamicMultipleItem_(key).label, normalizedLabel: key,
+      return {key: key, label: getDynamicMultipleDisplayLabel_(key, originalLabels[key]), normalizedLabel: key,
         originalLabels: originalLabels[key] || [], count: count,
         selectionRate: totalSelections ? round_(count / totalSelections * 100, 1) : 0,
         respondentRate: source.respondentCount ? round_(count / source.respondentCount * 100, 1) : 0,
@@ -721,8 +724,6 @@ function splitDynamicMultipleValue_(value) {
         || ch === ";"
         || ch === "\n"
         || ch === ","
-        || ch === "/"
-        || ch === "·"
       );
 
     if (isSeparator) {
@@ -753,6 +754,17 @@ function normalizeDynamicMultipleItem_(value) {
   const synonyms={"홈페이지":"홈페이지","도서관홈페이지":"홈페이지","도서관누리집":"홈페이지","누리집":"홈페이지"};
   const normalized=synonyms[key]||key;
   return {key:normalized,label:normalized==="홈페이지"?"홈페이지":label};
+}
+
+function getDynamicMultipleDisplayLabel_(key, originalLabels) {
+  if (key === "홈페이지") return "홈페이지";
+  const labels = (originalLabels || []).map(function(label) { return cleanText_(label); }).filter(Boolean);
+  if (!labels.length) return normalizeDynamicMultipleItem_(key).label;
+  return labels.map(function(label, index) {
+    return {label: label, index: index, readability: (label.match(/\s/g) || []).length + (label.match(/·/g) || []).length * 2};
+  }).sort(function(left, right) {
+    return right.readability - left.readability || left.index - right.index;
+  })[0].label;
 }
 
 function expandDynamicOtherSelection_(value) {
@@ -817,23 +829,33 @@ function isValidDynamicOpinion_(value) {
 function dynamicMappedScore_(value, mapping, recommendation) {
   const text = cleanText_(value);
   if (!text) return null;
-  const scoreMap = mapping && mapping.scoreMap && typeof mapping.scoreMap === "object"
-    ? mapping.scoreMap : {};
+  const hasExplicitScaleValueMap = Boolean(mapping && mapping.scaleValueMap !== null
+    && mapping.scaleValueMap !== undefined && typeof mapping.scaleValueMap === "object"
+    && !Array.isArray(mapping.scaleValueMap));
+  const scoreMap = hasExplicitScaleValueMap ? mapping.scaleValueMap
+    : mapping && mapping.scoreMap && typeof mapping.scoreMap === "object" ? mapping.scoreMap : {};
   if (Object.prototype.hasOwnProperty.call(scoreMap, text)) {
     const mapped = Number(scoreMap[text]);
     return !isNaN(mapped) && mapped >= 1 && mapped <= 5 ? mapped : null;
   }
-  const normalizedText = normalizeDynamicStatText_(text);
+  const normalizedText = normalizeDynamicScaleMapKey_(text);
   const normalizedKeys = {};
   Object.keys(scoreMap).forEach(function(key) {
-    normalizedKeys[normalizeDynamicStatText_(key)] = scoreMap[key];
+    normalizedKeys[normalizeDynamicScaleMapKey_(key)] = scoreMap[key];
   });
   if (Object.prototype.hasOwnProperty.call(normalizedKeys, normalizedText)) {
     const normalizedMapped = Number(normalizedKeys[normalizedText]);
     return !isNaN(normalizedMapped) && normalizedMapped >= 1 && normalizedMapped <= 5
       ? normalizedMapped : null;
   }
-  return normalizeScaleValue_(value);
+  return hasExplicitScaleValueMap ? null : normalizeScaleValue_(value);
+}
+
+function normalizeDynamicScaleMapKey_(value) {
+  return String(value === null || value === undefined ? "" : value)
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /** 숫자·숫자 문자열·한글 응답을 공통 5점 척도 값으로 정규화합니다. */

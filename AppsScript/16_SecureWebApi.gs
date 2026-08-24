@@ -135,3 +135,13 @@ function secureExportDynamicSurveyReportFromWeb(requestedFileName, accessToken, 
   requireWebAccessToken_(accessToken);
   return exportDynamicSurveyReportFromWeb(requestedFileName, options);
 }
+
+function securePrepareDynamicVisualizationPdfExportFromWeb(expectedRawRevision, accessToken) {
+  requireWebAccessToken_(accessToken);
+  return prepareDynamicVisualizationPdfExportFromWeb(expectedRawRevision);
+}
+
+function securePrepareDynamicVisualizationPngExportFromWeb(expectedRawRevision, accessToken) {
+  requireWebAccessToken_(accessToken);
+  return prepareDynamicVisualizationPngExportFromWeb(expectedRawRevision);
+}
