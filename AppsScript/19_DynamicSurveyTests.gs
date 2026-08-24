@@ -15,6 +15,45 @@ function testDynamicSurveyV2RegressionSuite() {
     setProperties:function(items){Object.keys(items||{}).forEach(function(key){values[key]=String(items[key]);});return this;},
     deleteProperty:function(key){delete values[key];return this;}
   };}
+  function authEnvironment_(){
+    const properties={WEB_APP_PASSCODE:"secret"},cacheValues={},cacheTtls={},removed=[];
+    const propertyStore={getProperty:function(key){return Object.prototype.hasOwnProperty.call(properties,key)?properties[key]:null;},
+      setProperty:function(key,value){properties[key]=String(value);return this;},deleteProperty:function(key){delete properties[key];return this;}};
+    const cache={get:function(key){return Object.prototype.hasOwnProperty.call(cacheValues,key)?cacheValues[key]:null;},
+      put:function(key,value,ttl){cacheValues[key]=String(value);cacheTtls[key]=ttl;},remove:function(key){delete cacheValues[key];removed.push(key);}};
+    let uuidCount=0;
+    const utilities={DigestAlgorithm:{SHA_256:"SHA_256"},Charset:{UTF_8:"UTF_8"},getUuid:function(){uuidCount++;return "uuid-"+uuidCount;},
+      computeDigest:function(algorithm,value){const text=String(value),bytes=[];for(let i=0;i<32;i++)bytes.push((text.charCodeAt(i%Math.max(text.length,1))||0)-128);return bytes;}};
+    return {properties:properties,cacheValues:cacheValues,cacheTtls:cacheTtls,removed:removed,
+      PropertiesService:{getScriptProperties:function(){return propertyStore;}},CacheService:{getScriptCache:function(){return cache;}},Utilities:utilities};
+  }
+  function withAuthEnvironment_(callback){const originalPropertiesService=PropertiesService,originalCacheService=CacheService,originalUtilities=Utilities;
+    const environment=authEnvironment_();try{PropertiesService=environment.PropertiesService;CacheService=environment.CacheService;Utilities=environment.Utilities;callback(environment);}
+    finally{PropertiesService=originalPropertiesService;CacheService=originalCacheService;Utilities=originalUtilities;}}
+
+  test_("영속 인증 세션 로그인과 Cache miss 복구",function(){withAuthEnvironment_(function(env){
+    const login=verifyWebAppPasscodeFromWeb("secret");equal_(login.success,true,"로그인 성공");equal_(login.authenticated,true,"인증 상태");
+    equal_(login.expiresInSeconds,8*60*60,"8시간 응답");const propertyKey=getWebAccessSessionPropertyKey_(login.token),cacheKey=getWebAccessCacheKey_(login.token);
+    equal_(Boolean(env.properties[propertyKey]),true,"ScriptProperties 세션 생성");equal_(Boolean(env.cacheValues[cacheKey]),true,"Cache 생성");
+    equal_(env.cacheTtls[cacheKey],60*60,"Cache 1시간 TTL");equal_(propertyKey.indexOf(login.token),-1,"property key에 원문 token 미포함");
+    equal_(isValidWebAccessToken_(login.token),true,"Cache hit 인증");delete env.cacheValues[cacheKey];
+    equal_(validateWebAppTokenFromWeb(login.token).authenticated,true,"Cache miss 영속 세션 복구");equal_(Boolean(env.cacheValues[cacheKey]),true,"Cache 재등록");
+    requireWebAccessToken_(login.token);
+  });});
+  test_("인증 세션 오류·만료·빈 token 정리",function(){withAuthEnvironment_(function(env){
+    equal_(isValidWebAccessToken_(""),false,"빈 token 거부");equal_(isValidWebAccessToken_("missing"),false,"없는 세션 거부");
+    const malformed="malformed",malformedProperty=getWebAccessSessionPropertyKey_(malformed);env.properties[malformedProperty]="not-json";
+    equal_(isValidWebAccessToken_(malformed),false,"손상 세션 거부");equal_(env.properties[malformedProperty],undefined,"손상 property 삭제");
+    const expired="expired",expiredProperty=getWebAccessSessionPropertyKey_(expired),expiredCache=getWebAccessCacheKey_(expired);
+    env.properties[expiredProperty]=JSON.stringify({createdAt:1,expiresAt:2});env.cacheValues[expiredCache]=JSON.stringify({expiresAt:2});
+    equal_(isValidWebAccessToken_(expired),false,"만료 세션 거부");equal_(env.properties[expiredProperty],undefined,"만료 property 삭제");equal_(env.cacheValues[expiredCache],undefined,"만료 cache 삭제");
+  });});
+  test_("로그아웃은 세션을 독립적으로 제거",function(){withAuthEnvironment_(function(env){
+    const first=verifyWebAppPasscodeFromWeb("secret"),second=verifyWebAppPasscodeFromWeb("secret");
+    equal_(isValidWebAccessToken_(first.token),true,"첫 세션 유효");equal_(isValidWebAccessToken_(second.token),true,"둘째 세션 유효");
+    equal_(logoutWebAppFromWeb(first.token).success,true,"로그아웃 성공");equal_(isValidWebAccessToken_(first.token),false,"첫 세션 제거");equal_(isValidWebAccessToken_(second.token),true,"둘째 세션 유지");
+    equal_(logoutWebAppFromWeb(first.token).success,true,"없는 세션 로그아웃 성공");
+  });});
 
   test_("60명에서 80명 원자료 교체 시 lineage stale 보호",function(){
     const store=propertyStore_();
