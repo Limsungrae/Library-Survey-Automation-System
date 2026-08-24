@@ -195,13 +195,15 @@ const dashboardSource = script.slice(script.indexOf('function dashboardBarChartH
 assert(html.includes('v2DashboardMultipleCards') && !html.includes('id="v2DashboardImprovement"'), 'multiple cards are dynamic');
 assert(appHtml.includes('classList.toggle("is-compact",complete)'), 'completed dashboard compacts workflow');
 const scaleRowSource=extractFunctionSource('buildScaleValueMappingRow_');
-assert(scaleRowSource.includes('mapping.selectedType!=="SCALE"') && scaleRowSource.includes('응답값 점수 매핑'), 'score mapping UI is limited to SCALE questions');
+const fivePointMappingSource=extractFunctionSource('usesFivePointValueMapping_');
+assert(fivePointMappingSource.includes('type==="SCALE"') && fivePointMappingSource.includes('type==="RECOMMENDATION"') && fivePointMappingSource.includes('scaleKind==="RECOMMENDATION_1_5"'), 'SCALE and five-point recommendation share score mapping eligibility');
+assert(!fivePointMappingSource.includes('NPS_0_10') && scaleRowSource.includes('usesFivePointValueMapping_(mapping)') && scaleRowSource.includes('응답값 점수 매핑'), 'NPS is excluded from the shared score mapping UI');
 assert(scaleRowSource.includes('mapping.scaleValueOptions') && scaleRowSource.includes('option.count'), 'score mapping UI uses unique response values and counts');
 ['5점','4점','3점','2점','1점'].forEach(label => assert(scaleRowSource.includes(label), `score mapping offers ${label}`));
 assert(scaleRowSource.includes('점수 확인 필요') && scaleRowSource.includes('모든 응답값의 점수가 지정되었습니다'), 'score mapping exposes incomplete and complete states');
 const mappingPayloadSource=extractFunctionSource('collectMappingPayload');
 assert(mappingPayloadSource.includes('scaleValueMap:scaleValueMap') && mappingPayloadSource.includes('scaleValueOptions'), 'mapping payload persists scale value mappings');
-assert(mappingPayloadSource.includes('scaleMappingIssues_') && mappingPayloadSource.includes('return null'), 'mapping save blocks incomplete SCALE mappings');
+assert(mappingPayloadSource.includes('scaleMappingIssues_') && mappingPayloadSource.includes('return null'), 'mapping save blocks incomplete five-point mappings');
 assert(extractFunctionSource('normalizeMappings').includes('mapping.scaleValueMap') && extractFunctionSource('normalizeMappings').includes('normalizeScaleValueOptions_'), 'saved score mappings and response values are restored');
 assert(extractFunctionSource('mappingPreflightModel_').includes('scaleMappingIncomplete'), 'analysis preflight reports incomplete score mappings');
 assert(css.includes('v2-scale-value-map__list') && css.includes('v2-scale-value-map__status'), 'scale mapping UI styles exist');

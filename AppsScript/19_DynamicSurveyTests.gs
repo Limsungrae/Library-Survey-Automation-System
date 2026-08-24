@@ -142,6 +142,22 @@ function testDynamicSurveyV2RegressionSuite() {
     const m={columnNumber:1,originalHeader:"추천",selectedType:"RECOMMENDATION",analysisTarget:true,scaleKind:"RECOMMENDATION_1_5",scoreMap:{}};
     const r=analyzeDynamicRecommendationQuestions_({respondentCount:5,rows:vals.map(function(v){return[v];}),mappings:[m]})[0];
     equal_(r.average,3,"평균");equal_(r.nps,null,"NPS 미산출");});
+  test_("5점 재이용·추천은 문항별 scaleValueMap으로 집계",function(){
+    const values=["1) 매우 그렇다","2) 그렇다","3) 보통","4) 그렇지 않다","5) 전혀 그렇지 않다"];
+    const valueMap={"1) 매우 그렇다":5,"2) 그렇다":4,"3) 보통":3,"4) 그렇지 않다":2,"5) 전혀 그렇지 않다":1};
+    const mapping={columnNumber:1,originalHeader:"재이용 의향",selectedType:"RECOMMENDATION",analysisTarget:true,
+      scaleKind:"RECOMMENDATION_1_5",scaleValueMap:valueMap,scaleValueOptions:values.map(function(label){return {label:label,count:1};})};
+    const result=analyzeDynamicRecommendationQuestions_({respondentCount:5,rows:values.map(function(value){return [value];}),mappings:[mapping]})[0];
+    equal_(result.validCount,5,"추천 유효응답");equal_(result.average,3,"추천 평균");equal_(result.positiveRate,40,"추천 긍정률");
+    equal_(result.scoreDistribution[5],1,"5점 분포");equal_(result.scoreDistribution[1],1,"1점 분포");
+    equal_(suggestSurveyScaleScore_("1) 매우 그렇다"),5,"번호 prefix 자동 추천");
+    equal_(validateSurveyMappings_([mapping]).valid,true,"완료된 추천 매핑 저장 가능");
+    const incomplete=Object.assign({},mapping,{scaleValueMap:{"3) 보통":3}});
+    equal_(validateSurveyMappings_([incomplete]).valid,false,"미완료 추천 매핑 저장 차단");
+    const nps={columnNumber:1,originalHeader:"추천 점수",selectedType:"RECOMMENDATION",scaleKind:"NPS_0_10",
+      scaleValueMap:{},scaleValueOptions:[{label:"10",count:1}]};
+    equal_(validateSurveyMappings_([nps]).valid,true,"NPS는 5점 매핑 검증 제외");
+  });
   test_("복수응답 합계행 퍼센트 안전",function(){const row=buildDynamicMultipleTotalRow_({totalSelections:82});
     equal_(row[1],82,"합계 선택건수");equal_(row[2],1,"선택건수 비율");equal_(row[3],"","전체응답률 공란");equal_(row[4],"","유효응답률 공란");});
   test_("완전 동점 공동순위",function(){const rows=analyzeDynamicScaleQuestions_({respondentCount:2,rows:[["5","5"],["4","4"]],mappings:[

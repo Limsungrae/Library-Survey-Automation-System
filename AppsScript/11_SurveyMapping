@@ -817,7 +817,9 @@ function normalizeSurveyScaleResponseValue_(value) {
 
 /** 기존 별칭은 분석 규칙이 아니라 Step 4의 초기 추천에만 사용합니다. */
 function suggestSurveyScaleScore_(value) {
-  const normalized = normalizeDynamicStatText_(normalizeSurveyScaleResponseValue_(value));
+  const recommendationText = normalizeSurveyScaleResponseValue_(value)
+    .replace(/^\d+\s*[.)]\s*/, "");
+  const normalized = normalizeDynamicStatText_(recommendationText);
   const aliases = {
     "매우만족":5,"매우그렇다":5,"매우그러함":5,"매우좋음":5,"매우도움됨":5,"매우적절":5,
     "만족":4,"그렇다":4,"그러함":4,"좋음":4,"도움됨":4,"적절":4,
@@ -828,6 +830,13 @@ function suggestSurveyScaleScore_(value) {
   if (Object.prototype.hasOwnProperty.call(aliases, normalized)) return aliases[normalized];
   const numeric = Number(normalizeSurveyScaleResponseValue_(value).replace(/점$/, "").trim());
   return Number.isFinite(numeric) && numeric >= 1 && numeric <= 5 ? numeric : null;
+}
+
+function usesSurveyFivePointValueMapping_(mapping) {
+  const type = cleanText_(mapping && (mapping.selectedType || mapping.suggestedType)).toUpperCase();
+  const scaleKind = cleanText_(mapping && mapping.scaleKind).toUpperCase();
+  return type === "SCALE"
+    || (type === "RECOMMENDATION" && scaleKind === "RECOMMENDATION_1_5");
 }
 
 
@@ -1287,7 +1296,7 @@ function validateSurveyMappings_(
         errors.push((index + 1) + "번째 추천 문항의 척도 유형을 NPS_0_10 또는 RECOMMENDATION_1_5로 지정해 주세요.");
       }
 
-      if (type === "SCALE" && Array.isArray(mapping.scaleValueOptions)) {
+      if (usesSurveyFivePointValueMapping_(mapping) && Array.isArray(mapping.scaleValueOptions)) {
         const valueMap = mapping.scaleValueMap && typeof mapping.scaleValueMap === "object"
           && !Array.isArray(mapping.scaleValueMap) ? mapping.scaleValueMap : {};
         const normalizedMap = {};
@@ -1300,11 +1309,11 @@ function validateSurveyMappings_(
           return !Number.isFinite(score) || score < 1 || score > 5;
         });
         if (unmapped.length > 0) {
-          errors.push((index + 1) + "번째 만족도 문항의 응답값 점수를 모두 지정해 주세요.");
+          errors.push((index + 1) + "번째 5점 척도 문항의 응답값 점수를 모두 지정해 주세요.");
         }
         const scores = Object.keys(normalizedMap).map(function(key) { return normalizedMap[key]; });
         if (scores.length === 5 && new Set(scores).size < 5) {
-          warnings.push((index + 1) + "번째 만족도 문항에 중복 점수가 있습니다. 의도한 매핑인지 확인해 주세요.");
+          warnings.push((index + 1) + "번째 5점 척도 문항에 중복 점수가 있습니다. 의도한 매핑인지 확인해 주세요.");
         }
       }
 
