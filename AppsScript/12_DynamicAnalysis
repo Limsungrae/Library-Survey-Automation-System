@@ -101,6 +101,9 @@ function getDynamicSurveySource_() {
         matrixId: cleanText_(mappingValue_(row, "행렬 ID", 12)),
         scaleKind: cleanText_(mappingValue_(row, "척도 유형", 13)),
         scoreMap: parseSurveyMappingScoreMap_(mappingValue_(row, "점수 매핑 JSON", 14)),
+        scaleValueMap: mappingHeaders.indexOf("척도 값 매핑 JSON") >= 0
+          ? parseSurveyMappingScoreMap_(mappingValue_(row, "척도 값 매핑 JSON", 20))
+          : null,
         reviewStatus: cleanText_(mappingValue_(row, "검토 상태", 19))
       };
     });
@@ -827,23 +830,33 @@ function isValidDynamicOpinion_(value) {
 function dynamicMappedScore_(value, mapping, recommendation) {
   const text = cleanText_(value);
   if (!text) return null;
-  const scoreMap = mapping && mapping.scoreMap && typeof mapping.scoreMap === "object"
-    ? mapping.scoreMap : {};
+  const hasExplicitScaleValueMap = Boolean(mapping && mapping.scaleValueMap !== null
+    && mapping.scaleValueMap !== undefined && typeof mapping.scaleValueMap === "object"
+    && !Array.isArray(mapping.scaleValueMap));
+  const scoreMap = hasExplicitScaleValueMap ? mapping.scaleValueMap
+    : mapping && mapping.scoreMap && typeof mapping.scoreMap === "object" ? mapping.scoreMap : {};
   if (Object.prototype.hasOwnProperty.call(scoreMap, text)) {
     const mapped = Number(scoreMap[text]);
     return !isNaN(mapped) && mapped >= 1 && mapped <= 5 ? mapped : null;
   }
-  const normalizedText = normalizeDynamicStatText_(text);
+  const normalizedText = normalizeDynamicScaleMapKey_(text);
   const normalizedKeys = {};
   Object.keys(scoreMap).forEach(function(key) {
-    normalizedKeys[normalizeDynamicStatText_(key)] = scoreMap[key];
+    normalizedKeys[normalizeDynamicScaleMapKey_(key)] = scoreMap[key];
   });
   if (Object.prototype.hasOwnProperty.call(normalizedKeys, normalizedText)) {
     const normalizedMapped = Number(normalizedKeys[normalizedText]);
     return !isNaN(normalizedMapped) && normalizedMapped >= 1 && normalizedMapped <= 5
       ? normalizedMapped : null;
   }
-  return normalizeScaleValue_(value);
+  return hasExplicitScaleValueMap ? null : normalizeScaleValue_(value);
+}
+
+function normalizeDynamicScaleMapKey_(value) {
+  return String(value === null || value === undefined ? "" : value)
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /** 숫자·숫자 문자열·한글 응답을 공통 5점 척도 값으로 정규화합니다. */

@@ -653,7 +653,11 @@ function buildSurveyColumnProfiles_(
     const numericValues = [];
 
     values.forEach(function(value) {
-      uniqueValues[value] = true;
+      const normalizedScaleValue = normalizeSurveyScaleResponseValue_(value);
+      if (!uniqueValues[normalizedScaleValue]) {
+        uniqueValues[normalizedScaleValue] = {label: value, count: 0};
+      }
+      uniqueValues[normalizedScaleValue].count++;
       totalTextLength += value.length;
       if (/^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}/.test(value)) dateCount++;
       if (/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(value)) emailCount++;
@@ -685,7 +689,7 @@ function buildSurveyColumnProfiles_(
     const samples = [];
     Object.keys(uniqueValues).some(function(value) {
       samples.push(
-        maskSurveyMappingSampleValue_(value).substring(0, 120)
+        maskSurveyMappingSampleValue_(uniqueValues[value].label).substring(0, 120)
       );
       return samples.length >= 3;
     });
@@ -707,6 +711,13 @@ function buildSurveyColumnProfiles_(
       originalHeader: originalHeader,
       normalizedHeader: normalizeHeader_(originalHeader),
       sampleValues: samples,
+      scaleValueOptions: Object.keys(uniqueValues).map(function(key) {
+        return {
+          normalizedValue: key,
+          label: maskSurveyMappingSampleValue_(uniqueValues[key].label).substring(0, 120),
+          count: uniqueValues[key].count
+        };
+      }).slice(0, 30),
       nonEmptyCount: values.length,
       emptyCount: Math.max(safeRows.length - values.length, 0),
       totalCount: safeRows.length,
@@ -757,7 +768,7 @@ function buildSurveyMappingAIPrompt_(profiles) {
 "0~10 추천 문항 → NPS_0_10",
 "1~5 추천 문항 → RECOMMENDATION_1_5",
 "SCALE 문항도 반드시 scaleKind를 지정한다.",
-"RECOMMENDATION_1_5와 SCALE 문항은 scoreMap도 반드시 작성한다.",
+"RECOMMENDATION_1_5와 SCALE 문항의 scoreMap은 자동 추천 참고값으로만 작성한다.",
 "SCALE과 RECOMMENDATION 문항은 scaleKind를 빈 문자열로 반환하지 않는다.",
 "그 외 문항은 scaleKind를 빈 문자열로 반환한다.",
     "개인정보 열은 PERSONAL_INFO, 타임스탬프나 내부 식별자는 EXCLUDE로 분류한다.",
@@ -782,17 +793,41 @@ function enhanceSurveyRuleMappingsWithProfiles_(ruleMappings, profiles) {
     if(type==="RECOMMENDATION"){
       scaleKind=profile.detectedScaleRange&&profile.detectedScaleRange.min===0&&profile.detectedScaleRange.max>5?"NPS_0_10":"RECOMMENDATION_1_5";
     }
-    if(type==="SCALE"||scaleKind==="RECOMMENDATION_1_5") scoreMap=buildSurveyScaleMapCandidate_(profile.sampleValues);
+    if(type==="SCALE"||scaleKind==="RECOMMENDATION_1_5") scoreMap=buildSurveyScaleMapCandidate_(profile.scaleValueOptions.map(function(option){return option.label;}));
     return Object.assign({},mapping,{suggestedType:type,selectedType:type,
       suggestedTypeLabel:getSurveyQuestionTypeLabel_(type),scaleKind:scaleKind,scoreMap:scoreMap,
+      scaleValueMap:scoreMap,scaleValueOptions:profile.scaleValueOptions,
       confidence:profile.ruleConfidence,reason:profile.ruleReason,reviewStatus:profile.ruleConfidence<0.7?"REVIEW_REQUIRED":"AUTO_REVIEWED"});
   });
 }
 
 function buildSurveyScaleMapCandidate_(values) {
   const result={};(values||[]).forEach(function(value){
-    const score=dynamicMappedScore_(value,{scoreMap:{}},false);if(score!==null)result[value]=score;
+    const score=suggestSurveyScaleScore_(value);if(score!==null)result[value]=score;
   });return result;
+}
+
+/** 비교용 공백만 정규화하고 표시 문자열은 별도로 보존합니다. */
+function normalizeSurveyScaleResponseValue_(value) {
+  return String(value === null || value === undefined ? "" : value)
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** 기존 별칭은 분석 규칙이 아니라 Step 4의 초기 추천에만 사용합니다. */
+function suggestSurveyScaleScore_(value) {
+  const normalized = normalizeDynamicStatText_(normalizeSurveyScaleResponseValue_(value));
+  const aliases = {
+    "매우만족":5,"매우그렇다":5,"매우그러함":5,"매우좋음":5,"매우도움됨":5,"매우적절":5,
+    "만족":4,"그렇다":4,"그러함":4,"좋음":4,"도움됨":4,"적절":4,
+    "보통":3,"보통이다":3,"중립":3,
+    "불만족":2,"그렇지않다":2,"그렇지않음":2,"나쁨":2,"도움되지않음":2,"부적절":2,
+    "매우불만족":1,"전혀그렇지않다":1,"전혀그렇지않음":1,"매우나쁨":1,"전혀도움되지않음":1
+  };
+  if (Object.prototype.hasOwnProperty.call(aliases, normalized)) return aliases[normalized];
+  const numeric = Number(normalizeSurveyScaleResponseValue_(value).replace(/점$/, "").trim());
+  return Number.isFinite(numeric) && numeric >= 1 && numeric <= 5 ? numeric : null;
 }
 
 
@@ -980,7 +1015,9 @@ function mergeSurveyAIAndRuleMappings_(ruleMappings, aiMappings) {
       groupId: ai.groupId,
       matrixId: ai.matrixId,
       scaleKind: ai.scaleKind,
-      scoreMap: ai.scoreMap,
+      scoreMap: rule.scoreMap || {},
+      scaleValueMap: rule.scaleValueMap,
+      scaleValueOptions: rule.scaleValueOptions || [],
       confidence: ai.confidence,
       reason: ai.reason,
       mappingSource: "AI",
@@ -1250,6 +1287,27 @@ function validateSurveyMappings_(
         errors.push((index + 1) + "번째 추천 문항의 척도 유형을 NPS_0_10 또는 RECOMMENDATION_1_5로 지정해 주세요.");
       }
 
+      if (type === "SCALE" && Array.isArray(mapping.scaleValueOptions)) {
+        const valueMap = mapping.scaleValueMap && typeof mapping.scaleValueMap === "object"
+          && !Array.isArray(mapping.scaleValueMap) ? mapping.scaleValueMap : {};
+        const normalizedMap = {};
+        Object.keys(valueMap).forEach(function(key) {
+          normalizedMap[normalizeSurveyScaleResponseValue_(key)] = Number(valueMap[key]);
+        });
+        const unmapped = mapping.scaleValueOptions.filter(function(option) {
+          const key = normalizeSurveyScaleResponseValue_(option && option.label !== undefined ? option.label : option);
+          const score = normalizedMap[key];
+          return !Number.isFinite(score) || score < 1 || score > 5;
+        });
+        if (unmapped.length > 0) {
+          errors.push((index + 1) + "번째 만족도 문항의 응답값 점수를 모두 지정해 주세요.");
+        }
+        const scores = Object.keys(normalizedMap).map(function(key) { return normalizedMap[key]; });
+        if (scores.length === 5 && new Set(scores).size < 5) {
+          warnings.push((index + 1) + "번째 만족도 문항에 중복 점수가 있습니다. 의도한 매핑인지 확인해 주세요.");
+        }
+      }
+
       return {
         originalHeader:
           originalHeader,
@@ -1403,16 +1461,20 @@ function saveSurveyMappingsFromWeb(payload) {
     const headers = [
       "순번", "원본 컬럼번호", "원본 문항", "예시 응답", "자동 추천 유형", "최종 선택 유형",
       "파일명", "원본 시트명", "저장일시", "정규화 문항", "분석대상", "그룹 ID", "행렬 ID",
-      "척도 유형", "점수 매핑 JSON", "신뢰도", "판단 이유", "매핑 출처", "매핑 버전", "검토 상태"
+      "척도 유형", "점수 매핑 JSON", "신뢰도", "판단 이유", "매핑 출처", "매핑 버전", "검토 상태",
+      "척도 값 매핑 JSON", "척도 응답값 JSON"
     ];
     const savedAt = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
-    const mappingVersion = "2";
+    const mappingVersion = "3";
     const rows = payload.mappings.map(function(mapping, index) {
       const selectedType = cleanText_(mapping.selectedType || mapping.suggestedType).toUpperCase();
       const analysisTarget = selectedType !== "EXCLUDE" && selectedType !== "PERSONAL_INFO"
         && mapping.analysisTarget !== false;
       const scoreMap = mapping.scoreMap && typeof mapping.scoreMap === "object" && !Array.isArray(mapping.scoreMap)
         ? mapping.scoreMap : {};
+      const scaleValueMap = mapping.scaleValueMap && typeof mapping.scaleValueMap === "object" && !Array.isArray(mapping.scaleValueMap)
+        ? mapping.scaleValueMap : {};
+      const scaleValueOptions = Array.isArray(mapping.scaleValueOptions) ? mapping.scaleValueOptions : [];
       return [
         index + 1, Number(mapping.columnNumber), cleanText_(mapping.originalHeader), cleanText_(mapping.sampleValue),
         cleanText_(mapping.suggestedType), selectedType, cleanText_(payload.fileName), cleanText_(payload.sheetName), savedAt,
@@ -1420,7 +1482,7 @@ function saveSurveyMappingsFromWeb(payload) {
         cleanText_(mapping.groupId), cleanText_(mapping.matrixId), cleanText_(mapping.scaleKind), JSON.stringify(scoreMap),
         Math.max(0, Math.min(1, Number(mapping.confidence) || 0)), cleanText_(mapping.reason),
         cleanText_(mapping.mappingSource || payload.mappingSource || "USER"), mappingVersion,
-        cleanText_(mapping.reviewStatus || "USER_REVIEWED")
+        cleanText_(mapping.reviewStatus || "USER_REVIEWED"), JSON.stringify(scaleValueMap), JSON.stringify(scaleValueOptions)
       ];
     });
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
@@ -1465,6 +1527,7 @@ function getSavedSurveyMappingsFromWeb() {
     }
     const mappings = values.slice(1).map(function(row) {
       const selectedType = cleanText_(at_(row, "최종 선택 유형", 5)).toUpperCase();
+      const hasScaleValueMap = header.indexOf("척도 값 매핑 JSON") >= 0;
       return {
         columnNumber: Number(at_(row, "원본 컬럼번호", 1) || 0),
         originalHeader: at_(row, "원본 문항", 2), normalizedHeader: at_(row, "정규화 문항", 9),
@@ -1475,6 +1538,9 @@ function getSavedSurveyMappingsFromWeb() {
           : selectedType !== "EXCLUDE" && selectedType !== "PERSONAL_INFO",
         groupId: at_(row, "그룹 ID", 11), matrixId: at_(row, "행렬 ID", 12),
         scaleKind: at_(row, "척도 유형", 13), scoreMap: parseSurveyMappingScoreMap_(at_(row, "점수 매핑 JSON", 14)),
+        scaleValueMap: hasScaleValueMap ? parseSurveyMappingScoreMap_(at_(row, "척도 값 매핑 JSON", 20)) : null,
+        scaleValueOptions: header.indexOf("척도 응답값 JSON") >= 0
+          ? parseSurveyMappingValueOptions_(at_(row, "척도 응답값 JSON", 21)) : [],
         confidence: Number(at_(row, "신뢰도", 15) || 0), reason: at_(row, "판단 이유", 16),
         mappingSource: at_(row, "매핑 출처", 17) || "RULE", updatedAt: at_(row, "저장일시", 8),
         mappingVersion: at_(row, "매핑 버전", 18) || "1",
@@ -1487,6 +1553,15 @@ function getSavedSurveyMappingsFromWeb() {
       message: "저장된 문항 매핑 " + mappings.length + "개를 불러왔습니다."};
   } catch (error) {
     return {success: false, error: error && error.message ? error.message : String(error)};
+  }
+}
+
+function parseSurveyMappingValueOptions_(value) {
+  try {
+    const parsed = Array.isArray(value) ? value : JSON.parse(String(value || "[]"));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (ignored) {
+    return [];
   }
 }
 

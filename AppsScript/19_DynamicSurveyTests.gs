@@ -445,6 +445,39 @@ function testDynamicSurveyV2RegressionSuite() {
     equal_(resetDynamicDashboardSheet_.toString().indexOf("getImages")>=0,true,"기존 PNG 제거");
     equal_(createDynamicDashboardSheet_.toString().indexOf("setFrozenRows(2)"),-1,"최종 고정 행 없음");});
   test_("파생열 기본 제외와 원문 보존",function(){["정규화 이용자 유형","Q1점수","6문항 평균","추천점수","선택수","주관식 유효여부","derived_value"].forEach(function(header){equal_(suggestSurveyQuestionType_(header,"1"),"EXCLUDE","파생열 "+header);});equal_(suggestSurveyQuestionType_("평균적으로 얼마나 만족하십니까?","매우 만족" )!=="EXCLUDE",true,"실제 문항 과잉 제외 방지");});
+  test_("5점 척도 별칭은 매핑 추천에만 사용",function(){
+    equal_(suggestSurveyScaleScore_("매우 만족"),5,"만족형 추천");
+    equal_(suggestSurveyScaleScore_("매우 그러함"),5,"동의형 최상 추천");
+    equal_(suggestSurveyScaleScore_("그러함"),4,"동의형 추천");
+    equal_(suggestSurveyScaleScore_("그렇지 않음"),2,"동의형 부정 추천");
+    equal_(suggestSurveyScaleScore_("매우 유익함"),null,"새 표현 임의 추천 금지");
+  });
+  test_("문항별 scaleValueMap이 새로운 표현과 공백 변형을 분석",function(){
+    const first={columnNumber:1,originalHeader:"유익성",selectedType:"SCALE",analysisTarget:true,
+      scaleValueMap:{"매우 유익함":5,"유익함":4,"보통":3,"유익하지 않음":2,"전혀 유익하지 않음":1}};
+    const second={columnNumber:2,originalHeader:"도움",selectedType:"SCALE",analysisTarget:true,
+      scaleValueMap:{"매우 도움됨":5,"도움됨":4,"보통":3,"도움되지 않음":2,"전혀 도움되지 않음":1}};
+    const result=analyzeDynamicScaleQuestions_({respondentCount:2,rows:[[" 매우   유익함 ","도움됨"],["유익하지\n않음","전혀 도움되지 않음"]],mappings:[first,second]});
+    equal_(result[0].validCount,2,"새 표현 유효응답");equal_(result[0].average,3.5,"사용자 지정 평균");
+    equal_(result[0].unmappedCount,0,"공백 정규화 일치");equal_(result[1].average,2.5,"문항별 독립 매핑");
+    const quality=validateDynamicSurveyQuality_({respondentCount:2,respondent:[],single:[],multiple:[],scale:result,recommendation:[],text:[]},{});
+    equal_(quality.errors.filter(function(item){return item.code==="SCALE_UNMAPPED_VALUE";}).length,0,"Quality 동일 매핑 결과 사용");
+  });
+  test_("명시적 scaleValueMap은 미매핑 값을 별칭으로 우회하지 않음",function(){
+    const explicit=analyzeDynamicScaleQuestions_({respondentCount:2,rows:[["만족"],["기타"]],mappings:[{columnNumber:1,originalHeader:"척도",selectedType:"SCALE",analysisTarget:true,scaleValueMap:{"만족":4}}]})[0];
+    equal_(explicit.unmappedCount,1,"미매핑 값 탐지");
+    const legacy=analyzeDynamicScaleQuestions_({respondentCount:1,rows:[["매우 만족"]],mappings:[{columnNumber:1,originalHeader:"척도",selectedType:"SCALE",analysisTarget:true,scoreMap:{}}]})[0];
+    equal_(legacy.average,5,"기존 매핑 별칭 호환");
+  });
+  test_("scaleValueMap 저장 JSON 왕복과 미완료 검증",function(){
+    const map={"매우 유익함":5,"유익함":4,"보통":3,"유익하지 않음":2,"전혀 유익하지 않음":1};
+    const restored=parseSurveyMappingScoreMap_(JSON.stringify(map));
+    equal_(restored["매우 유익함"],5,"저장 매핑 복원");equal_(restored["전혀 유익하지 않음"],1,"저장 매핑 최저점 복원");
+    const valid=validateSurveyMappings_([{columnNumber:1,originalHeader:"유익성",selectedType:"SCALE",scaleKind:"RECOMMENDATION_1_5",scaleValueMap:map,scaleValueOptions:Object.keys(map).map(function(label){return {label:label,count:1};})}]);
+    equal_(valid.valid,true,"완료된 신규 매핑 저장 가능");
+    const invalid=validateSurveyMappings_([{columnNumber:1,originalHeader:"유익성",selectedType:"SCALE",scaleKind:"RECOMMENDATION_1_5",scaleValueMap:{"보통":3},scaleValueOptions:[{label:"보통"},{label:"기타"}]}]);
+    equal_(invalid.valid,false,"미매핑 응답 저장 차단");
+  });
   return {success:results.every(function(r){return r.status==="PASS";}),passed:results.filter(function(r){return r.status==="PASS";}).length,
     failed:results.filter(function(r){return r.status==="FAIL";}).length,results:results};
 }
