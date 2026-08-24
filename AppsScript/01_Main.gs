@@ -37,7 +37,10 @@ function onOpen() {
  * 웹앱 접속 주소에 따라 HTML 화면을 구분합니다.
  *
  * 기본 주소:
- * index.html
+ * index.html (AI 업무지원 플랫폼 홈)
+ *
+ * ?page=promo 또는 기존 ?page=index:
+ * promo-assistant.html
  *
  * ?page=survey:
  * survey-dashboard.html
@@ -57,12 +60,24 @@ function doGet(e) {
     page === "survey"
     && requestedUi === "v2";
 
+  const useSurveyCreate =
+    page === "survey"
+    && requestedUi === "create";
+
+  const usePromoAssistant =
+    page === "promo"
+    || page === "index";
+
   const fileName =
-    useSurveyV2
+    useSurveyCreate
+      ? "survey-create"
+      : useSurveyV2
       ? "survey-dashboard-v2"
       : page === "survey"
         ? "survey-dashboard"
-      : "index";
+        : usePromoAssistant
+          ? "promo-assistant"
+          : "index";
 
   const template =
     HtmlService.createTemplateFromFile(fileName);
@@ -74,10 +89,14 @@ function doGet(e) {
     .evaluate()
     .setTitle(
       page === "survey"
-        ? useSurveyV2
+        ? useSurveyCreate
+          ? "성남시중원도서관 AI 설문 만들기"
+          : useSurveyV2
           ? "Survey Insight Studio v2"
           : "성남시중원도서관 만족도 조사 보고서 시스템"
-        : "성남시중원도서관 AI 홍보 비서 시스템"
+        : usePromoAssistant
+          ? "성남시중원도서관 AI 홍보 비서"
+          : "성남시중원도서관 AI 업무지원 플랫폼"
     )
     .setXFrameOptionsMode(
       HtmlService.XFrameOptionsMode.ALLOWALL
