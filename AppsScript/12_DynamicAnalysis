@@ -412,7 +412,7 @@ function analyzeDynamicMultipleQuestions_(source) {
     });
     const items = Object.keys(counts).map(function(key) {
       const count = counts[key];
-      return {label: normalizeDynamicMultipleItem_(key).label, normalizedLabel: key,
+      return {key: key, label: getDynamicMultipleDisplayLabel_(key, originalLabels[key]), normalizedLabel: key,
         originalLabels: originalLabels[key] || [], count: count,
         selectionRate: totalSelections ? round_(count / totalSelections * 100, 1) : 0,
         respondentRate: source.respondentCount ? round_(count / source.respondentCount * 100, 1) : 0,
@@ -721,8 +721,6 @@ function splitDynamicMultipleValue_(value) {
         || ch === ";"
         || ch === "\n"
         || ch === ","
-        || ch === "/"
-        || ch === "·"
       );
 
     if (isSeparator) {
@@ -753,6 +751,17 @@ function normalizeDynamicMultipleItem_(value) {
   const synonyms={"홈페이지":"홈페이지","도서관홈페이지":"홈페이지","도서관누리집":"홈페이지","누리집":"홈페이지"};
   const normalized=synonyms[key]||key;
   return {key:normalized,label:normalized==="홈페이지"?"홈페이지":label};
+}
+
+function getDynamicMultipleDisplayLabel_(key, originalLabels) {
+  if (key === "홈페이지") return "홈페이지";
+  const labels = (originalLabels || []).map(function(label) { return cleanText_(label); }).filter(Boolean);
+  if (!labels.length) return normalizeDynamicMultipleItem_(key).label;
+  return labels.map(function(label, index) {
+    return {label: label, index: index, readability: (label.match(/\s/g) || []).length + (label.match(/·/g) || []).length * 2};
+  }).sort(function(left, right) {
+    return right.readability - left.readability || left.index - right.index;
+  })[0].label;
 }
 
 function expandDynamicOtherSelection_(value) {
