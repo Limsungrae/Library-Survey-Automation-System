@@ -44,7 +44,7 @@
     .services-heading { display:flex; align-items:center; justify-content:space-between; gap:24px; margin-bottom:18px; }
     .services-heading h2 { margin:0; font-size:20px; letter-spacing:-.02em; }
     .services-heading span { color:var(--color-text-muted); font-size:13px; font-weight:700; }
-    .service-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:28px; }
+    .service-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:28px; }
     .service-card { --service-accent:var(--color-blue); --service-soft:var(--color-blue-soft); min-height:430px; display:flex; flex-direction:column; padding:34px; background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-lg); box-shadow:var(--shadow-card); text-decoration:none; transition:transform .2s ease,box-shadow .2s ease,border-color .2s ease; }
     .service-card--promo { --service-accent:var(--color-violet); --service-soft:var(--color-violet-soft); }
     .service-card:hover { transform:translateY(-4px); border-color:var(--service-accent); box-shadow:0 14px 34px rgba(15,35,65,.11); }
@@ -116,7 +116,7 @@
       </section>
 
       <section aria-labelledby="services-title">
-        <div class="services-heading"><h2 id="services-title">업무 서비스</h2><span>2개 서비스</span></div>
+        <div class="services-heading"><h2 id="services-title">업무 서비스</h2><span>3개 서비스</span></div>
         <div class="service-grid">
           <a class="service-card service-card--promo" href="<?= webAppUrl ?>?page=promo" target="_top" aria-label="AI 홍보 비서 시작하기">
             <p class="service-card__category">PROMOTION</p>
@@ -131,6 +131,21 @@
               <li><span class="service-card__badge">AD</span>포스터 문구</li>
             </ul>
             <span class="service-card__cta"><span>AI 홍보 비서 시작하기</span><span class="service-card__arrow" aria-hidden="true">→</span></span>
+          </a>
+
+          <a class="service-card service-card--create" href="<?= webAppUrl ?>?page=survey&amp;ui=create" target="_top" aria-label="AI 설문 만들기 시작하기">
+            <p class="service-card__category">SURVEY DESIGN</p>
+            <div class="service-card__header">
+              <span class="service-card__icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3h9l3 3v15H6V3Zm3 6h6M9 13h6M9 17h4M15 3v4h4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+              <h3 class="service-card__title">AI 설문 만들기</h3>
+            </div>
+            <p class="service-card__description">원하는 조사 내용을 입력하면 AI가 검토하고 수정할 수 있는 설문 초안을 구성합니다.</p>
+            <ul class="service-card__features">
+              <li><span class="service-card__badge">AI</span>설문 초안 구성</li>
+              <li><span class="service-card__badge">EDIT</span>문항 검토·수정</li>
+              <li><span class="service-card__badge">FORM</span>Google Form 준비</li>
+            </ul>
+            <span class="service-card__cta"><span>AI 설문 만들기 시작하기</span><span class="service-card__arrow" aria-hidden="true">→</span></span>
           </a>
 
           <a class="service-card service-card--survey" href="<?= webAppUrl ?>?page=survey&amp;ui=v2" target="_top" aria-label="AI 설문 분석 시작하기">
