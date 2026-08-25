@@ -178,3 +178,35 @@ function secureCreateGoogleFormFromWeb(payload, accessToken) {
     };
   }
 }
+
+function secureInspectGoogleFormResponsesForMappingFromWeb(request, accessToken) {
+  requireWebAccessToken_(accessToken);
+  try {
+    return inspectGoogleFormResponsesForMappingFromWeb(request);
+  } catch (error) {
+    console.error("Google Form response inspection failed", error && error.stack ? error.stack : error);
+    const code = error && error.code || "GOOGLE_FORM_RESPONSE_INSPECT_ERROR";
+    const messages = {
+      GOOGLE_FORM_RESPONSE_ACCESS_ERROR:"Google Form 응답 시트에 접근할 수 없습니다. 응답 시트 권한을 확인해 주세요.",
+      GOOGLE_FORM_RESPONSE_EMPTY:"아직 분석할 설문 응답이 없습니다.",
+      GOOGLE_FORM_RESPONSE_STRUCTURE_ERROR:"설문 응답 구조를 확인할 수 없습니다.",
+      GOOGLE_FORM_RESPONSE_VALIDATION_ERROR:"설문 응답 구조를 확인할 수 없습니다."
+    };
+    return {success:false, code:code, error:messages[code] || "설문 응답 구조를 확인할 수 없습니다."};
+  }
+}
+
+function secureImportGoogleFormResponsesToRawFromWeb(request, accessToken) {
+  requireWebAccessToken_(accessToken);
+  try {
+    return importGoogleFormResponsesToRawFromWeb(request);
+  } catch (error) {
+    console.error("Google Form response raw import failed", error && error.stack ? error.stack : error);
+    const code = error && error.code || "GOOGLE_FORM_RESPONSE_IMPORT_ERROR";
+    const message = code === "GOOGLE_FORM_RESPONSE_EMPTY" ? "아직 분석할 설문 응답이 없습니다."
+      : code === "GOOGLE_FORM_RESPONSE_ACCESS_ERROR" ? "Google Form 응답 시트에 접근할 수 없습니다. 응답 시트 권한을 확인해 주세요."
+        : code === "GOOGLE_FORM_RESPONSE_MAPPING_ERROR" ? "먼저 문항 구조를 확인하고 문항 분석 유형을 저장해 주세요."
+          : "Google Form 응답을 분석 원자료로 가져오지 못했습니다.";
+    return {success:false, code:code, error:message};
+  }
+}

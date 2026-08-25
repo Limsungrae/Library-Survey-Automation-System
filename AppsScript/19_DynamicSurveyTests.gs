@@ -670,6 +670,13 @@ function testDynamicSurveyV2RegressionSuite() {
     equal_(prepareFormChoiceOptions_(["기타 의견","기타 서비스"]).hasOther,false,"부분 문자열 기타 유지");
     let rejected=false;try{validateReviewedSurveyForForm_({survey:reviewed.survey,questions:[]});}catch(error){rejected=error.code==="SURVEY_FORM_VALIDATION_ERROR";}equal_(rejected,true,"빈 문항 차단");
   });
+  test_("Google Form generated hint와 복수응답 호환",function(){
+    const base=buildSurveyQuestionMappings_(["타임스탬프","관심 분야","성별","연령대","거주지역"],["2026-08-25","독서, 인문","남","20대","중원구"]);
+    const hinted=applyGeneratedFormQuestionHints_(base,[{title:"관심 분야",type:"MULTIPLE"},{title:"성별",type:"RESPONDENT"},{title:"연령대",type:"RESPONDENT"},{title:"거주지역",type:"RESPONDENT"}]).mappings;
+    equal_(hinted[0].selectedType,"EXCLUDE","타임스탬프 제외");equal_(hinted[1].selectedType,"MULTIPLE","MULTIPLE hint");
+    equal_(hinted.slice(2).map(function(item){return item.selectedType;}).join(","),"RESPONDENT,RESPONDENT,RESPONDENT","여러 RESPONDENT 유지");
+    equal_(splitDynamicMultipleValue_("인터넷(도서관 홈페이지, SNS, 배움숲), 홍보물").join("|"),"인터넷(도서관 홈페이지, SNS, 배움숲)|홍보물","괄호 내부 쉼표 보존");
+  });
   return {success:results.every(function(r){return r.status==="PASS";}),passed:results.filter(function(r){return r.status==="PASS";}).length,
     failed:results.filter(function(r){return r.status==="FAIL";}).length,results:results};
 }
@@ -695,7 +702,9 @@ function testDynamicSurveyPublicApiContracts() {
     "securePrepareDynamicVisualizationPdfExportFromWeb",
     "securePrepareDynamicVisualizationPngExportFromWeb",
     "secureGenerateSurveyDraftFromWeb",
-    "secureCreateGoogleFormFromWeb"
+    "secureCreateGoogleFormFromWeb",
+    "secureInspectGoogleFormResponsesForMappingFromWeb",
+    "secureImportGoogleFormResponsesToRawFromWeb"
   ];
   const missing = requiredApis.filter(function(apiName) {
     return typeof globalThis[apiName] !== "function";

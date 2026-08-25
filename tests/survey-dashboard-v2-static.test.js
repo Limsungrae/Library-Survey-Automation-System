@@ -100,12 +100,19 @@ const requiredApis = [
   'secureGetSurveySettingsForWeb', 'secureSaveSurveySettingsFromWeb',
   'secureGetDynamicSurveySystemStatusFromWeb', 'secureInspectSurveyExcelForMappingFromWeb',
   'secureInspectSurveyExcelByRuleFromWeb', 'secureGetSavedSurveyMappingsFromWeb',
+  'secureInspectGoogleFormResponsesForMappingFromWeb', 'secureImportGoogleFormResponsesToRawFromWeb',
   'secureSaveSurveyMappingsFromWeb', 'secureCreateGenericRawSheetFromWeb',
   'secureGenerateDynamicStatisticalReportFromWeb', 'secureGetDynamicSurveyDashboardDataFromWeb',
   'secureGetDynamicSurveyQualityFromWeb', 'secureGenerateDynamicAIReportFromWeb',
   'secureExportDynamicSurveyReportFromWeb'
 ];
 requiredApis.forEach(name => assert(appHtml.includes(name), `reuses ${name}`));
+assert(html.includes('응답 가져오기')&&html.includes('Google Form 응답 시트 연결됨'),'upload step supports Excel and Google Form sources');
+assert(html.includes('v2Dropzone')&&html.includes('accept=".xlsx,.xls"'),'existing Excel upload remains available');
+assert(appHtml.includes('inputSource:"EXCEL"')&&appHtml.includes('inputSource="GOOGLE_FORM"'),'Excel defaults and Google Form source are explicit');
+assert(appHtml.includes('new URLSearchParams(window.location.search)')&&appHtml.includes('spreadsheetId'),'source query parameters are restored');
+assert(appHtml.includes('librarySurveyGoogleFormAnalysisSource')&&appHtml.includes('questionHints'),'generated question hints are restored without response data');
+assert(appHtml.includes('inspectGoogleFormSource_')&&appHtml.includes('navigate("mapping")'),'Google Form inspection reuses the mapping page');
 
 ['respondent', 'single', 'multiple', 'satisfaction', 'recommendation', 'text'].forEach(tab =>
   assert(html.includes(`data-analysis-tab="${tab}"`), `analysis tab ${tab}`));

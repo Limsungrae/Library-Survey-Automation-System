@@ -47,6 +47,9 @@ assert(app.includes('표준 만족도 5점 척도')&&!app.includes('survey-creat
 assert(!html.includes('Mock 완료')&&!html.includes('생성 준비가 완료되었습니다.')&&!app.includes('startFormMock_'),'mock completion was removed');
 assert(app.includes('createGoogleForm:function')&&app.includes('secureCreateGoogleFormFromWeb'),'authenticated real Form API exists');
 assert(app.includes('buildReviewedFormPayload_')&&app.includes('generatedForm:null'),'reviewed payload and generated result state exist');
+assert(html.includes('id="surveyCreateAnalysisLink"')&&app.includes('librarySurveyGoogleFormAnalysisSource'),'analysis navigation stores generated Form source hints');
+assert(app.includes('source=google-form')&&app.includes('encodeURIComponent(form.responseSpreadsheetId)')&&app.includes('encodeURIComponent(form.formId)'),'analysis URL carries encoded source identifiers');
+assert(!app.includes('responseSpreadsheetUrl+"&'),'response data and URLs are not embedded as analysis source data');
 assert(app.includes('state.view="FORM_CREATING"')&&app.includes('state.view="DRAFT_REVIEW"'),'creation state blocks duplicates and failure returns to review');
 assert(app.includes('questions:state.questions.map')&&!app.includes('questions:state.questions}'),'final payload explicitly maps reviewed questions');
 ['surveyCreatePublishedLink','surveyCreateEditLink','surveyCreateSpreadsheetLink','surveyCreateGeneratedLinks'].forEach(id=>assert(html.includes(`id="${id}"`),`${id} exists`));
