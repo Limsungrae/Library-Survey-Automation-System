@@ -66,10 +66,17 @@
         </section>
 
         <section id="surveyCreateReviewView" class="v2-page" aria-labelledby="surveyCreateReviewTitle" hidden>
-          <div class="v2-page-heading"><div><p class="v2-eyebrow">DRAFT REVIEW</p><h2 id="surveyCreateReviewTitle">AI가 설문 초안을 만들었습니다.</h2><p>질문과 선택지를 확인하고 필요한 내용을 수정해 주세요.</p></div><span id="surveyCreateQuestionCount" class="v2-badge v2-badge--ai">총 0개 문항</span></div>
+          <div class="v2-page-heading"><div><p class="v2-eyebrow">DRAFT REVIEW</p><h2 id="surveyCreateReviewTitle">AI가 설문 초안을 만들었습니다.</h2><p>전체 문항을 빠르게 확인하고, 고칠 문항만 열어 수정해 주세요.</p></div><span id="surveyCreateQuestionCount" class="v2-badge v2-badge--ai">총 0개 문항</span></div>
+          <article class="v2-card survey-create-summary" aria-label="설문 초안 요약">
+            <div><h3 id="surveyCreateSummaryTitle">조사명</h3><p id="surveyCreateSummaryAudience">대상: -</p></div>
+            <div class="survey-create-summary__meta"><span id="surveyCreateTypeSummary">문항 구성을 계산하고 있습니다.</span><span id="surveyCreateTimeSummary">예상 응답시간을 계산하고 있습니다.</span></div>
+          </article>
           <div id="surveyCreateQuestionList" class="survey-create-question-list"></div>
-          <button id="surveyCreateAddQuestionButton" class="v2-button v2-button--quiet survey-create-add" type="button">+ 문항 추가</button>
-          <div class="survey-create-review-actions"><button id="surveyCreateBackButton" class="v2-button v2-button--quiet" type="button">조사정보 수정</button><button id="surveyCreateFormButton" class="v2-button v2-button--primary" type="button">Google Form 생성</button></div>
+          <div class="v2-card survey-create-review-actions" aria-label="설문 초안 작업">
+            <button id="surveyCreateBackButton" class="v2-button v2-button--quiet" type="button">입력내용 수정</button>
+            <button id="surveyCreateAddQuestionButton" class="v2-button v2-button--secondary" type="button">+ 문항 추가</button>
+            <button id="surveyCreateFormButton" class="v2-button v2-button--primary" type="button">Google Form 생성</button>
+          </div>
         </section>
 
         <section id="surveyCreateCompletedView" class="v2-page" hidden>
