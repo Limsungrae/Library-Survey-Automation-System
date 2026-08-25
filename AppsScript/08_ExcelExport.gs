@@ -86,7 +86,6 @@ function sanitizeFileName_(
  * ==========================================================================
  *
  * 최종 Excel 시트 순서
- * - 00_품질검사       : 포함하되 숨김 처리
  * - 01_조사개요
  * - 02_대시보드
  * - 03_응답자특성
@@ -116,7 +115,7 @@ function sanitizeFileName_(
  */
 function getDynamicExportSheetNames_() {
   if (typeof getDynamicFinalReportSheetOrder_ === "function") {
-    return getDynamicFinalReportSheetOrder_(true);
+    return getDynamicFinalReportSheetOrder_(false);
   }
 
   return [
@@ -180,32 +179,6 @@ function getDynamicExportQualitySheetName_() {
 
 
 /**
- * 임시 XLSX 변환 문서에서 품질검사 시트를 숨깁니다.
- * 원본 스프레드시트의 표시 상태는 변경하지 않습니다.
- *
- * @param {GoogleAppsScript.Spreadsheet.Spreadsheet} spreadsheet
- */
-function hideDynamicExportQualitySheet_(spreadsheet) {
-  const qualitySheet = spreadsheet.getSheetByName(
-    getDynamicExportQualitySheetName_()
-  );
-
-  if (!qualitySheet) {
-    return;
-  }
-
-  const visibleSheetCount = spreadsheet.getSheets().filter(function(sheet) {
-    return !sheet.isSheetHidden();
-  }).length;
-
-  // Google Sheets는 모든 시트를 숨길 수 없으므로 최소 한 개는 표시합니다.
-  if (visibleSheetCount > 1 && !qualitySheet.isSheetHidden()) {
-    qualitySheet.hideSheet();
-  }
-}
-
-
-/**
  * 범용 보고서를 Excel 파일로 생성하고 Google Drive에 저장합니다.
  *
  * 웹페이지와 스프레드시트 메뉴에서 공통으로 사용할 수 있는
@@ -223,11 +196,14 @@ function createDynamicSurveyReportXlsx_(
 
   try {
     currentStage = "보고서 시트 확인";
+    const exportRevision = assertDynamicAIReportFresh_();
     const sourceSpreadsheet =
       SpreadsheetApp.getActiveSpreadsheet();
 
-    const configuredSheets =
-      getDynamicExportSheetNames_();
+    const qualitySheetName=getDynamicExportQualitySheetName_();
+    const configuredSheets=getDynamicExportSheetNames_().filter(function(sheetName){
+      return sheetName!==qualitySheetName;
+    });
 
 
     // ----------------------------------------------------------------------
@@ -368,9 +344,6 @@ function createDynamicSurveyReportXlsx_(
       );
     });
 
-    // 00_품질검사는 최종 Excel에 포함하되 사용자 화면에서는 숨깁니다.
-    hideDynamicExportQualitySheet_(temporarySpreadsheet);
-
     // Google Sheets 전용 수식은 임시 사본에서만 제거합니다.
     // 원본 보고서의 SPARKLINE 보조열과 통계 숫자는 변경하지 않습니다.
     currentStage = "Excel 비호환 수식 제거";
@@ -450,8 +423,20 @@ function createDynamicSurveyReportXlsx_(
     currentStage = "Drive XLSX Blob 확인";
     logDynamicExcelBlobMetadata_("Drive export 이후", excelBlob);
 
-    // Drive export가 만든 XLSX를 압축 해제하거나 XML을 수정하지 않습니다.
-    // SPARKLINE 등은 위의 임시 Google Spreadsheet 단계에서 이미 제거했습니다.
+    // 최종 파일에는 A4 가로, 폭 1페이지, 높이 자동(여러 페이지) 인쇄 설정을 적용합니다.
+    // ZIP/XML 후처리가 실패하면 안전하게 원본 Blob으로 되돌려 내보내기 자체는 유지합니다.
+    currentStage = "XLSX 인쇄 레이아웃 적용";
+    const printLayoutResult = applyDynamicXlsxPrintLayoutSafely_(
+      excelBlob,
+      exportSheets,
+      fileName
+    );
+    excelBlob = printLayoutResult.blob;
+    currentStage = "XLSX 빈 drawing 정리";
+    excelBlob = applyDynamicXlsxEmptyDrawingCleanup_(excelBlob,fileName);
+    currentStage = "XLSX 이미지 관계 무결성 검사";
+    assertDynamicXlsxDrawingRelationships_(excelBlob);
+
     let diagnosticFiles=[];
     if(isDynamicXlsxDiagnosticMode_(options)){
       currentStage="XLSX 진단 파일 생성";
@@ -463,6 +448,11 @@ function createDynamicSurveyReportXlsx_(
     // ----------------------------------------------------------------------
     // 최종 Excel 파일을 Google Drive에 저장
     // ----------------------------------------------------------------------
+
+    const finalRevision = assertDynamicAIReportFresh_();
+    if (finalRevision.rawRevision !== exportRevision.rawRevision) {
+      throw new Error("원자료가 보고서 생성 중 변경되었습니다. 통계 분석부터 다시 실행해 주세요.");
+    }
 
     const savedFile =
       DriveApp.createFile(
@@ -793,6 +783,165 @@ function createDynamicXlsxZipInput_(excelBlob) {
 }
 
 
+/** anchor가 하나도 없는 drawing part와 연결된 모든 OOXML 참조를 찾습니다. */
+function inspectEmptyDynamicXlsxDrawings_(entries) {
+  const byName={};
+  (entries||[]).forEach(function(entry){byName[String(entry.getName()||"")]=entry;});
+  const emptyDrawingNames=Object.keys(byName).filter(function(name){
+    if(!/^xl\/drawings\/drawing\d+\.xml$/i.test(name))return false;
+    return !/<(?:[A-Za-z_][\w.-]*:)?(?:twoCellAnchor|oneCellAnchor|absoluteAnchor)\b/i.test(byName[name].getDataAsString());
+  });
+  const links=[];
+  Object.keys(byName).filter(function(name){return /^xl\/worksheets\/_rels\/sheet\d+\.xml\.rels$/i.test(name);}).forEach(function(relName){
+    const sheetName=relName.replace("xl/worksheets/_rels/","xl/worksheets/").replace(/\.rels$/i,"");
+    const xml=byName[relName].getDataAsString();let match;
+    const pattern=/<Relationship\b[^>]*>/gi;
+    while((match=pattern.exec(xml))!==null){
+      const tag=match[0],id=(tag.match(/\bId=["']([^"']+)["']/i)||[])[1];
+      const target=(tag.match(/\bTarget=["']([^"']+)["']/i)||[])[1];
+      const type=(tag.match(/\bType=["']([^"']+)["']/i)||[])[1]||"";
+      const resolved=resolveDynamicXlsxPartPath_(sheetName,target);
+      if(id&&target&&/\/drawing$/i.test(type)&&emptyDrawingNames.indexOf(resolved)!==-1)
+        links.push({sheetName:sheetName,relationshipName:relName,relationshipId:id,drawingName:resolved});
+    }
+  });
+  return {emptyDrawingNames:emptyDrawingNames,links:links};
+}
+
+
+/** 빈 drawing, worksheet 참조, relationship 및 content type Override를 함께 제거합니다. */
+function cleanupEmptyDynamicXlsxDrawings_(entries,blobFactory) {
+  const inspection=inspectEmptyDynamicXlsxDrawings_(entries);
+  if(!inspection.emptyDrawingNames.length)return {entries:entries||[],removedDrawingNames:[],removedLinks:0};
+  const factory=typeof blobFactory==="function"?blobFactory:function(content,type,name){return Utilities.newBlob(content,type,name);};
+  const removed={};inspection.emptyDrawingNames.forEach(function(name){removed[name]=true;removed[name.replace("xl/drawings/","xl/drawings/_rels/")+".rels"]=true;});
+  const linksByPart={};inspection.links.forEach(function(link){
+    (linksByPart[link.sheetName]||(linksByPart[link.sheetName]=[])).push(link.relationshipId);
+    (linksByPart[link.relationshipName]||(linksByPart[link.relationshipName]=[])).push(link.relationshipId);
+  });
+  const updated=(entries||[]).filter(function(entry){return !removed[String(entry.getName()||"")];}).map(function(entry){
+    const name=String(entry.getName()||"");let xml=null;
+    if(linksByPart[name]&&/^xl\/worksheets\/sheet\d+\.xml$/i.test(name)){
+      xml=entry.getDataAsString();linksByPart[name].forEach(function(id){xml=removeDynamicXlsxDrawingReferenceById_(xml,id);});
+    }else if(linksByPart[name]&&/^xl\/worksheets\/_rels\/sheet\d+\.xml\.rels$/i.test(name)){
+      xml=entry.getDataAsString();linksByPart[name].forEach(function(id){xml=removeDynamicXlsxRelationshipById_(xml,id);});
+    }else if(name==="[Content_Types].xml"){
+      xml=entry.getDataAsString();inspection.emptyDrawingNames.forEach(function(drawingName){
+        const partName="/"+drawingName;xml=xml.replace(/<Override\b[^>]*\/>/gi,function(tag){
+          const current=(tag.match(/\bPartName=["']([^"']+)["']/i)||[])[1];return current===partName?"":tag;
+        });
+      });
+    }
+    return xml===null?entry:factory(xml,entry.getContentType(),name);
+  });
+  return {entries:updated,removedDrawingNames:inspection.emptyDrawingNames,removedLinks:inspection.links.length};
+}
+
+
+function removeDynamicXlsxDrawingReferenceById_(xml,id){
+  return String(xml||"").replace(/<(?:[A-Za-z_][\w.-]*:)?drawing\b[^>]*(?:\/>|>[\s\S]*?<\/(?:[A-Za-z_][\w.-]*:)?drawing\s*>)/gi,function(tag){
+    const reference=(tag.match(/\br:id=["']([^"']+)["']/i)||[])[1];return reference===id?"":tag;
+  });
+}
+
+
+function removeDynamicXlsxRelationshipById_(xml,id){
+  return String(xml||"").replace(/<Relationship\b[^>]*(?:\/>|>[\s\S]*?<\/Relationship\s*>)/gi,function(tag){
+    const current=(tag.match(/\bId=["']([^"']+)["']/i)||[])[1];return current===id?"":tag;
+  });
+}
+
+
+function applyDynamicXlsxEmptyDrawingCleanup_(excelBlob,fileName){
+  const entries=unzipDynamicXlsxBlob_(excelBlob,"XLSX 빈 drawing 정리");
+  const result=cleanupEmptyDynamicXlsxDrawings_(entries);
+  if(!result.removedDrawingNames.length)return excelBlob;
+  Logger.log("XLSX 빈 drawing 정리 완료: "+JSON.stringify({drawings:result.removedDrawingNames,links:result.removedLinks}));
+  return Utilities.zip(result.entries,fileName).setName(fileName)
+    .setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+}
+
+
+/** XLSX drawing의 이미지 참조·relationship·media 파일 대응 상태를 검사합니다. */
+function inspectDynamicXlsxDrawingRelationships_(entries) {
+  const byName={};
+  (entries||[]).forEach(function(entry){byName[String(entry.getName()||"")]=entry;});
+  const mediaNames=Object.keys(byName).filter(function(name){return /^xl\/media\//i.test(name);});
+  let embedCount=0,relationshipCount=0;
+  const errors=[];
+  Object.keys(byName).filter(function(name){return /^xl\/drawings\/drawing\d+\.xml$/i.test(name);}).forEach(function(drawingName){
+    const drawingXml=byName[drawingName].getDataAsString();
+    const embeds=[];let embedMatch;
+    const embedPattern=/\br:embed=["']([^"']+)["']/gi;
+    while((embedMatch=embedPattern.exec(drawingXml))!==null)embeds.push(embedMatch[1]);
+    embedCount+=embeds.length;
+    const duplicateIds=embeds.filter(function(id,index){return embeds.indexOf(id)!==index;});
+    if(duplicateIds.length)errors.push(drawingName+"에서 동일 이미지 관계를 중복 참조합니다: "+Array.from(new Set(duplicateIds)).join(", "));
+
+    const relName=drawingName.replace(/^xl\/drawings\//,"xl/drawings/_rels/")+".rels";
+    const relationships={};
+    if(byName[relName]){
+      const relXml=byName[relName].getDataAsString();let relMatch;
+      const relPattern=/<Relationship\b[^>]*>/gi;
+      while((relMatch=relPattern.exec(relXml))!==null){
+        const tag=relMatch[0];
+        const id=(tag.match(/\bId=["']([^"']+)["']/i)||[])[1];
+        const target=(tag.match(/\bTarget=["']([^"']+)["']/i)||[])[1];
+        const type=(tag.match(/\bType=["']([^"']+)["']/i)||[])[1]||"";
+        if(id&&target&&/\/image$/i.test(type)){relationships[id]=target;relationshipCount++;}
+      }
+    }
+    embeds.forEach(function(id){
+      const target=relationships[id];
+      if(!target){errors.push(drawingName+"의 "+id+" 이미지 relationship가 없습니다.");return;}
+      const resolved=resolveDynamicXlsxPartPath_(drawingName,target);
+      if(!byName[resolved])errors.push(drawingName+"의 "+id+" 대상 media가 없습니다: "+resolved);
+    });
+  });
+  Object.keys(byName).filter(function(name){return /^xl\/worksheets\/sheet\d+\.xml$/i.test(name);}).forEach(function(sheetName){
+    const relName=sheetName.replace("xl/worksheets/","xl/worksheets/_rels/")+".rels";
+    const drawingReferences=[];let referenceMatch;
+    const referencePattern=/<(?:[A-Za-z_][\w.-]*:)?drawing\b[^>]*\br:id=["']([^"']+)["'][^>]*(?:\/>|>)/gi;
+    while((referenceMatch=referencePattern.exec(byName[sheetName].getDataAsString()))!==null)drawingReferences.push(referenceMatch[1]);
+    const drawingRelationships={};
+    if(byName[relName]){
+      const relXml=byName[relName].getDataAsString();let relMatch;
+      const relPattern=/<Relationship\b[^>]*>/gi;
+      while((relMatch=relPattern.exec(relXml))!==null){
+        const tag=relMatch[0],id=(tag.match(/\bId=["']([^"']+)["']/i)||[])[1];
+        const target=(tag.match(/\bTarget=["']([^"']+)["']/i)||[])[1];
+        const type=(tag.match(/\bType=["']([^"']+)["']/i)||[])[1]||"";
+        if(id&&target&&/\/drawing$/i.test(type))drawingRelationships[id]=resolveDynamicXlsxPartPath_(sheetName,target);
+      }
+    }
+    drawingReferences.forEach(function(id){
+      if(!drawingRelationships[id])errors.push(sheetName+"의 "+id+" drawing relationship가 없습니다.");
+      else if(!byName[drawingRelationships[id]])errors.push(sheetName+"의 "+id+" drawing part가 없습니다: "+drawingRelationships[id]);
+    });
+    Object.keys(drawingRelationships).forEach(function(id){
+      if(drawingReferences.indexOf(id)===-1)errors.push(relName+"의 "+id+" relationship를 worksheet가 참조하지 않습니다.");
+    });
+  });
+  return {mediaCount:mediaNames.length,drawingEmbedCount:embedCount,drawingRelationshipCount:relationshipCount,errors:errors};
+}
+
+
+function resolveDynamicXlsxPartPath_(sourcePart,target){
+  const parts=String(sourcePart||"").split("/");parts.pop();
+  String(target||"").split("/").forEach(function(part){if(!part||part===".")return;if(part==="..")parts.pop();else parts.push(part);});
+  return parts.join("/");
+}
+
+
+function assertDynamicXlsxDrawingRelationships_(excelBlob){
+  const entries=unzipDynamicXlsxBlob_(excelBlob,"XLSX 이미지 관계 검사");
+  const result=inspectDynamicXlsxDrawingRelationships_(entries);
+  if(result.errors.length)throw new Error("생성된 Excel 이미지 관계가 올바르지 않습니다: "+result.errors.join(" | "));
+  Logger.log("XLSX 이미지 관계 검사 완료: "+JSON.stringify(result));
+  return result;
+}
+
+
 function logDynamicExcelBlobMetadata_(label, blob) {
   if(!blob){Logger.log(label+": Blob 없음");return;}
   Logger.log(label+": name="+blob.getName()+", contentType="+blob.getContentType()+", bytes="+blob.getBytes().length);
@@ -810,16 +959,48 @@ function logDynamicExportError_(stage, error) {
 
 
 function applyDynamicWorksheetPrintSettingsXml_(content) {
-  let xml=String(content||"");
-  if(xml.indexOf("<pageSetUpPr")===-1){
-    if(/<sheetPr\b[^>]*\/>/.test(xml))xml=xml.replace(/<sheetPr\b([^>]*)\/>/,'<sheetPr$1><pageSetUpPr fitToPage="1"/></sheetPr>');
-    else if(xml.indexOf("<sheetPr")!==-1)xml=xml.replace(/<sheetPr([^>]*)>/,'<sheetPr$1><pageSetUpPr fitToPage="1"/>');
-    else xml=xml.replace(/(<worksheet[^>]*>)/,'$1<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>');
-  }
+  let xml=ensureDynamicWorksheetFitToPage_(String(content||""));
   xml=removeDynamicWorksheetPrintElements_(xml);
   return insertDynamicWorksheetPrintElements_(xml,
     '<pageMargins left="0.25" right="0.25" top="0.5" bottom="0.5" header="0.2" footer="0.2"/>'+
     '<pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/>');
+}
+
+
+/** sheetPr 자식 순서를 보존하면서 pageSetUpPr의 fitToPage를 활성화합니다. */
+function ensureDynamicWorksheetFitToPage_(content) {
+  let xml=String(content||"");
+  const existing=/<(?:[A-Za-z_][\w.-]*:)?pageSetUpPr\b[^>]*>/i.exec(xml);
+  if(existing){
+    const updated=existing[0].replace(/\bfitToPage=["'][^"']*["']/i,'fitToPage="1"');
+    const normalized=/\bfitToPage=/i.test(updated)?updated:updated.replace(/\s*(\/?>)$/,' fitToPage="1"$1');
+    return xml.slice(0,existing.index)+normalized+xml.slice(existing.index+existing[0].length);
+  }
+
+  const selfClosing=/<((?:[A-Za-z_][\w.-]*:)?sheetPr)\b([^>]*)\/>/i.exec(xml);
+  if(selfClosing){
+    const prefix=selfClosing[1].indexOf(":")>=0?selfClosing[1].split(":")[0]+":" : "";
+    const replacement="<"+selfClosing[1]+selfClosing[2]+"><"+prefix+'pageSetUpPr fitToPage="1"/></'+selfClosing[1]+">";
+    return xml.slice(0,selfClosing.index)+replacement+xml.slice(selfClosing.index+selfClosing[0].length);
+  }
+
+  const sheetPr=/<((?:[A-Za-z_][\w.-]*:)?sheetPr)\b([^>]*)>([\s\S]*?)<\/\1\s*>/i.exec(xml);
+  if(sheetPr){
+    const prefix=sheetPr[1].indexOf(":")>=0?sheetPr[1].split(":")[0]+":" : "";
+    const pageSetUp="<"+prefix+'pageSetUpPr fitToPage="1"/>';
+    let body=sheetPr[3];
+    const outline=new RegExp("<(?:[A-Za-z_][\\w.-]*:)?outlinePr\\b[^>]*(?:\\/>|>[\\s\\S]*?<\\/(?:[A-Za-z_][\\w.-]*:)?outlinePr\\s*>)","i").exec(body);
+    if(outline)body=body.slice(0,outline.index+outline[0].length)+pageSetUp+body.slice(outline.index+outline[0].length);
+    else body+=pageSetUp;
+    const replacement="<"+sheetPr[1]+sheetPr[2]+">"+body+"</"+sheetPr[1]+">";
+    return xml.slice(0,sheetPr.index)+replacement+xml.slice(sheetPr.index+sheetPr[0].length);
+  }
+
+  const worksheet=/<((?:[A-Za-z_][\w.-]*:)?worksheet)\b[^>]*>/i.exec(xml);
+  if(!worksheet)throw new Error("worksheet 시작 태그를 찾을 수 없습니다.");
+  const prefix=worksheet[1].indexOf(":")>=0?worksheet[1].split(":")[0]+":" : "";
+  const newSheetPr="<"+prefix+"sheetPr><"+prefix+'pageSetUpPr fitToPage="1"/></'+prefix+"sheetPr>";
+  return xml.slice(0,worksheet.index+worksheet[0].length)+newSheetPr+xml.slice(worksheet.index+worksheet[0].length);
 }
 
 
