@@ -3,6 +3,7 @@ const fs = require('fs');
 const vm = require('vm');
 
 const source = fs.readFileSync('AppsScript/18_SurveyCreateService.gs', 'utf8');
+const geminiSource = fs.readFileSync('AppsScript/02_GeminiService.gs', 'utf8');
 const context = {console};
 vm.createContext(context);
 vm.runInContext(source, context, {filename:'AppsScript/18_SurveyCreateService.gs'});
@@ -75,5 +76,25 @@ assert(source.includes('responseMimeType:"application/json"'));
 assert(source.includes('callGeminiText_(payload)'));
 assert(!source.includes('GEMINI_API_KEY'));
 assert(!source.includes('FormApp'));
+
+const extractMatch = geminiSource.match(/function extractGeminiCandidateText_\(parts\) \{[\s\S]*?\n\}/);
+assert(extractMatch, 'Gemini final response extractor exists');
+vm.runInContext(extractMatch[0], context);
+context.parts = [
+  {text:'내부 사고 과정 {완성 JSON 아님}', thought:true, thoughtSignature:'signature'},
+  {thoughtSignature:'metadata-only'},
+  {text:'{"description":"안내","questions":[]}'}
+];
+assert.strictEqual(run('extractGeminiCandidateText_(parts)'), '{"description":"안내","questions":[]}');
+
+context.parseText = '{"description":"안내","questions":[]}';
+assert.deepStrictEqual(JSON.parse(JSON.stringify(run('parseSurveyDraftGeminiResponse_(parseText)'))), {
+  description:'안내',questions:[]
+});
+context.parseText = '```json\n{"description":"안내","questions":[]}\n```';
+assert.strictEqual(run('parseSurveyDraftGeminiResponse_(parseText)').description, '안내');
+context.parseText = '설명\n{"description":"안내","questions":[]}';
+assert.throws(() => run('parseSurveyDraftGeminiResponse_(parseText)'), /Gemini JSON/);
+assert(!source.includes('cleanJsonResponse_(text)'), 'survey parser does not use broad substring recovery');
 
 console.log('survey-create service validator/normalizer checks passed');

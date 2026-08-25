@@ -572,6 +572,15 @@ function testDynamicSurveyV2RegressionSuite() {
     equal_(normalized.questions[0].options.join(","),"가,나","trim 및 중복 제거");
     equal_(normalized.questions[1].options.join(","),"매우 만족,만족,보통,불만족,매우 불만족","시스템 SCALE preset");
   });
+  test_("Gemini thought part와 최종 JSON 분리",function(){
+    const parts=[
+      {text:"내부 사고 과정 {완성 JSON 아님}",thought:true,thoughtSignature:"signature"},
+      {thoughtSignature:"metadata-only"},
+      {text:'{"description":"안내","questions":[]}' }
+    ];
+    equal_(extractGeminiCandidateText_(parts),'{"description":"안내","questions":[]}',"최종 응답 text만 반환");
+    equal_(parseSurveyDraftGeminiResponse_(extractGeminiCandidateText_(parts)).description,"안내","직접 JSON parse 성공");
+  });
   return {success:results.every(function(r){return r.status==="PASS";}),passed:results.filter(function(r){return r.status==="PASS";}).length,
     failed:results.filter(function(r){return r.status==="FAIL";}).length,results:results};
 }

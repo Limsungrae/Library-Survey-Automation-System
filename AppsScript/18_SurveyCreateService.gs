@@ -465,11 +465,50 @@ function parseSurveyDraftGeminiResponse_(text) {
   if (typeof text !== "string" || !text.trim()) {
     throw createSurveyAiError_("SURVEY_AI_RESPONSE_ERROR", "Gemini 응답이 비어 있습니다.");
   }
+  const trimmed = text.trim();
+  logSurveyDraftParseBoundary_(trimmed);
   try {
-    return JSON.parse(cleanJsonResponse_(text));
-  } catch (error) {
+    return JSON.parse(trimmed);
+  } catch (directError) {
+    // responseMimeType=application/json이면 원칙적으로 direct parse가 성공해야 합니다.
+    // 확인된 Markdown fence 한 쌍만 제한적으로 제거하며, 임의의 { ... } substring
+    // 추출이나 손상 JSON 복구는 수행하지 않습니다.
+    const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+    if (fenced) {
+      try {
+        return JSON.parse(fenced[1].trim());
+      } catch (fenceError) {
+        console.error("Survey AI fenced JSON parse failed", {
+          message: fenceError && fenceError.message ? fenceError.message : String(fenceError)
+        });
+      }
+    } else {
+      console.error("Survey AI direct JSON parse failed", {
+        message: directError && directError.message ? directError.message : String(directError)
+      });
+    }
     throw createSurveyAiError_("SURVEY_AI_RESPONSE_ERROR", "Gemini JSON 응답을 해석하지 못했습니다.");
   }
+}
+
+function maskSurveyAiDiagnosticExcerpt_(value) {
+  return String(value || "")
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[EMAIL]")
+    .replace(/(?:\+?82[- ]?)?0\d{1,2}[- ]?\d{3,4}[- ]?\d{4}/g, "[PHONE]");
+}
+
+function logSurveyDraftParseBoundary_(text) {
+  const firstCharacter = text.match(/\S/) ? text.match(/\S/)[0] : "";
+  const lastCharacter = text.match(/\S(?=\s*$)/) ? text.match(/\S(?=\s*$)/)[0] : "";
+  console.log("Survey AI parse boundary", {
+    valueType: typeof text,
+    textLength: text.length,
+    firstCharacter: firstCharacter,
+    lastCharacter: lastCharacter,
+    hasMarkdownFence: /^```(?:json)?\s*/i.test(text) || /```\s*$/i.test(text),
+    first500: maskSurveyAiDiagnosticExcerpt_(text.substring(0, 500)),
+    last500: maskSurveyAiDiagnosticExcerpt_(text.substring(Math.max(0, text.length - 500)))
+  });
 }
 
 function callSurveyDraftGemini_(input) {
@@ -484,6 +523,13 @@ function callSurveyDraftGemini_(input) {
       maxOutputTokens:16384
     }
   };
+  console.log("Survey AI request structure", {
+    responseMimeType: payload.generationConfig.responseMimeType,
+    hasResponseSchema: Boolean(payload.generationConfig.responseSchema),
+    responseSchemaLocation: "generationConfig.responseSchema",
+    hasSystemInstruction: Boolean(payload.systemInstruction),
+    candidateCount: payload.generationConfig.candidateCount
+  });
   try {
     return callGeminiText_(payload);
   } catch (error) {
