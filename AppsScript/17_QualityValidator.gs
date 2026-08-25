@@ -106,9 +106,11 @@ function containsDynamicPersonalInfo_(value) {
 
 function getDynamicSurveyQualityFromWeb() {
   try {
+    const revisions=assertDynamicStatisticsFresh_();
     const source=getDynamicSurveySource_();
     const analysis=calculateDynamicSurveyAnalysis_();
     const quality=validateDynamicSurveyQuality_(analysis,source);
+    markDynamicQualityRevision_(revisions.rawRevision,quality);
     return {success:true,message:"범용 설문 품질검사를 완료했습니다.",error:null,data:quality,quality:quality};
   } catch(error) {
     return {success:false,message:"품질검사를 완료하지 못했습니다.",error:{message:getWebErrorMessage_(error)},data:null};
