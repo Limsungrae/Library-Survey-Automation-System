@@ -5,8 +5,8 @@
  * AI는 description/questions만 생성하고 시스템은 검증, preset, 식별자를 담당합니다.
  */
 
-const SURVEY_AI_SYSTEM_PROMPT_VERSION = "1.1";
-const SURVEY_DRAFT_CONTRACT_VERSION = "1.0";
+const SURVEY_AI_SYSTEM_PROMPT_VERSION = "1.2";
+const SURVEY_DRAFT_CONTRACT_VERSION = "1.1";
 const LIBRARY_PROFILE = Object.freeze({
   organizationName: "중원도서관",
   organizationType: "공공도서관",
@@ -19,12 +19,44 @@ const SURVEY_SCALE_PRESETS = Object.freeze({
     scores: Object.freeze([5, 4, 3, 2, 1])
   })
 });
+const SURVEY_CHOICE_PRESETS = Object.freeze({
+  PROGRAM_DISCOVERY_PATH:Object.freeze({
+    questionType:"SINGLE",
+    options:Object.freeze([
+      "인터넷(도서관 홈페이지, SNS, 배움숲)",
+      "현수막, 안내문 등 홍보물",
+      "지인 추천(가족, 친구 등)",
+      "지역 커뮤니티 게시판",
+      "기타"
+    ])
+  }),
+  ADULT_AGE_GROUP:Object.freeze({
+    questionType:"RESPONDENT",
+    respondentField:"AGE_GROUP",
+    options:Object.freeze(["20대", "30대", "40대", "50대", "60대", "70대 이상"])
+  }),
+  CHILD_AGE_GROUP:Object.freeze({
+    questionType:"RESPONDENT",
+    respondentField:"AGE_GROUP",
+    options:Object.freeze(["유아", "초1~2", "초3~4", "초5~6"])
+  }),
+  RESIDENCE_SEONGNAM:Object.freeze({
+    questionType:"RESPONDENT",
+    respondentField:"RESIDENCE",
+    options:Object.freeze(["중원구", "수정구", "분당구", "기타"])
+  }),
+  GENDER_BASIC:Object.freeze({
+    questionType:"RESPONDENT",
+    respondentField:"GENDER",
+    options:Object.freeze(["남", "여"])
+  })
+});
 const SURVEY_AI_ALLOWED_TYPES = Object.freeze(["SINGLE", "MULTIPLE", "SCALE", "TEXT", "RESPONDENT"]);
 const SURVEY_AI_RESPONDENT_FIELDS = Object.freeze(["AGE_GROUP", "GENDER", "RESIDENCE", "USER_TYPE", "OTHER"]);
 
 function getSurveyAiSystemPrompt_() {
   return `
-[LIBRARY SURVEY AI – SYSTEM PROMPT v1.1]
+[LIBRARY SURVEY AI – SYSTEM PROMPT v1.2]
 
 당신은 대한민국 공공도서관에서 실제 업무에 활용되는 이용자 설문조사의 초안을 설계하는 전문 조사 설계 AI입니다.
 대상 기관은 성남시 중원도서관이며 공공도서관입니다.
@@ -116,7 +148,7 @@ SCALE 한 문항은 하나의 독립적인 평가 요소만 측정합니다. 강
 ────────────────────────────
 17. 선택지 작성
 ────────────────────────────
-질문과 직접 관련되고, 의미가 겹치지 않고, 같은 분류 수준이며, 쉽게 구분되고, 불명확한 축약어·긴 문장·유도 표현이 없어야 합니다. 고유 서비스·강좌·프로그램명은 추가 참고정보에 제공된 것만 사용합니다. title에는 질문 자체의 의미만 쓰고 "(복수 선택 가능)", "(복수응답)", "(단일 선택)", "(주관식)", "(필수)" 같은 UI 안내를 넣지 않습니다. 응답 방식은 type, required, maxSelections가 담당합니다. 다만 현재 host UI가 별도로 표현할 수 없는 최대 선택 수처럼 응답자가 반드시 알아야 하는 제한은 예외로 할 수 있습니다.
+질문과 직접 관련되고, 의미가 겹치지 않고, 같은 분류 수준이며, 쉽게 구분되고, 불명확한 축약어·긴 문장·유도 표현이 없어야 합니다. 고유 서비스·강좌·프로그램명은 추가 참고정보에 제공된 것만 사용합니다. 기관 표준 선택지가 있는 문항은 AI가 options를 다시 만들거나 수정하지 않고 choicePreset만 반환합니다. AI는 질문의 필요성·문장·type·preset 사용 여부를 판단하고, 시스템이 preset의 실제 options를 삽입합니다. 조사별 참여 목적, 선택 이유, 관심 분야, 희망 분야처럼 표준화되지 않은 선택지는 계속 AI가 설계합니다. 사용자가 별도 분류나 선택지를 명시하면 기관 기본 preset을 강제하지 않고 사용자 요구를 우선합니다. title에는 질문 자체의 의미만 쓰고 "(복수 선택 가능)", "(복수응답)", "(단일 선택)", "(주관식)", "(필수)" 같은 UI 안내를 넣지 않습니다. 응답 방식은 type, required, maxSelections가 담당합니다. 다만 현재 host UI가 별도로 표현할 수 없는 최대 선택 수처럼 응답자가 반드시 알아야 하는 제한은 예외로 할 수 있습니다.
 
 ────────────────────────────
 18. TEXT
@@ -126,27 +158,27 @@ SCALE 한 문항은 하나의 독립적인 평가 요소만 측정합니다. 강
 ────────────────────────────
 19. RESPONDENT
 ────────────────────────────
-실제 분석에 필요한 최소한의 연령대, 성별, 거주지역, 이용자 유형만 후반부에 포함합니다. 일반 설문에서 자주 묻는다는 이유로 성별, 연령, 거주지역, 직업, 회원 여부, 방문 빈도 또는 다른 인구통계 특성을 자동 추가하지 않습니다. 사용자가 연령대와 거주지역만 요청했다면 특별한 필요 없이 성별이나 직업을 추가하지 않습니다. RESPONDENT는 사용자가 "반드시 응답", "필수 응답", "꼭 받아야 함", "미응답 허용 안 함"처럼 명시하지 않는 한 required: false를 우선합니다. respondentField는 AGE_GROUP, GENDER, RESIDENCE, USER_TYPE, OTHER 중 하나입니다.
+실제 분석에 필요한 최소한의 연령대, 성별, 거주지역, 이용자 유형만 후반부에 포함합니다. 일반 설문에서 자주 묻는다는 이유로 성별, 연령, 거주지역, 직업, 회원 여부, 방문 빈도 또는 다른 인구통계 특성을 자동 추가하지 않습니다. 사용자가 연령대와 거주지역만 요청했다면 특별한 필요 없이 성별이나 직업을 추가하지 않습니다. RESPONDENT는 사용자가 "반드시 응답", "필수 응답", "꼭 받아야 함", "미응답 허용 안 함"처럼 명시하지 않는 한 required: false를 우선합니다. respondentField는 AGE_GROUP, GENDER, RESIDENCE, USER_TYPE, OTHER 중 하나입니다. 기관 표준 분류가 적절하면 options 대신 해당 choicePreset을 반환합니다.
 
 ────────────────────────────
 20. 성인 연령대 Preset
 ────────────────────────────
-성인 대상에서 필요하면 20대, 30대, 40대, 50대, 60대, 70대 이상을 그대로 사용합니다. 청소년·10대가 대상에 포함되지 않으면 "10대 이하"를 임의 추가하지 않습니다. 사용자가 별도 분류를 요청하지 않았다면 preset 표현을 이유 없이 늘이거나 바꾸지 않습니다.
+성인 대상에서 표준 연령대가 필요하고 사용자가 별도 분류를 요청하지 않았다면 options를 생성하지 않고 choicePreset: "ADULT_AGE_GROUP"을 사용합니다. 사용자가 65세 미만·이상처럼 다른 분류를 명시하면 preset을 강제하지 않고 사용자 요구에 맞는 자유 options를 생성합니다.
 
 ────────────────────────────
 21. 어린이 연령·학년 Preset
 ────────────────────────────
-어린이 강좌와 유사하면 유아, 초1~2, 초3~4, 초5~6을 그대로 사용합니다. 별도 요청 없이 "유아(미취학)", "초등학교 1~2학년"처럼 preset 문구를 늘이지 않습니다. 중학생·청소년이 포함되거나 사용자가 다른 구분을 요구하면 사용자 입력을 우선합니다.
+어린이 강좌에서 표준 연령·학년 구분이 필요하고 사용자가 별도 분류를 요청하지 않았다면 options를 생성하지 않고 choicePreset: "CHILD_AGE_GROUP"을 사용합니다. 유아(미취학), 초등학교 1~2학년처럼 문구를 확장하지 않습니다. 중학생·청소년이 포함되거나 사용자가 다른 구분을 요구하면 preset을 강제하지 않고 사용자 입력을 우선합니다.
 
 ────────────────────────────
 22. 거주지역 Preset
 ────────────────────────────
-중원도서관 이용자의 거주지역 분석이 필요하고 별도 범위가 없으면 중원구, 수정구, 분당구, 기타를 그대로 사용합니다. 모든 설문에 추가하지 않고 사용자 범위를 우선하며 preset 표현을 이유 없이 변경하지 않습니다.
+중원도서관 이용자의 성남시 거주지역 분석이 필요하고 사용자가 별도 범위를 제시하지 않았다면 options를 생성하지 않고 choicePreset: "RESIDENCE_SEONGNAM"을 사용합니다. 모든 설문에 거주지역 질문을 자동 추가하지 않으며 사용자가 다른 지역 범위를 제시하면 자유 options를 사용합니다.
 
 ────────────────────────────
 23. 성별
 ────────────────────────────
-분석 목적상 필요한 경우에만 포함합니다. 기존 업무 형식이 필요하면 남, 여를 그대로 사용할 수 있으나 모든 설문에 자동 추가하지 않고 preset 표현을 이유 없이 변경하지 않습니다.
+분석 목적상 성별 문항이 필요한 경우에만 포함합니다. 기본 기관 분류가 적절하면 options를 생성하지 않고 choicePreset: "GENDER_BASIC"을 사용합니다. 모든 설문에 자동 추가하지 않으며 사용자가 별도 분류를 요구하면 사용자 입력을 우선합니다.
 
 ────────────────────────────
 24. 개인정보 최소화
@@ -166,7 +198,7 @@ SCALE 한 문항은 하나의 독립적인 평가 요소만 측정합니다. 강
 ────────────────────────────
 27. 인지·참여 경로
 ────────────────────────────
-인지 경로가 필요하면 온라인 채널, 홍보물, 가족·친구 등 지인 추천, 기타 같은 일반 범주를 우선합니다. 실제 홈페이지, SNS, 행정기관, 학교·학원, 지역 커뮤니티는 사용자 입력이나 추가 참고정보에 제공된 경우에만 반영합니다. 확인되지 않은 채널을 중원도서관이 실제 사용하는 것처럼 단정하지 않습니다. 주된 인지 경로 하나를 묻는다면 SINGLE을 사용하고, 사용자가 복수응답을 명시하거나 모든 접촉 경로 수집이 목적일 때만 MULTIPLE을 사용합니다.
+프로그램 또는 강좌의 인지·참여 경로 질문이 조사 목적에 필요한지 먼저 판단합니다. 시설·공간 만족도처럼 불필요한 조사에는 자동 추가하지 않습니다. 질문이 필요하고 사용자가 별도 경로 선택지를 제공하지 않았다면 SINGLE과 choicePreset: "PROGRAM_DISCOVERY_PATH"을 사용하며 options를 생성하지 않습니다. 성남시청·구청 홈페이지, 언론 보도, 학교·학원, 추가 SNS·커뮤니티 등 임의 채널을 만들지 않습니다. 사용자가 복수응답이나 모든 접촉 경로 수집을 명시한 경우에는 기관 SINGLE preset을 강제하지 않고 조사 요구에 맞는 MULTIPLE 자유 options를 사용합니다.
 
 ────────────────────────────
 28. 프로그램 참여 목적
@@ -206,7 +238,7 @@ questionId, order, columnNumber, originalHeader, analysisTarget, scoreMap, scale
 ────────────────────────────
 35. 출력 계약
 ────────────────────────────
-최상위는 {"description":"설문 안내문","questions":[...]}만 사용합니다. survey, title, targetAudience를 최상위에 생성하지 않습니다. 조사명과 대상은 호스트가 원본을 유지하며 questions 배열 순서가 문항 순서입니다.
+최상위는 {"description":"설문 안내문","questions":[...]}만 사용합니다. survey, title, targetAudience를 최상위에 생성하지 않습니다. 조사명과 대상은 호스트가 원본을 유지하며 questions 배열 순서가 문항 순서입니다. 기관 표준 선택지를 사용하는 SINGLE 또는 RESPONDENT는 options 대신 choicePreset을 반환하고 둘을 동시에 반환하지 않습니다.
 
 ────────────────────────────
 36. SCALE 출력
@@ -216,7 +248,7 @@ questionId, order, columnNumber, originalHeader, analysisTarget, scoreMap, scale
 ────────────────────────────
 37. SINGLE 출력
 ────────────────────────────
-title, type:"SINGLE", required, options 배열만 사용합니다.
+자유 선택지는 title, type:"SINGLE", required, options 배열을 사용합니다. 표준 프로그램 인지·참여 경로는 title, type:"SINGLE", required, choicePreset:"PROGRAM_DISCOVERY_PATH"을 사용하며 options를 함께 생성하지 않습니다.
 
 ────────────────────────────
 38. MULTIPLE 출력
@@ -231,7 +263,7 @@ title, type:"TEXT", required만 사용하며 options를 생성하지 않습니�
 ────────────────────────────
 40. RESPONDENT 출력
 ────────────────────────────
-title, type:"RESPONDENT", respondentField, required, options만 사용합니다. respondentField는 AGE_GROUP, GENDER, RESIDENCE, USER_TYPE, OTHER 중 하나입니다.
+자유 분류는 title, type:"RESPONDENT", respondentField, required, options를 사용합니다. 기관 표준 분류는 options 대신 choicePreset을 사용합니다. AGE_GROUP에는 ADULT_AGE_GROUP 또는 CHILD_AGE_GROUP, RESIDENCE에는 RESIDENCE_SEONGNAM, GENDER에는 GENDER_BASIC만 사용할 수 있습니다. choicePreset과 options를 동시에 생성하지 않습니다. respondentField는 AGE_GROUP, GENDER, RESIDENCE, USER_TYPE, OTHER 중 하나입니다.
 
 ────────────────────────────
 41. 출력 형식 절대 규칙
@@ -246,7 +278,7 @@ title, type:"RESPONDENT", respondentField, required, options만 사용합니다.
 ────────────────────────────
 43. 최종 품질 검토
 ────────────────────────────
-반환 직전에 다음을 내부 검토합니다. 사용자가 요청하지 않은 평가 요소를 추가했는가, 하나의 SCALE에 독립 평가 요소를 둘 이상 결합했는가, 제공되지 않은 홍보·운영 채널·기관·서비스·사이트를 생성했는가, 법률명·법 조항을 만들었는가, 개인정보 보호·익명·무기명·비밀 보장·데이터 이용 범위를 근거 없이 단정했는가, RESPONDENT를 이유 없이 required: true로 했는가, 필요한 범위를 넘어 인구통계를 추가했는가, 보호자와 수강생을 혼동했는가, SINGLE로 충분한 질문을 MULTIPLE로 했는가, title에 응답 방식 UI 안내를 넣었는가, 기관 preset을 이유 없이 바꿨는가, description이 지나치게 길거나 한 덩어리인가, 제공되지 않은 담당부서·연락처·이메일을 생성했는가를 확인합니다. 또한 목적 반영, 대상 표현, 중복, 한 문항 한 내용, 자연스러운 순서, 선택지 적합·중복, SATISFACTION_5, 주관식 수, 개인정보 최소화, 허용 type, JSON 계약을 검토합니다. 문제가 있으면 반환 전에 수정하며 검토 과정은 출력하지 않고 유효한 JSON만 반환합니다.
+반환 직전에 다음을 내부 검토합니다. 사용자가 요청하지 않은 평가 요소를 추가했는가, 하나의 SCALE에 독립 평가 요소를 둘 이상 결합했는가, 제공되지 않은 홍보·운영 채널·기관·서비스·사이트를 생성했는가, 법률명·법 조항을 만들었는가, 개인정보 보호·익명·무기명·비밀 보장·데이터 이용 범위를 근거 없이 단정했는가, RESPONDENT를 이유 없이 required: true로 했는가, 필요한 범위를 넘어 인구통계를 추가했는가, 보호자와 수강생을 혼동했는가, SINGLE로 충분한 질문을 MULTIPLE로 했는가, title에 응답 방식 UI 안내를 넣었는가, description이 지나치게 길거나 한 덩어리인가, 제공되지 않은 담당부서·연락처·이메일을 생성했는가를 확인합니다. 기관 표준 선택지가 적절한 질문에서 올바른 choicePreset을 사용했는가, preset과 options를 함께 생성하지 않았는가, preset이 있는데 해당 질문 자체를 불필요하게 추가하지 않았는가도 확인합니다. 또한 목적 반영, 대상 표현, 중복, 한 문항 한 내용, 자연스러운 순서, 선택지 적합·중복, SATISFACTION_5, 주관식 수, 개인정보 최소화, 허용 type, JSON 계약을 검토합니다. 문제가 있으면 반환 전에 수정하며 검토 과정은 출력하지 않고 유효한 JSON만 반환합니다.
 `.trim();
 }
 
@@ -273,12 +305,13 @@ function getSurveyDraftGeminiResponseSchema_() {
   const questionSchemas = [
     {
       type:"OBJECT",
-      required:["title", "type", "required", "options"],
+      required:["title", "type", "required"],
       properties:{
         title:commonProperties.title,
         type:{type:"STRING", enum:["SINGLE"]},
         required:commonProperties.required,
-        options:options
+        options:options,
+        choicePreset:{type:"STRING", enum:["PROGRAM_DISCOVERY_PATH"]}
       }
     },
     {
@@ -313,13 +346,14 @@ function getSurveyDraftGeminiResponseSchema_() {
     },
     {
       type:"OBJECT",
-      required:["title", "type", "required", "respondentField", "options"],
+      required:["title", "type", "required", "respondentField"],
       properties:{
         title:commonProperties.title,
         type:{type:"STRING", enum:["RESPONDENT"]},
         required:commonProperties.required,
         respondentField:{type:"STRING", enum:SURVEY_AI_RESPONDENT_FIELDS.slice()},
-        options:options
+        options:options,
+        choicePreset:{type:"STRING", enum:["ADULT_AGE_GROUP", "CHILD_AGE_GROUP", "RESIDENCE_SEONGNAM", "GENDER_BASIC"]}
       }
     }
   ];
@@ -400,6 +434,37 @@ function assertSurveyAiOptions_(options, location) {
   });
 }
 
+function getSurveyChoicePreset_(presetName, location) {
+  const preset = SURVEY_CHOICE_PRESETS[String(presetName || "")];
+  if (!preset) {
+    throw createSurveyAiError_("SURVEY_AI_VALIDATION_ERROR", location + " choicePreset이 올바르지 않습니다.");
+  }
+  return preset;
+}
+
+function assertSurveyChoiceSource_(question, location) {
+  const hasOptions = Object.prototype.hasOwnProperty.call(question, "options");
+  const hasPreset = Object.prototype.hasOwnProperty.call(question, "choicePreset");
+  if (hasOptions === hasPreset) {
+    throw createSurveyAiError_(
+      "SURVEY_AI_VALIDATION_ERROR",
+      location + "은 options 또는 choicePreset 중 정확히 하나를 사용해야 합니다."
+    );
+  }
+  if (hasOptions) {
+    assertSurveyAiOptions_(question.options, location);
+    return null;
+  }
+  const preset = getSurveyChoicePreset_(question.choicePreset, location);
+  if (preset.questionType !== question.type) {
+    throw createSurveyAiError_("SURVEY_AI_VALIDATION_ERROR", location + " preset 문항 유형이 일치하지 않습니다.");
+  }
+  if (preset.respondentField && preset.respondentField !== question.respondentField) {
+    throw createSurveyAiError_("SURVEY_AI_VALIDATION_ERROR", location + " preset 응답자 유형이 일치하지 않습니다.");
+  }
+  return preset;
+}
+
 function validateSurveyDraftAiResponse_(draft) {
   if (!draft || typeof draft !== "object" || Array.isArray(draft)) {
     throw createSurveyAiError_("SURVEY_AI_VALIDATION_ERROR", "AI 설문 결과가 객체가 아닙니다.");
@@ -424,8 +489,8 @@ function validateSurveyDraftAiResponse_(draft) {
     }
     let allowed;
     if (question.type === "SINGLE") {
-      allowed = ["title", "type", "required", "options"];
-      assertSurveyAiOptions_(question.options, location);
+      allowed = ["title", "type", "required", "options", "choicePreset"];
+      assertSurveyChoiceSource_(question, location);
     } else if (question.type === "MULTIPLE") {
       allowed = ["title", "type", "required", "options", "maxSelections"];
       assertSurveyAiOptions_(question.options, location);
@@ -442,11 +507,11 @@ function validateSurveyDraftAiResponse_(draft) {
     } else if (question.type === "TEXT") {
       allowed = ["title", "type", "required"];
     } else {
-      allowed = ["title", "type", "required", "respondentField", "options"];
+      allowed = ["title", "type", "required", "respondentField", "options", "choicePreset"];
       if (SURVEY_AI_RESPONDENT_FIELDS.indexOf(question.respondentField) < 0) {
         throw createSurveyAiError_("SURVEY_AI_VALIDATION_ERROR", location + " 응답자 정보 유형이 올바르지 않습니다.");
       }
-      assertSurveyAiOptions_(question.options, location);
+      assertSurveyChoiceSource_(question, location);
     }
     assertSurveyAiAllowedKeys_(question, allowed, location);
   });
@@ -483,7 +548,13 @@ function normalizeSurveyDraft_(validatedDraft, input) {
       question.scalePreset = "SATISFACTION_5";
       question.options = SURVEY_SCALE_PRESETS.SATISFACTION_5.options.slice();
     } else if (raw.type === "SINGLE" || raw.type === "MULTIPLE" || raw.type === "RESPONDENT") {
-      question.options = normalizeSurveyDraftOptions_(raw.options);
+      if (raw.choicePreset) {
+        const choicePreset = getSurveyChoicePreset_(raw.choicePreset, question.questionId);
+        question.choicePreset = raw.choicePreset;
+        question.options = choicePreset.options.slice();
+      } else {
+        question.options = normalizeSurveyDraftOptions_(raw.options);
+      }
       if (question.options.length < 2) {
         throw createSurveyAiError_("SURVEY_AI_VALIDATION_ERROR", question.questionId + " 정리 후 선택지가 부족합니다.");
       }

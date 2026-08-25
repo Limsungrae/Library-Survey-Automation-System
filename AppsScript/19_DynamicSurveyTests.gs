@@ -542,6 +542,13 @@ function testDynamicSurveyV2RegressionSuite() {
       {title:"연령",type:"RESPONDENT",respondentField:"AGE_GROUP",required:false,options:["20대","30대"]}
     ]};
     equal_(validateSurveyDraftAiResponse_(valid),valid,"허용 구조 통과");
+    [
+      {title:"경로",type:"SINGLE",required:true,choicePreset:"PROGRAM_DISCOVERY_PATH"},
+      {title:"성인 연령",type:"RESPONDENT",respondentField:"AGE_GROUP",required:false,choicePreset:"ADULT_AGE_GROUP"},
+      {title:"어린이 연령",type:"RESPONDENT",respondentField:"AGE_GROUP",required:false,choicePreset:"CHILD_AGE_GROUP"},
+      {title:"거주",type:"RESPONDENT",respondentField:"RESIDENCE",required:false,choicePreset:"RESIDENCE_SEONGNAM"},
+      {title:"성별",type:"RESPONDENT",respondentField:"GENDER",required:false,choicePreset:"GENDER_BASIC"}
+    ].forEach(function(question){const draft={description:"안내",questions:[question]};equal_(validateSurveyDraftAiResponse_(draft),draft,"preset 허용: "+question.choicePreset);});
   });
   test_("Survey AI validator 금지 구조 차단",function(){
     function rejected_(question,top){let rejected=false;try{validateSurveyDraftAiResponse_(top||{description:"안내",questions:[question]});}catch(error){rejected=error.code==="SURVEY_AI_VALIDATION_ERROR";}return rejected;}
@@ -558,6 +565,13 @@ function testDynamicSurveyV2RegressionSuite() {
     equal_(rejected_({title:"x",type:"TEXT",required:false,extra:true}),true,"추가 property");
     equal_(rejected_(null,{description:"안내",questions:[]}),true,"빈 questions");
     equal_(rejected_({questionId:"Q1",title:"x",type:"TEXT",required:false}),true,"AI questionId 차단");
+    equal_(rejected_({title:"x",type:"SINGLE",required:true,choicePreset:"UNKNOWN"}),true,"unknown preset 차단");
+    equal_(rejected_({title:"x",type:"SINGLE",required:true,options:["가","나"],choicePreset:"PROGRAM_DISCOVERY_PATH"}),true,"preset/options 동시 사용 차단");
+    equal_(rejected_({title:"x",type:"SINGLE",required:true}),true,"선택지 source 누락 차단");
+    equal_(rejected_({title:"x",type:"MULTIPLE",required:true,options:["가","나"],choicePreset:"PROGRAM_DISCOVERY_PATH"}),true,"MULTIPLE preset 차단");
+    equal_(rejected_({title:"x",type:"SCALE",required:true,scalePreset:"SATISFACTION_5",choicePreset:"PROGRAM_DISCOVERY_PATH"}),true,"SCALE choicePreset 차단");
+    equal_(rejected_({title:"x",type:"TEXT",required:false,choicePreset:"PROGRAM_DISCOVERY_PATH"}),true,"TEXT choicePreset 차단");
+    equal_(rejected_({title:"x",type:"RESPONDENT",required:false,respondentField:"AGE_GROUP",choicePreset:"GENDER_BASIC"}),true,"preset respondentField 불일치 차단");
   });
   test_("Survey AI normalizer 시스템 식별자와 preset 적용",function(){
     const input={title:"원본 조사명",targetAudience:"원본 조사 대상",requestContent:"요청",referenceInfo:""};
@@ -571,6 +585,24 @@ function testDynamicSurveyV2RegressionSuite() {
     equal_(normalized.questions[1].questionId,"Q2","Q2 생성");equal_(normalized.questions[1].order,2,"order 생성");
     equal_(normalized.questions[0].options.join(","),"가,나","trim 및 중복 제거");
     equal_(normalized.questions[1].options.join(","),"매우 만족,만족,보통,불만족,매우 불만족","시스템 SCALE preset");
+  });
+  test_("Survey AI choicePreset registry와 normalizer 확장",function(){
+    equal_(SURVEY_DRAFT_CONTRACT_VERSION,"1.1","contract version");
+    equal_(SURVEY_CHOICE_PRESETS.PROGRAM_DISCOVERY_PATH.options.join("|"),"인터넷(도서관 홈페이지, SNS, 배움숲)|현수막, 안내문 등 홍보물|지인 추천(가족, 친구 등)|지역 커뮤니티 게시판|기타","참여경로 표준");
+    equal_(SURVEY_CHOICE_PRESETS.ADULT_AGE_GROUP.options.join("|"),"20대|30대|40대|50대|60대|70대 이상","성인 연령 표준");
+    equal_(SURVEY_CHOICE_PRESETS.CHILD_AGE_GROUP.options.join("|"),"유아|초1~2|초3~4|초5~6","어린이 연령 표준");
+    const raw={description:"안내",questions:[
+      {title:"경로",type:"SINGLE",required:true,choicePreset:"PROGRAM_DISCOVERY_PATH"},
+      {title:"연령",type:"RESPONDENT",required:false,respondentField:"AGE_GROUP",choicePreset:"CHILD_AGE_GROUP"},
+      {title:"거주",type:"RESPONDENT",required:false,respondentField:"RESIDENCE",choicePreset:"RESIDENCE_SEONGNAM"},
+      {title:"성별",type:"RESPONDENT",required:false,respondentField:"GENDER",choicePreset:"GENDER_BASIC"}
+    ]};
+    const normalized=normalizeSurveyDraft_(raw,{title:"조사",targetAudience:"대상"});
+    equal_(normalized.questions[0].options.join("|"),SURVEY_CHOICE_PRESETS.PROGRAM_DISCOVERY_PATH.options.join("|"),"참여경로 확장");
+    equal_(normalized.questions[1].options.join("|"),"유아|초1~2|초3~4|초5~6","어린이 연령 확장");
+    equal_(normalized.questions[2].options.join("|"),"중원구|수정구|분당구|기타","거주지역 확장");
+    equal_(normalized.questions[3].options.join("|"),"남|여","성별 확장");
+    equal_(normalized.questions[1].choicePreset,"CHILD_AGE_GROUP","normalized preset 보존");
   });
   test_("Gemini thought part와 최종 JSON 분리",function(){
     const parts=[
@@ -586,23 +618,28 @@ function testDynamicSurveyV2RegressionSuite() {
     equal_(variants.length,5,"문항 schema 5종");
     const byType={};variants.forEach(function(variant){byType[variant.properties.type.enum[0]]=variant;});
     equal_(Object.keys(byType).sort().join(","),"MULTIPLE,RESPONDENT,SCALE,SINGLE,TEXT","허용 type 5종");
-    equal_(Object.keys(byType.SINGLE.properties).sort().join(","),"options,required,title,type","SINGLE 필드");
+    equal_(Object.keys(byType.SINGLE.properties).sort().join(","),"choicePreset,options,required,title,type","SINGLE 필드");
+    equal_(byType.SINGLE.required.indexOf("options"),-1,"SINGLE source는 validator XOR");
     equal_(Object.keys(byType.MULTIPLE.properties).sort().join(","),"maxSelections,options,required,title,type","MULTIPLE 필드");
     equal_(byType.MULTIPLE.required.indexOf("maxSelections"),-1,"maxSelections 선택 필드");
     equal_(Object.keys(byType.SCALE.properties).sort().join(","),"required,scalePreset,title,type","SCALE 필드");
     equal_(byType.SCALE.properties.scalePreset.enum[0],"SATISFACTION_5","SCALE preset 고정");
     equal_(Object.keys(byType.TEXT.properties).sort().join(","),"required,title,type","TEXT 필드");
-    equal_(Object.keys(byType.RESPONDENT.properties).sort().join(","),"options,required,respondentField,title,type","RESPONDENT 필드");
+    equal_(Object.keys(byType.RESPONDENT.properties).sort().join(","),"choicePreset,options,required,respondentField,title,type","RESPONDENT 필드");
+    equal_(byType.RESPONDENT.required.indexOf("options"),-1,"RESPONDENT source는 validator XOR");
+    ["MULTIPLE","SCALE","TEXT"].forEach(function(type){equal_(Object.prototype.hasOwnProperty.call(byType[type].properties,"choicePreset"),false,type+" choicePreset 금지");});
   });
-  test_("Survey AI System Prompt v1.1 의미 품질 계약",function(){
-    equal_(SURVEY_AI_SYSTEM_PROMPT_VERSION,"1.1","prompt version");
+  test_("Survey AI System Prompt v1.2 preset 책임 계약",function(){
+    equal_(SURVEY_AI_SYSTEM_PROMPT_VERSION,"1.2","prompt version");
     const prompt=getSurveyAiSystemPrompt_();[
       "사용자가 요청하지 않은 새로운 평가 개념","SCALE 한 문항은 하나의 독립적인 평가 요소",
       "확인되지 않은 실제 홍보·접수 채널","법률명·법률 조항","개인정보는 안전하게 보호됩니다",
       "익명 또는 무기명으로 처리됩니다","required: false를 우선","실제 분석에 필요한 최소한",
       "보호자의 연령을 수강생 연령으로 착각","사용자가 복수응답을 명시하지 않았다면",
-      "title에는 질문 자체의 의미만","담당 부서·담당자·전화번호","2~3개의 짧은 문단"
-    ].forEach(function(token){equal_(prompt.indexOf(token)>=0,true,"v1.1 규칙: "+token);});
+      "title에는 질문 자체의 의미만","담당 부서·담당자·전화번호","2~3개의 짧은 문단",
+      'choicePreset: "PROGRAM_DISCOVERY_PATH"','choicePreset: "ADULT_AGE_GROUP"','choicePreset: "CHILD_AGE_GROUP"',
+      'choicePreset: "RESIDENCE_SEONGNAM"','choicePreset: "GENDER_BASIC"',"choicePreset과 options를 동시에 생성하지 않습니다"
+    ].forEach(function(token){equal_(prompt.indexOf(token)>=0,true,"v1.2 규칙: "+token);});
     equal_(getSurveyDraftGeminiResponseSchema_().properties.questions.items.anyOf.length,5,"responseSchema 유지");
   });
   return {success:results.every(function(r){return r.status==="PASS";}),passed:results.filter(function(r){return r.status==="PASS";}).length,

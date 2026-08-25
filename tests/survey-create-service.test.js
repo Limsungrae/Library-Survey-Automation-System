@@ -9,7 +9,8 @@ vm.createContext(context);
 vm.runInContext(source, context, {filename:'AppsScript/18_SurveyCreateService.gs'});
 const run = expression => vm.runInContext(expression, context);
 
-assert.strictEqual(run('SURVEY_AI_SYSTEM_PROMPT_VERSION'), '1.1');
+assert.strictEqual(run('SURVEY_AI_SYSTEM_PROMPT_VERSION'), '1.2');
+assert.strictEqual(run('SURVEY_DRAFT_CONTRACT_VERSION'), '1.1');
 const prompt = run('getSurveyAiSystemPrompt_()');
 [
   '중원도서관','공공도서관','SINGLE, MULTIPLE, SCALE, TEXT, RESPONDENT',
@@ -32,24 +33,45 @@ const prompt = run('getSurveyAiSystemPrompt_()');
   'title에는 질문 자체의 의미만',
   '담당 부서·담당자·전화번호',
   '2~3개의 짧은 문단',
-  '설문 응답은 통계적 목적으로만 이용됩니다'
-].forEach(token => assert(prompt.includes(token), `v1.1 prompt contains: ${token}`));
+  '설문 응답은 통계적 목적으로만 이용됩니다',
+  'choicePreset: "PROGRAM_DISCOVERY_PATH"',
+  'choicePreset: "ADULT_AGE_GROUP"',
+  'choicePreset: "CHILD_AGE_GROUP"',
+  'choicePreset: "RESIDENCE_SEONGNAM"',
+  'choicePreset: "GENDER_BASIC"',
+  'choicePreset과 options를 동시에 생성하지 않습니다'
+].forEach(token => assert(prompt.includes(token), `v1.2 prompt contains: ${token}`));
 assert(!prompt.includes('필요에 맞게 작성합니다. 예문을 기계적으로 복사하지 않습니다.'), 'v1.0 data-use allowance was replaced');
+
+const choicePresets = JSON.parse(JSON.stringify(run('SURVEY_CHOICE_PRESETS')));
+assert.deepStrictEqual(choicePresets.PROGRAM_DISCOVERY_PATH.options, [
+  '인터넷(도서관 홈페이지, SNS, 배움숲)','현수막, 안내문 등 홍보물',
+  '지인 추천(가족, 친구 등)','지역 커뮤니티 게시판','기타'
+]);
+assert.deepStrictEqual(choicePresets.ADULT_AGE_GROUP.options, ['20대','30대','40대','50대','60대','70대 이상']);
+assert.deepStrictEqual(choicePresets.CHILD_AGE_GROUP.options, ['유아','초1~2','초3~4','초5~6']);
+assert.deepStrictEqual(choicePresets.RESIDENCE_SEONGNAM.options, ['중원구','수정구','분당구','기타']);
+assert.deepStrictEqual(choicePresets.GENDER_BASIC.options, ['남','여']);
 
 const responseSchema = JSON.parse(JSON.stringify(run('getSurveyDraftGeminiResponseSchema_()')));
 const variants = responseSchema.properties.questions.items.anyOf;
 assert.strictEqual(variants.length, 5);
 const variantByType = Object.fromEntries(variants.map(variant => [variant.properties.type.enum[0], variant]));
 assert.deepStrictEqual(Object.keys(variantByType).sort(), ['MULTIPLE','RESPONDENT','SCALE','SINGLE','TEXT']);
-assert.deepStrictEqual(Object.keys(variantByType.SINGLE.properties).sort(), ['options','required','title','type']);
+assert.deepStrictEqual(Object.keys(variantByType.SINGLE.properties).sort(), ['choicePreset','options','required','title','type']);
+assert(!variantByType.SINGLE.required.includes('options'));
+assert.deepStrictEqual(variantByType.SINGLE.properties.choicePreset.enum, ['PROGRAM_DISCOVERY_PATH']);
 assert.deepStrictEqual(Object.keys(variantByType.MULTIPLE.properties).sort(), ['maxSelections','options','required','title','type']);
 assert(!variantByType.MULTIPLE.required.includes('maxSelections'));
 assert.deepStrictEqual(Object.keys(variantByType.SCALE.properties).sort(), ['required','scalePreset','title','type']);
 assert.deepStrictEqual(variantByType.SCALE.properties.scalePreset.enum, ['SATISFACTION_5']);
 assert(!variantByType.SCALE.properties.options);
 assert.deepStrictEqual(Object.keys(variantByType.TEXT.properties).sort(), ['required','title','type']);
-assert.deepStrictEqual(Object.keys(variantByType.RESPONDENT.properties).sort(), ['options','required','respondentField','title','type']);
+assert.deepStrictEqual(Object.keys(variantByType.RESPONDENT.properties).sort(), ['choicePreset','options','required','respondentField','title','type']);
+assert(!variantByType.RESPONDENT.required.includes('options'));
 assert.deepStrictEqual(variantByType.RESPONDENT.properties.respondentField.enum, ['AGE_GROUP','GENDER','RESIDENCE','USER_TYPE','OTHER']);
+assert.deepStrictEqual(variantByType.RESPONDENT.properties.choicePreset.enum, ['ADULT_AGE_GROUP','CHILD_AGE_GROUP','RESIDENCE_SEONGNAM','GENDER_BASIC']);
+['MULTIPLE','SCALE','TEXT'].forEach(type => assert(!variantByType[type].properties.choicePreset));
 
 const valid = {
   description:'설문 안내',
@@ -63,6 +85,16 @@ const valid = {
 };
 context.fixture = valid;
 assert.strictEqual(run('validateSurveyDraftAiResponse_(fixture)'), valid);
+[
+  {title:'경로',type:'SINGLE',required:true,choicePreset:'PROGRAM_DISCOVERY_PATH'},
+  {title:'성인 연령',type:'RESPONDENT',required:false,respondentField:'AGE_GROUP',choicePreset:'ADULT_AGE_GROUP'},
+  {title:'어린이 연령',type:'RESPONDENT',required:false,respondentField:'AGE_GROUP',choicePreset:'CHILD_AGE_GROUP'},
+  {title:'거주지역',type:'RESPONDENT',required:false,respondentField:'RESIDENCE',choicePreset:'RESIDENCE_SEONGNAM'},
+  {title:'성별',type:'RESPONDENT',required:false,respondentField:'GENDER',choicePreset:'GENDER_BASIC'}
+].forEach(question => {
+  context.fixture={description:'안내',questions:[question]};
+  assert.strictEqual(run('validateSurveyDraftAiResponse_(fixture)'), context.fixture);
+});
 
 function rejects(question, top) {
   context.fixture = top || {description:'안내', questions:[question]};
@@ -81,6 +113,15 @@ rejects({title:'x',type:'TEXT',required:'false'});
 rejects({title:'x',type:'TEXT',required:false,extra:true});
 rejects(null, {description:'안내',questions:[]});
 rejects({questionId:'Q1',title:'x',type:'TEXT',required:false});
+rejects({title:'x',type:'SINGLE',required:true,choicePreset:'UNKNOWN'});
+rejects({title:'x',type:'SINGLE',required:true,options:['가','나'],choicePreset:'PROGRAM_DISCOVERY_PATH'});
+rejects({title:'x',type:'SINGLE',required:true});
+rejects({title:'x',type:'MULTIPLE',required:true,options:['가','나'],choicePreset:'PROGRAM_DISCOVERY_PATH'});
+rejects({title:'x',type:'SCALE',required:true,scalePreset:'SATISFACTION_5',choicePreset:'PROGRAM_DISCOVERY_PATH'});
+rejects({title:'x',type:'TEXT',required:false,choicePreset:'PROGRAM_DISCOVERY_PATH'});
+rejects({title:'x',type:'RESPONDENT',required:false,respondentField:'AGE_GROUP',choicePreset:'GENDER_BASIC'});
+rejects({title:'x',type:'RESPONDENT',required:false,respondentField:'GENDER',choicePreset:'ADULT_AGE_GROUP'});
+rejects({title:'x',type:'RESPONDENT',required:false,respondentField:'RESIDENCE',choicePreset:'CHILD_AGE_GROUP'});
 
 context.raw = {
   description:'  안내문  ',
@@ -98,6 +139,23 @@ assert.deepStrictEqual(Array.from(normalized.questions, q => q.questionId), ['Q1
 assert.deepStrictEqual(Array.from(normalized.questions, q => q.order), [1,2]);
 assert.deepStrictEqual(Array.from(normalized.questions[0].options), ['가','나']);
 assert.deepStrictEqual(Array.from(normalized.questions[1].options), ['매우 만족','만족','보통','불만족','매우 불만족']);
+
+context.raw={description:'안내',questions:[
+  {title:'경로',type:'SINGLE',required:true,choicePreset:'PROGRAM_DISCOVERY_PATH'},
+  {title:'성인 연령',type:'RESPONDENT',required:false,respondentField:'AGE_GROUP',choicePreset:'ADULT_AGE_GROUP'},
+  {title:'어린이 연령',type:'RESPONDENT',required:false,respondentField:'AGE_GROUP',choicePreset:'CHILD_AGE_GROUP'},
+  {title:'거주',type:'RESPONDENT',required:false,respondentField:'RESIDENCE',choicePreset:'RESIDENCE_SEONGNAM'},
+  {title:'성별',type:'RESPONDENT',required:false,respondentField:'GENDER',choicePreset:'GENDER_BASIC'}
+]};
+const presetNormalized=run('normalizeSurveyDraft_(raw,input)');
+assert.deepStrictEqual(Array.from(presetNormalized.questions[0].options), choicePresets.PROGRAM_DISCOVERY_PATH.options);
+assert.deepStrictEqual(Array.from(presetNormalized.questions[1].options), choicePresets.ADULT_AGE_GROUP.options);
+assert.deepStrictEqual(Array.from(presetNormalized.questions[2].options), choicePresets.CHILD_AGE_GROUP.options);
+assert.deepStrictEqual(Array.from(presetNormalized.questions[3].options), choicePresets.RESIDENCE_SEONGNAM.options);
+assert.deepStrictEqual(Array.from(presetNormalized.questions[4].options), choicePresets.GENDER_BASIC.options);
+assert.deepStrictEqual(Array.from(presetNormalized.questions, question => question.choicePreset), [
+  'PROGRAM_DISCOVERY_PATH','ADULT_AGE_GROUP','CHILD_AGE_GROUP','RESIDENCE_SEONGNAM','GENDER_BASIC'
+]);
 
 context.input = {title:' 조사 ',targetAudience:' 대상 ',requestContent:' 요청 ',referenceInfo:''};
 const checkedInput = run('validateSurveyDraftInput_(input)');
