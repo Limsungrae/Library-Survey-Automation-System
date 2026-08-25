@@ -594,6 +594,17 @@ function testDynamicSurveyV2RegressionSuite() {
     equal_(Object.keys(byType.TEXT.properties).sort().join(","),"required,title,type","TEXT 필드");
     equal_(Object.keys(byType.RESPONDENT.properties).sort().join(","),"options,required,respondentField,title,type","RESPONDENT 필드");
   });
+  test_("Survey AI System Prompt v1.1 의미 품질 계약",function(){
+    equal_(SURVEY_AI_SYSTEM_PROMPT_VERSION,"1.1","prompt version");
+    const prompt=getSurveyAiSystemPrompt_();[
+      "사용자가 요청하지 않은 새로운 평가 개념","SCALE 한 문항은 하나의 독립적인 평가 요소",
+      "확인되지 않은 실제 홍보·접수 채널","법률명·법률 조항","개인정보는 안전하게 보호됩니다",
+      "익명 또는 무기명으로 처리됩니다","required: false를 우선","실제 분석에 필요한 최소한",
+      "보호자의 연령을 수강생 연령으로 착각","사용자가 복수응답을 명시하지 않았다면",
+      "title에는 질문 자체의 의미만","담당 부서·담당자·전화번호","2~3개의 짧은 문단"
+    ].forEach(function(token){equal_(prompt.indexOf(token)>=0,true,"v1.1 규칙: "+token);});
+    equal_(getSurveyDraftGeminiResponseSchema_().properties.questions.items.anyOf.length,5,"responseSchema 유지");
+  });
   return {success:results.every(function(r){return r.status==="PASS";}),passed:results.filter(function(r){return r.status==="PASS";}).length,
     failed:results.filter(function(r){return r.status==="FAIL";}).length,results:results};
 }

@@ -9,13 +9,32 @@ vm.createContext(context);
 vm.runInContext(source, context, {filename:'AppsScript/18_SurveyCreateService.gs'});
 const run = expression => vm.runInContext(expression, context);
 
-assert.strictEqual(run('SURVEY_AI_SYSTEM_PROMPT_VERSION'), '1.0');
+assert.strictEqual(run('SURVEY_AI_SYSTEM_PROMPT_VERSION'), '1.1');
 const prompt = run('getSurveyAiSystemPrompt_()');
 [
   '중원도서관','공공도서관','SINGLE, MULTIPLE, SCALE, TEXT, RESPONDENT',
   'SATISFACTION_5','추가 참고정보에 제공된 것만 사용',
   '개인정보 최소화','questionId, order','유효한 JSON 하나만 반환'
 ].forEach(token => assert(prompt.includes(token), `system prompt contains: ${token}`));
+[
+  '사용자가 요청하지 않은 새로운 평가 개념',
+  'SCALE 한 문항은 하나의 독립적인 평가 요소',
+  '확인되지 않은 실제 홍보·접수 채널',
+  '법률명·법률 조항',
+  '개인정보는 안전하게 보호됩니다',
+  '익명 또는 무기명으로 처리됩니다',
+  'RESPONDENT는 사용자가',
+  'required: false를 우선',
+  '실제 분석에 필요한 최소한',
+  '보호자의 연령을 수강생 연령으로 착각',
+  '하나의 대표적인 답',
+  '사용자가 복수응답을 명시하지 않았다면',
+  'title에는 질문 자체의 의미만',
+  '담당 부서·담당자·전화번호',
+  '2~3개의 짧은 문단',
+  '설문 응답은 통계적 목적으로만 이용됩니다'
+].forEach(token => assert(prompt.includes(token), `v1.1 prompt contains: ${token}`));
+assert(!prompt.includes('필요에 맞게 작성합니다. 예문을 기계적으로 복사하지 않습니다.'), 'v1.0 data-use allowance was replaced');
 
 const responseSchema = JSON.parse(JSON.stringify(run('getSurveyDraftGeminiResponseSchema_()')));
 const variants = responseSchema.properties.questions.items.anyOf;
