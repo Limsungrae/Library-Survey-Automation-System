@@ -39,6 +39,7 @@ function generateDynamicAIReport(onStage) {
     ? onStage
     : function() {};
   try {
+    const revisions=assertDynamicQualityFresh_(null,true);
     updateStage("조사 설정 조회");
     const settings=getSurveySettings_();
     updateStage("동적 분석 결과 조회");
@@ -64,15 +65,16 @@ function generateDynamicAIReport(onStage) {
     updateStage("Gemini 향후계획 응답 처리");
     updateStage("보고서 저장 잠금 획득");
     lock=LockService.getScriptLock();lock.waitLock(30000);
+    invalidateDynamicAIRevision_();
     updateStage("06_주관식분석 시트 생성");
     createDynamicAIOpinionSheet_(analysis,opinionAnalysis);
     updateStage("07_AI총평 시트 생성");
-    createDynamicAITextSheet_(getDynamicAIReportSheetName_("AI_SUMMARY", "07_AI총평"),"Ⅶ. AI 종합분석",summaryText,
+    createDynamicAITextSheet_(getDynamicAIReportSheetName_("AI_SUMMARY", "07_AI총평"),"Ⅶ. 총평",summaryText,
       "※ 품질검사를 통과한 집계와 비식별 의견만 사용한 Gemini 초안입니다. 담당자 검토가 필요합니다.");
 updateStage("08_향후개선방향 시트 생성");
 createDynamicAITextSheet_(
   getDynamicAIReportSheetName_("IMPROVEMENT_PLAN", "08_향후개선방향"),
-  "Ⅷ. 향후 개선방향",
+  "Ⅷ. 향후계획",
   futurePlanText,
   "※ 확정 정책·예산·일정이 아닌 검토용 초안입니다."
 );
@@ -98,6 +100,7 @@ createDynamicDashboardSheet_(analysis, settings);
 updateStage("AI 보고서 시트 정렬 및 저장");
 moveDynamicAISheetsInOrder_();
 SpreadsheetApp.flush();
+    markDynamicAIRevision_(revisions.rawRevision);
     const generatedSheets=[
       getDynamicAIReportSheetName_("OPINION", "06_주관식분석"),
       getDynamicAIReportSheetName_("AI_SUMMARY", "07_AI총평"),
@@ -105,18 +108,20 @@ SpreadsheetApp.flush();
     ];
     const summary={validOpinionCount:opinionAnalysis.validCount,categoryCount:opinionAnalysis.categories.length};
     return {success:true,message:"범용 AI 보고서 생성이 완료되었습니다.",
-      generatedSheets:generatedSheets,quality:quality,summary:summary};
+      generatedSheets:generatedSheets,quality:quality,summary:summary,
+      report:{summaryText:summaryText,futurePlanText:futurePlanText}};
   } catch(error){throw new Error(error&&error.message?error.message:String(error));}
   finally{if(lock){try{lock.releaseLock();}catch(ignored){}}}
 }
 
 function createDynamicAIBlockedSheet_(quality) {
   const sheet=getOrResetDynamicAISheet_(getDynamicAIReportSheetName_("AI_SUMMARY", "07_AI총평"));
-  setDynamicAISheetTitle_(sheet,"Ⅶ. AI 종합분석",8);
+  setDynamicAISheetTitle_(sheet,"Ⅶ. 총평",8);
   const rows=[["수준","코드","문항","오류"]].concat((quality.errors||[]).map(function(item){return [item.level,item.code,item.questionId,item.message];}));
   sheet.getRange(4,1,rows.length,4).setValues(rows);styleDynamicAIHeader_(sheet.getRange(4,1,1,4));
   if(rows.length>1)styleDynamicAITable_(sheet.getRange(4,1,rows.length,4));
   applyDynamicPublicReportBaseStyle_(sheet,rows.length+3,8);
+  applyDynamicReportReadability_(sheet,rows.length+3,8);
 }
 
 /**
@@ -444,34 +449,10 @@ function buildDynamicAIContext_(analysis, opinionAnalysis, settings, quality) {
  * @return {string} AI가 작성한 총평 텍스트 원문
  */
 function generateDynamicAISummaryText_(context) {
-  // AI에게 철저한 팩트 기반 작성을 요구하는 프롬프트를 구성합니다.
-  const prompt = `
-너는 성남시중원도서관의 공공기관 결과보고서 작성 보조자이다.
-
-아래 검증된 조사자료만 근거로 "총평" 초안을 작성한다.
-
-작성 규칙:
-${buildDynamicAIInterpretationRules_()}
-- 각 항목은 "○ "로 시작한다.
-- 총 5개 이상 7개 이하의 항목으로 작성한다.
-- 전체 응답자 수를 포함한다.
-- 만족도 척도 문항 수, 전체 평균, 100점 환산, 긍정률을 포함한다.
-- 평균이 가장 높은 항목과 상대적으로 낮게 나타난 항목을 포함한다.
-- 절대값이 높더라도 다른 항목보다 낮은 경우 "만족도가 낮다"고 단정하지 않는다.
-- 복수응답 결과가 있으면 응답자 선택률이 높은 항목을 중심으로 작성한다.
-- 재이용·추천 결과가 있으면 포함한다.
-- 주관식 범주가 있으면 건수가 높은 주요 범주를 포함한다.
-- 자료에 없는 원인, 성과, 예산, 일정, 정책을 만들지 않는다.
-- 공공기관 보고서에 적합한 객관적이고 신중한 문체를 사용한다.
-- 마크다운 제목, 별표, 표, 코드블록을 사용하지 않는다.
-- 수치와 문항명은 입력자료와 일치해야 한다.
-
-검증된 조사자료:
-${JSON.stringify(context, null, 2)}
-`.trim();
+  const prompt=buildDynamicAISummaryPrompt_(context);
 
   // 팩트의 정확성을 높이기 위해 창의성(temperature)을 낮게(0.2) 설정하여 텍스트를 생성합니다.
-  return callGeminiText_({
+  return normalizeDynamicAIReportText_(callGeminiText_({
     contents: [
       { parts: [{ text: prompt }] }
     ],
@@ -480,7 +461,7 @@ ${JSON.stringify(context, null, 2)}
       topP: 0.8,
       maxOutputTokens: 4096
     }
-  });
+  }));
 }
 
 
@@ -492,34 +473,10 @@ ${JSON.stringify(context, null, 2)}
  * @return {string} AI가 작성한 향후계획 텍스트 원문
  */
 function generateDynamicFuturePlanText_(context, summaryText) {
-  // 공공기관 특유의 조심스럽고 검토 위주의 계획 문안 작성을 유도하는 프롬프트입니다.
-  const prompt = `
-너는 성남시중원도서관의 공공기관 업무계획 작성 보조자이다.
-
-아래 검증된 조사자료와 총평 초안만 근거로 "향후계획" 초안을 작성한다.
-
-작성 규칙:
-${buildDynamicAIInterpretationRules_()}
-- 각 항목은 "○ "로 시작한다.
-- 총 4개 이상 6개 이하의 항목으로 작성한다.
-- 주관식 의견과 복수응답에서 실제로 확인된 요구에 대응한다.
-- 만족도 결과 중 상대적으로 낮게 나타난 항목이 있으면 운영 검토 방향을 제시할 수 있다.
-- 확정되지 않은 사업을 확정 표현으로 작성하지 않는다.
-- "검토할 필요가 있음", "운영 시 참고", "여건을 고려하여 단계적으로 검토" 등의 신중한 문체를 사용한다.
-- 조사자료에 없는 사업명, 예산액, 추진 일정, 대상 인원, 정책을 만들지 않는다.
-- 단순 감사·칭찬 의견만 있는 경우 억지로 개선사업을 만들지 않는다.
-- 총평 문장을 그대로 반복하지 않고 실행 검토 방향 중심으로 작성한다.
-- 마크다운 제목, 별표, 표, 코드블록을 사용하지 않는다.
-
-검증된 조사자료:
-${JSON.stringify(context, null, 2)}
-
-총평 초안:
-${summaryText}
-`.trim();
+  const prompt=buildDynamicAIFuturePlanPrompt_(context,summaryText);
 
   // 마찬가지로 팩트 왜곡 방지 및 신중한 문장 구성을 위해 뇌피셜(환각)을 극도로 제어(temperature: 0.2)합니다.
-  return callGeminiText_({
+  return normalizeDynamicAIReportText_(callGeminiText_({
     contents: [
       { parts: [{ text: prompt }] }
     ],
@@ -528,16 +485,107 @@ ${summaryText}
       topP: 0.8,
       maxOutputTokens: 3072
     }
-  });
+  }));
 }
 
 function buildDynamicAIInterpretationRules_() {
   return [
-    "- 제공된 수치를 다시 계산하거나 새로운 수치를 만들지 않는다.",
+    "- 제공된 검증 통계 컨텍스트에 존재하는 사실과 수치만 사용한다.",
+    "- 제공된 수치를 합산·재계산·추정하거나 새로운 수치를 만들지 않는다.",
+    "- 컨텍스트에 없는 문항, 이용자 집단, 사업명, 프로그램, 기관명, 정책을 만들지 않는다.",
     "- 전년도 자료가 없으므로 증가·감소·전년 대비 표현을 사용하지 않는다.",
-    "- 원인을 언급해야 하면 확인된 사실이 아니라 추론임을 명시한다.",
-    "- 근거 없는 인과관계, 정책, 예산, 일정은 생성하지 않는다."
+    "- 직접 근거가 없는 '~때문에', '~로 인해' 등의 인과 표현을 사용하지 않는다.",
+    "- 실제 비교가 가능한 경우에만 '가장 높음', '상대적으로 낮음'을 사용하고 절대점수가 높은 항목을 낮다고 단정하지 않는다.",
+    "- 압도적, 획기적, 폭발적, 성공적, 시너지, 니즈, 극대화 등 과장되거나 추상적인 컨설팅 표현을 사용하지 않는다.",
+    "- 개인정보, 확정되지 않은 정책·예산·일정·담당 부서를 생성하지 않는다.",
+    "- 해당 분석 데이터가 없으면 관련 문단 자체를 생략한다.",
+    "- 마크다운 제목(#), 굵게(**), 표, 코드블록을 사용하지 않고 Excel 셀에 기록할 plain text만 반환한다."
   ].join("\n");
+}
+
+function buildDynamicAISummaryPrompt_(context){
+  return `
+너는 지방공공기관의 만족도 조사 결과보고서를 작성하는 행정 실무자이다.
+일반적인 AI 설명문이나 컨설팅 보고서가 아니라 부서 내부 검토·결재자료에 바로 활용할 객관적인 총평을 작성한다.
+
+작성 목적:
+- 조사 결과에서 무엇이 나타났으며 그 결과가 무엇을 의미하는지 정리한다.
+- 세부 사업 일정이나 실행계획은 작성하지 않는다.
+
+공통 사실성 규칙:
+${buildDynamicAIInterpretationRules_()}
+
+문체와 형식:
+- 제목은 시트 렌더러가 표시하므로 제목을 출력하지 않고 첫 줄부터 "○ "로 시작한다.
+- 주요 결과는 "○ ", 통계에 직접 근거한 시사점은 "⇒ ", 필요한 세부사항은 "- " 또는 "⦁ "로 시작한다.
+- 서로 관련된 통계는 하나의 ○ 문단에 묶고, "- "는 의미 범주를 구분해야 할 때만 제한적으로 사용한다.
+- 문장은 짧은 개조식으로 작성하고 '~나타남', '~확인됨', '~파악됨', '~차지함', '~검토할 필요가 있음' 등으로 종결한다.
+- '~입니다', '~했습니다', '추천합니다', '제안합니다', '기대됩니다', '~하는 것이 좋습니다' 문체를 사용하지 않는다.
+- 가용 데이터 범위에서 주요 ○ 문단 4~7개와 시사점 1~3개를 권장하되, 근거가 부족하면 개수를 줄인다.
+
+내용 순서(데이터가 있는 항목만 작성):
+1. 조사 참여 및 응답자 특성
+2. 주요 이용 현황 또는 인지 경로
+3. 만족도 전체 평균·긍정률과 최고·상대적 최저 문항
+4. 재이용·추천 또는 NPS
+5. 실제 개선 요구
+6. 실제 향후 수요
+7. 종합 시사점
+
+추가 제한:
+- 만족도 문항을 모두 나열하지 말고 전체 지표와 최고·상대적 최저 중심으로 작성한다.
+- 복수응답 비율은 컨텍스트의 selectionRate, respondentRate, validRespondentRate 의미를 바꾸지 않는다.
+- 복수응답 주요 결과에는 건수와 respondentRate를 함께 쓰며, 값이 없을 때 다른 비율을 응답자 선택률이라고 부르지 않는다.
+- 평균은 소수점 둘째 자리, 백분율과 NPS는 소수점 첫째 자리, 응답자와 건수는 정수로 표시하되 값을 재계산하지 않는다.
+- 주관식 의견이 없으면 주관식 결과를 언급하지 않는다.
+- 개선 요구를 분류할 때는 실제 자료에서 의미가 명확한 경우에만 범주화하고 고정 범주를 억지로 만들지 않는다.
+- 구체적인 예산, 일정, 담당 부서, 신규 사업명 또는 확정되지 않은 운영 약속을 작성하지 않는다.
+
+검증된 조사자료:
+${JSON.stringify(context,null,2)}
+`.trim();
+}
+
+function buildDynamicAIFuturePlanPrompt_(context,summaryText){
+  return `
+너는 지방공공기관의 만족도 조사 결과를 업무계획에 반영하는 행정 실무자이다.
+향후계획은 총평을 반복하는 문서가 아니며 조사에서 확인된 요구를 향후 업무에 반영할 실행 방향을 작성한다.
+
+공통 사실성 규칙:
+${buildDynamicAIInterpretationRules_()}
+
+문체와 형식:
+- 제목은 시트 렌더러가 표시하므로 제목을 출력하지 않고 첫 줄부터 "○ "로 시작한다.
+- 주요 추진방향은 "○ ", 하위 실행방안은 "- ", 필요한 세부항목은 "⦁ "로 시작한다.
+- 주요 ○ 항목은 3~6개를 권장하되 실제 근거가 부족하면 개수를 줄인다.
+- 각 항목의 하위 실행방안은 필요한 경우에만 1~3개로 제한한다.
+- '반영', '검토', '확대·개편 검토', '운영 방안 검토', '단계적 추진' 등 개조식 행정문서 표현을 사용한다.
+
+역할 분리 및 실행 원칙:
+- 총평의 수치와 문장을 장황하게 반복하지 않고 필요한 경우 근거 수치 1개 이내만 사용한다.
+- 개선 요구, 향후 수요, 상대적으로 낮은 만족도 및 검증된 주관식 요구와 직접 연결된 방향만 작성한다.
+- 관련 데이터가 없으면 공간·장비, 홍보, 프로그램 등 해당 추진항목을 만들지 않는다.
+- 기관에서 확정되지 않은 사업은 '추진한다', '조성한다', '도입한다', '확보한다'로 단정하지 않는다.
+- 시설·공간·장비처럼 예산이 수반될 수 있는 사항은 사업 필요성, 이용자 수요 및 여건을 검토한 단계적 추진사항으로 표현한다.
+- 사업명, 예산액, 일정, 대상 인원, 담당 부서를 새로 만들지 않는다.
+- 단순 감사·칭찬만 있는 경우 개선사업을 억지로 만들지 않는다.
+
+검증된 조사자료:
+${JSON.stringify(context,null,2)}
+
+총평 초안(중복 작성 금지, 실행 방향 도출에만 참고):
+${summaryText}
+`.trim();
+}
+
+function normalizeDynamicAIReportText_(value){
+  return String(value||"").replace(/```[^\n]*\n?/g,"").replace(/^\s*#{1,6}\s*/gm,"")
+    .replace(/\*\*([^*]+)\*\*/g,"$1").replace(/__([^_]+)__/g,"$1")
+    .replace(/^\s*\*\s+/gm,"- ").replace(/^\s*\|(.+)\|\s*$/gm,function(_,content){
+      if(/^\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)+$/.test(content))return "";
+      return content.split("|").map(function(item){return cleanText_(item);}).filter(Boolean).join(" · ");
+    }).replace(/^\s*[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\.\s*(?:AI\s*)?(?:총평|향후계획|향후개선방향)\s*\n?/i,"")
+    .replace(/\n{3,}/g,"\n\n").trim();
 }
 
 
@@ -552,14 +600,13 @@ function createDynamicAIOpinionSheet_(analysis, opinionAnalysis) {
   const sheet = getOrResetDynamicAISheet_(getDynamicAIReportSheetName_("OPINION", "06_주관식분석"));
 
   // 시트 맨 상단에 제목(1~2행 병합)을 배치합니다.
-  setDynamicAISheetTitle_(sheet, "Ⅵ. 주관식 분석", 8);
+  setDynamicAISheetTitle_(sheet, "Ⅵ. 주관식 분석", 7);
 
   // 4행에 카테고리 요약 통계 테이블의 머리글(헤더)을 작성합니다.
-  sheet.getRange(4, 1, 1, 8).setValues([[
+  sheet.getRange(4, 1, 1, 7).setValues([[
     "순위",
     "의미 범주",
     "분류 건수",
-    "시각화",
     "유효 의견 대비 비율(%)",
     "응답 번호",
     "대표 의견 1",
@@ -567,49 +614,35 @@ function createDynamicAIOpinionSheet_(analysis, opinionAnalysis) {
   ]]);
 
   // 머리글 영역에 배경색, 정렬 등 공공기관 스타일 서식을 입힙니다.
-  styleDynamicAIHeader_(sheet.getRange(4, 1, 1, 8));
+  styleDynamicAIHeader_(sheet.getRange(4, 1, 1, 7));
 
   // 2차원 배열 형태로 시트에 입력할 카테고리별 요약 행 데이터를 가공합니다.
-  const categoryRows = opinionAnalysis.categories.map(function(category, index) {
-    return [
-      index + 1,                   // 순위 (1등부터 시작)
-      category.category,            // AI가 명사형으로 정한 의미 범주명
-      category.count,               // 검증 완료된 소속 답변 개수
-      "",
-      opinionAnalysis.validCount > 0
-        ? round_(category.count / opinionAnalysis.validCount * 100, 1) // 비율 소수점 첫째자리 계산
-        : 0,
-      category.responseNumbers.join("· "), // 매핑된 응답자들의 행 번호들을 쉼표로 나열
-      category.representativeOpinions[0] || "", // AI 요약 대표의견 1
-      category.representativeOpinions[1] || ""  // AI 요약 대표의견 2
-    ];
-  });
+  const categoryRows = buildDynamicAIOpinionCategoryRows_(opinionAnalysis);
 
   // 뿌려줄 카테고리 데이터가 하나 이상 존재한다면
 if (categoryRows.length > 0) {
 
-    // 응답번호 열(C?)이 아니라 6열(F)을 먼저 텍스트로 지정
+    // 응답 번호가 숫자로 자동 변환되지 않도록 5열을 텍스트로 지정합니다.
     sheet
-      .getRange(5,6,categoryRows.length,1)
+      .getRange(5,5,categoryRows.length,1)
       .setNumberFormat("@");
 
     sheet
-      .getRange(5,1,categoryRows.length,8)
+      .getRange(5,1,categoryRows.length,7)
       .setValues(categoryRows);
 
     sheet
-      .getRange(5,5,categoryRows.length,1)
+      .getRange(5,4,categoryRows.length,1)
       .setNumberFormat("0.0");
-    sheet.getRange(5, 6, categoryRows.length, 1)
+    sheet.getRange(5, 5, categoryRows.length, 1)
   .setNumberFormat("@");
     
     // 테이블 전체 영역에 회색 테두리 등의 기본 격자 서식을 적용합니다.
-    styleDynamicAITable_(sheet.getRange(4, 1, categoryRows.length + 1, 8));
-    setDynamicBarSparklines_(sheet,5,categoryRows.length,3,4);
+    styleDynamicAITable_(sheet.getRange(4, 1, categoryRows.length + 1, 7));
 
   } else {
     // 데이터가 아예 없을 때 예외적으로 출력할 안내 문구 세팅입니다.
-    sheet.getRange(5, 1, 1, 8)
+    sheet.getRange(5, 1, 1, 7)
       .merge()
       .setValue("AI로 분류할 유효한 주관식 의견이 없습니다.")
       .setHorizontalAlignment("center");
@@ -642,16 +675,7 @@ if (categoryRows.length > 0) {
   styleDynamicAIHeader_(sheet.getRange(detailStartRow, 1, 1, 6));
 
   // 2차원 배열 형태로 개별 답변별 상세 행 데이터를 구축합니다.
-  const detailRows = opinionAnalysis.opinionAssignments.map(function(item) {
-    return [
-      item.id,
-      item.responseNumber,
-      item.question,
-      item.text,
-      item.categories.length ? item.categories.join(" | ") : "미분류", // 중복 배정 시 | 기호로 구분
-      "담당자 검토 필요" // 담당자가 최종 컨펌할 수 있도록 상태 초안 지정
-    ];
-  });
+  const detailRows = buildDynamicAIOpinionDetailRows_(opinionAnalysis);
 
   // 상세 행 데이터가 있다면 시트에 일괄 기록하고 테두리 서식을 씌워줍니다.
   if (detailRows.length > 0) {
@@ -659,23 +683,27 @@ if (categoryRows.length > 0) {
     styleDynamicAITable_(sheet.getRange(detailStartRow, 1, detailRows.length + 1, 6));
   }
 
-  // 상단 요약 표 기준에 맞춰 초기 열 너비를 보기 좋게 수동 설정합니다.
-  sheet.setColumnWidth(1, 75);
-  sheet.setColumnWidth(2, 210);
-  sheet.setColumnWidth(3, 95);
-  sheet.setColumnWidth(4, 130);
-  sheet.setColumnWidth(5, 210);
-  sheet.setColumnWidth(6, 360);
-  sheet.setColumnWidth(7, 360);
+  // 요약과 상세 표가 공유하는 열을 긴 문항·의견 중심으로 배치합니다.
+  [90,180,340,560,280,450,450].forEach(function(width,index){sheet.setColumnWidth(index+1,width);});
+  applyDynamicPublicReportBaseStyle_(sheet, detailStartRow + Math.max(detailRows.length, 1), 7);
+  applyDynamicReportReadability_(sheet, detailStartRow + Math.max(detailRows.length, 1), 7);
+}
 
-  // 하단 상세 리스트 표가 추가되었으므로 긴 텍스트가 많이 들어가는 문항/원문 열 너비를 넉넉하게 확장합니다.
-  if (detailRows.length > 0) {
-    sheet.setColumnWidth(3, 360);
-    sheet.setColumnWidth(4, 520);
-    sheet.setColumnWidth(5, 260);
-    sheet.setColumnWidth(6, 150);
-  }
-  applyDynamicPublicReportBaseStyle_(sheet, detailStartRow + Math.max(detailRows.length, 1), 8);
+
+function buildDynamicAIOpinionCategoryRows_(opinionAnalysis) {
+  return (opinionAnalysis.categories||[]).map(function(category,index){return [
+    index+1,category.category,category.count,
+    opinionAnalysis.validCount>0?round_(category.count/opinionAnalysis.validCount*100,1):0,
+    category.responseNumbers.join("· "),category.representativeOpinions[0]||"",category.representativeOpinions[1]||""
+  ];});
+}
+
+
+function buildDynamicAIOpinionDetailRows_(opinionAnalysis) {
+  return (opinionAnalysis.opinionAssignments||[]).map(function(item){return [
+    item.id,item.responseNumber,item.question,item.text,
+    item.categories.length?item.categories.join(" | "):"미분류","담당자 검토 필요"
+  ];});
 }
 
 
@@ -709,11 +737,15 @@ function createDynamicAITextSheet_(sheetName, title, bodyText, notice) {
   let row = 6; // 본문을 채워넣기 시작할 행 번호
 
   // 각 문단별로 루프를 돌며 카드를 배치하듯 셀을 큼직하게 병합하여 기록합니다.
+  const paragraphRows=[];
   paragraphs.forEach(function(paragraph) {
+    paragraphRows.push(row);
     sheet.getRange(row, 1, 1, 8)
       .merge()
       .setValue(paragraph)
-      .setVerticalAlignment("middle") // 텍스트 중앙 정렬
+      .setFontSize(12)
+      .setHorizontalAlignment("left")
+      .setVerticalAlignment("top") // 긴 문단은 위에서부터 읽도록 정렬
       .setWrap(true)                  // 셀 너비 넘어가면 줄바꿈
       .setBorder(                     // 개별 카드 테두리 지정
         true, true, true, true, true, true,
@@ -721,16 +753,35 @@ function createDynamicAITextSheet_(sheetName, title, bodyText, notice) {
         SpreadsheetApp.BorderStyle.SOLID
       );
 
-    // 가독성을 극대화하기 위해 데이터가 들어간 병합된 행들의 높이를 넉넉하게 38픽셀씩 지정합니다.
-    sheet.setRowHeight(row, 34);
+    // 문단 길이에 따라 병합 행 높이를 확보해 인쇄 시 본문이 잘리지 않게 합니다.
+    sheet.setRowHeight(row, getDynamicAIParagraphRowHeight_(paragraph));
 
-    // 다음 문단은 1행만큼 띄우고 배치하기 위해 3행 아래(row + 3)로 인덱스를 넘깁니다.
+    // 다음 문단 사이에 한 행을 비우기 위해 2행 아래로 이동합니다.
     row += 2;
   });
 
-  // 모든 열(1~8번 열)의 너비를 균등하게 120픽셀로 맞춰 시트의 균형을 잡습니다.
-  sheet.setColumnWidths(1, 8, 120);
+  // 모든 열(1~8번 열)의 너비를 균등하게 확보해 긴 본문의 줄바꿈을 줄입니다.
   applyDynamicPublicReportBaseStyle_(sheet, Math.max(row - 1, 6), 8);
+  applyDynamicReportReadability_(sheet, Math.max(row - 1, 6), 8);
+  sheet.setColumnWidths(1, 8, 220);
+  sheet.getRange(4,1,1,8).setFontSize(10).setWrap(true).setVerticalAlignment("middle").setHorizontalAlignment("left");
+  paragraphRows.forEach(function(paragraphRow){
+    sheet.getRange(paragraphRow,1,1,8).setFontSize(12).setWrap(true)
+      .setVerticalAlignment("top").setHorizontalAlignment("left");
+    sheet.setRowHeight(paragraphRow,getDynamicAIParagraphRowHeight_(sheet.getRange(paragraphRow,1).getDisplayValue()));
+  });
+}
+
+
+/** 넓은 A:H 문서 폭과 실제 줄바꿈을 기준으로 AI 문단 높이를 계산합니다. */
+function getDynamicAIParagraphRowHeight_(value) {
+  const text=String(value||""),visualLines=text.split("\n").reduce(function(total,line){
+    return total+Math.max(1,Math.ceil(line.length/150));
+  },0)||1;
+  if(visualLines<=1)return 54;
+  if(visualLines<=3)return 84;
+  if(visualLines<=5)return 116;
+  return 150;
 }
 
 
