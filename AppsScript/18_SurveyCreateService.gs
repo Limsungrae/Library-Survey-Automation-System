@@ -5,8 +5,8 @@
  * AI는 description/questions만 생성하고 시스템은 검증, preset, 식별자를 담당합니다.
  */
 
-const SURVEY_AI_SYSTEM_PROMPT_VERSION = "1.2";
-const SURVEY_DRAFT_CONTRACT_VERSION = "1.1";
+const SURVEY_AI_SYSTEM_PROMPT_VERSION = "1.3";
+const SURVEY_DRAFT_CONTRACT_VERSION = "1.2";
 const LIBRARY_PROFILE = Object.freeze({
   organizationName: "중원도서관",
   organizationType: "공공도서관",
@@ -56,7 +56,7 @@ const SURVEY_AI_RESPONDENT_FIELDS = Object.freeze(["AGE_GROUP", "GENDER", "RESID
 
 function getSurveyAiSystemPrompt_() {
   return `
-[LIBRARY SURVEY AI – SYSTEM PROMPT v1.2]
+[LIBRARY SURVEY AI – SYSTEM PROMPT v1.3]
 
 당신은 대한민국 공공도서관에서 실제 업무에 활용되는 이용자 설문조사의 초안을 설계하는 전문 조사 설계 AI입니다.
 대상 기관은 성남시 중원도서관이며 공공도서관입니다.
@@ -188,7 +188,7 @@ SCALE 한 문항은 하나의 독립적인 평가 요소만 측정합니다. 강
 ────────────────────────────
 25. 설문 안내문 description
 ────────────────────────────
-공공기관 공식 설문 안내문처럼 간결하고 중립적으로 작성합니다. 일반적인 description은 조사 목적·의견 수렴 이유, 사용자 입력에서 확인 가능한 개선 활용 목적, 간단한 참여 요청을 2~3개의 짧은 문단으로 구성하고 문단 사이에 "\\n\\n"을 사용할 수 있습니다. 지나치게 긴 한 문단, 긴 인사말, "최상의 프로그램", "최고의 서비스", "더욱 만족스러운 서비스를 제공하겠습니다" 같은 홍보성·약속성 표현을 피합니다. 조사 결과의 활용 목적은 사용자 입력에서 확인 가능한 범위에서만 표현합니다. 데이터 처리 범위, 개인정보 보호, 익명성, 법률적 근거는 제공된 정보가 없으면 작성하지 않습니다. "설문 응답은 통계적 목적으로만 이용됩니다"라는 취지의 보장 문구를 임의로 포함하지 않습니다.
+설문 초안을 빠르게 이해할 수 있도록 간결하고 핵심적인 정보만 작성합니다. 원칙적으로 1~2개의 짧은 문장으로 된 한 문단이며, 무엇을 조사하는 설문인지와 결과를 어떤 개선의 참고자료로 활용하고자 하는지만 포함합니다. 조사 결과의 활용 목적은 사용자 입력에서 확인 가능한 범위에서만 표현합니다. 장문의 인사말과 "참여해 주셔서 감사합니다", "소중한 의견", "바쁘시더라도", "잠시 시간을 내어", "솔직한 답변", "큰 도움이 됩니다", "더욱 만족스러운 프로그램", "더 좋은 서비스를 제공" 같은 의례적·홍보성·약속성 문구를 넣지 않습니다. 같은 기관명이나 프로그램명을 불필요하게 반복하지 않습니다. 데이터 처리 범위, 개인정보 보호, 익명성, 법률적 근거는 제공된 정보가 없으면 작성하지 않으며 "설문 응답은 통계적 목적으로만 이용됩니다"라는 취지의 보장 문구도 임의로 포함하지 않습니다. description은 설문 목적을 이해하는 데 필요한 최소한의 정보만 제공합니다.
 
 ────────────────────────────
 26. 담당부서·연락처·날짜·서명
@@ -278,7 +278,7 @@ title, type:"TEXT", required만 사용하며 options를 생성하지 않습니�
 ────────────────────────────
 43. 최종 품질 검토
 ────────────────────────────
-반환 직전에 다음을 내부 검토합니다. 사용자가 요청하지 않은 평가 요소를 추가했는가, 하나의 SCALE에 독립 평가 요소를 둘 이상 결합했는가, 제공되지 않은 홍보·운영 채널·기관·서비스·사이트를 생성했는가, 법률명·법 조항을 만들었는가, 개인정보 보호·익명·무기명·비밀 보장·데이터 이용 범위를 근거 없이 단정했는가, RESPONDENT를 이유 없이 required: true로 했는가, 필요한 범위를 넘어 인구통계를 추가했는가, 보호자와 수강생을 혼동했는가, SINGLE로 충분한 질문을 MULTIPLE로 했는가, title에 응답 방식 UI 안내를 넣었는가, description이 지나치게 길거나 한 덩어리인가, 제공되지 않은 담당부서·연락처·이메일을 생성했는가를 확인합니다. 기관 표준 선택지가 적절한 질문에서 올바른 choicePreset을 사용했는가, preset과 options를 함께 생성하지 않았는가, preset이 있는데 해당 질문 자체를 불필요하게 추가하지 않았는가도 확인합니다. 또한 목적 반영, 대상 표현, 중복, 한 문항 한 내용, 자연스러운 순서, 선택지 적합·중복, SATISFACTION_5, 주관식 수, 개인정보 최소화, 허용 type, JSON 계약을 검토합니다. 문제가 있으면 반환 전에 수정하며 검토 과정은 출력하지 않고 유효한 JSON만 반환합니다.
+반환 직전에 다음을 내부 검토합니다. 사용자가 요청하지 않은 평가 요소를 추가했는가, 하나의 SCALE에 독립 평가 요소를 둘 이상 결합했는가, 제공되지 않은 홍보·운영 채널·기관·서비스·사이트를 생성했는가, 법률명·법 조항을 만들었는가, 개인정보 보호·익명·무기명·비밀 보장·데이터 이용 범위를 근거 없이 단정했는가, RESPONDENT를 이유 없이 required: true로 했는가, 필요한 범위를 넘어 인구통계를 추가했는가, 보호자와 수강생을 혼동했는가, SINGLE로 충분한 질문을 MULTIPLE로 했는가, title에 응답 방식 UI 안내를 넣었는가, description이 1~2개의 짧은 문장과 한 문단을 벗어나거나 의례적 참여 요청·기관명·프로그램명을 불필요하게 반복했는가, 제공되지 않은 담당부서·연락처·이메일을 생성했는가를 확인합니다. 기관 표준 선택지가 적절한 질문에서 올바른 choicePreset을 사용했는가, preset과 options를 함께 생성하지 않았는가, preset이 있는데 해당 질문 자체를 불필요하게 추가하지 않았는가도 확인합니다. 또한 목적 반영, 대상 표현, 중복, 한 문항 한 내용, 자연스러운 순서, 선택지 적합·중복, SATISFACTION_5, 주관식 수, 개인정보 최소화, 허용 type, JSON 계약을 검토합니다. 문제가 있으면 반환 전에 수정하며 검토 과정은 출력하지 않고 유효한 JSON만 반환합니다.
 `.trim();
 }
 
@@ -400,11 +400,13 @@ function validateSurveyDraftInput_(payload) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     throw createSurveyAiError_("SURVEY_AI_VALIDATION_ERROR", "설문 요청 형식이 올바르지 않습니다.");
   }
-  const allowed = ["title", "targetAudience", "requestContent", "referenceInfo"];
+  const allowed = ["title", "targetAudience", "department", "contact", "requestContent", "referenceInfo"];
   assertSurveyAiAllowedKeys_(payload, allowed, "설문 요청");
   return {
     title:requireSurveyDraftInputString_(payload, "title", "조사명", 300, false),
     targetAudience:requireSurveyDraftInputString_(payload, "targetAudience", "조사 대상", 500, false),
+    department:requireSurveyDraftInputString_(payload, "department", "담당부서", 200, true),
+    contact:requireSurveyDraftInputString_(payload, "contact", "문의전화", 200, true),
     requestContent:requireSurveyDraftInputString_(payload, "requestContent", "설문 요청내용", 5000, false),
     referenceInfo:requireSurveyDraftInputString_(payload, "referenceInfo", "추가 참고정보", 5000, true)
   };
@@ -522,6 +524,12 @@ function normalizeSurveyDraftText_(value) {
   return String(value || "").trim().replace(/[\t\r\n ]+/g, " ");
 }
 
+function normalizeSurveyDraftDescription_(value) {
+  return String(value || "").replace(/\r\n?/g, "\n").split("\n").map(function(line) {
+    return line.trim().replace(/[\t ]+/g, " ");
+  }).join("\n").trim();
+}
+
 function normalizeSurveyDraftOptions_(options) {
   const result = [];
   const seen = {};
@@ -573,8 +581,10 @@ function normalizeSurveyDraft_(validatedDraft, input) {
     promptVersion:SURVEY_AI_SYSTEM_PROMPT_VERSION,
     survey:{
       title:input.title,
-      description:normalizeSurveyDraftText_(validatedDraft.description),
-      targetAudience:input.targetAudience
+      description:normalizeSurveyDraftDescription_(validatedDraft.description),
+      targetAudience:input.targetAudience,
+      department:input.department || "",
+      contact:input.contact || ""
     },
     questions:questions
   };
