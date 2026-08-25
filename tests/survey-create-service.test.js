@@ -9,8 +9,8 @@ vm.createContext(context);
 vm.runInContext(source, context, {filename:'AppsScript/18_SurveyCreateService.gs'});
 const run = expression => vm.runInContext(expression, context);
 
-assert.strictEqual(run('SURVEY_AI_SYSTEM_PROMPT_VERSION'), '1.2');
-assert.strictEqual(run('SURVEY_DRAFT_CONTRACT_VERSION'), '1.1');
+assert.strictEqual(run('SURVEY_AI_SYSTEM_PROMPT_VERSION'), '1.3');
+assert.strictEqual(run('SURVEY_DRAFT_CONTRACT_VERSION'), '1.2');
 const prompt = run('getSurveyAiSystemPrompt_()');
 [
   '중원도서관','공공도서관','SINGLE, MULTIPLE, SCALE, TEXT, RESPONDENT',
@@ -133,15 +133,19 @@ context.raw = {
     {title:'척도',type:'SCALE',required:true,scalePreset:'SATISFACTION_5'}
   ]
 };
-context.input = {title:'원본 조사명',targetAudience:'원본 대상',requestContent:'요청',referenceInfo:''};
+context.input = {title:'원본 조사명',targetAudience:'원본 대상',department:'평생학습지원팀',contact:'031-752-3913',requestContent:'요청',referenceInfo:''};
 const normalized = run('normalizeSurveyDraft_(raw,input)');
 assert.strictEqual(normalized.survey.title, '원본 조사명');
 assert.strictEqual(normalized.survey.targetAudience, '원본 대상');
 assert.strictEqual(normalized.survey.description, '안내문');
+assert.strictEqual(normalized.survey.department, '평생학습지원팀');
+assert.strictEqual(normalized.survey.contact, '031-752-3913');
 assert.deepStrictEqual(Array.from(normalized.questions, q => q.questionId), ['Q1','Q2']);
 assert.deepStrictEqual(Array.from(normalized.questions, q => q.order), [1,2]);
 assert.deepStrictEqual(Array.from(normalized.questions[0].options), ['가','나']);
 assert.deepStrictEqual(Array.from(normalized.questions[1].options), ['매우 만족','만족','보통','불만족','매우 불만족']);
+context.raw={description:'첫 문장\n둘째 문장',questions:[{title:'의견',type:'TEXT',required:false}]};
+assert.strictEqual(run('normalizeSurveyDraft_(raw,input)').survey.description,'첫 문장\n둘째 문장');
 
 context.raw={description:'안내',questions:[
   {title:'경로',type:'SINGLE',required:true,choicePreset:'PROGRAM_DISCOVERY_PATH'},
@@ -160,11 +164,18 @@ assert.deepStrictEqual(Array.from(presetNormalized.questions, question => questi
   'PROGRAM_DISCOVERY_PATH','ADULT_AGE_GROUP','CHILD_AGE_GROUP','RESIDENCE_SEONGNAM','GENDER_BASIC'
 ]);
 
-context.input = {title:' 조사 ',targetAudience:' 대상 ',requestContent:' 요청 ',referenceInfo:''};
+context.input = {title:' 조사 ',targetAudience:' 대상 ',department:' 평생학습지원팀 ',contact:' 031-752-3913 (ARS 3) ',requestContent:' 요청 ',referenceInfo:''};
 const checkedInput = run('validateSurveyDraftInput_(input)');
 assert.deepStrictEqual(JSON.parse(JSON.stringify(checkedInput)), {
-  title:'조사',targetAudience:'대상',requestContent:'요청',referenceInfo:''
+  title:'조사',targetAudience:'대상',department:'평생학습지원팀',contact:'031-752-3913 (ARS 3)',requestContent:'요청',referenceInfo:''
 });
+context.input = {title:'조사',targetAudience:'대상',requestContent:'요청'};
+assert.deepStrictEqual(JSON.parse(JSON.stringify(run('validateSurveyDraftInput_(input)'))), {
+  title:'조사',targetAudience:'대상',department:'',contact:'',requestContent:'요청',referenceInfo:''
+});
+context.input = {title:'조사',targetAudience:'대상',department:'평생학습지원팀',contact:'031-752-3913',requestContent:'요청',referenceInfo:''};
+const userPrompt = run('buildSurveyAiUserPrompt_(input)');
+assert(!userPrompt.includes('평생학습지원팀')&&!userPrompt.includes('031-752-3913'),'host metadata is not sent to Gemini');
 
 assert(source.includes('systemInstruction'));
 assert(source.includes('responseMimeType:"application/json"'));

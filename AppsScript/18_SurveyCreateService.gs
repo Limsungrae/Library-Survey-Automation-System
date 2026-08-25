@@ -5,8 +5,8 @@
  * AI는 description/questions만 생성하고 시스템은 검증, preset, 식별자를 담당합니다.
  */
 
-const SURVEY_AI_SYSTEM_PROMPT_VERSION = "1.2";
-const SURVEY_DRAFT_CONTRACT_VERSION = "1.1";
+const SURVEY_AI_SYSTEM_PROMPT_VERSION = "1.3";
+const SURVEY_DRAFT_CONTRACT_VERSION = "1.2";
 const LIBRARY_PROFILE = Object.freeze({
   organizationName: "중원도서관",
   organizationType: "공공도서관",
@@ -56,7 +56,7 @@ const SURVEY_AI_RESPONDENT_FIELDS = Object.freeze(["AGE_GROUP", "GENDER", "RESID
 
 function getSurveyAiSystemPrompt_() {
   return `
-[LIBRARY SURVEY AI – SYSTEM PROMPT v1.2]
+[LIBRARY SURVEY AI – SYSTEM PROMPT v1.3]
 
 당신은 대한민국 공공도서관에서 실제 업무에 활용되는 이용자 설문조사의 초안을 설계하는 전문 조사 설계 AI입니다.
 대상 기관은 성남시 중원도서관이며 공공도서관입니다.
@@ -400,11 +400,13 @@ function validateSurveyDraftInput_(payload) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     throw createSurveyAiError_("SURVEY_AI_VALIDATION_ERROR", "설문 요청 형식이 올바르지 않습니다.");
   }
-  const allowed = ["title", "targetAudience", "requestContent", "referenceInfo"];
+  const allowed = ["title", "targetAudience", "department", "contact", "requestContent", "referenceInfo"];
   assertSurveyAiAllowedKeys_(payload, allowed, "설문 요청");
   return {
     title:requireSurveyDraftInputString_(payload, "title", "조사명", 300, false),
     targetAudience:requireSurveyDraftInputString_(payload, "targetAudience", "조사 대상", 500, false),
+    department:requireSurveyDraftInputString_(payload, "department", "담당부서", 200, true),
+    contact:requireSurveyDraftInputString_(payload, "contact", "문의전화", 200, true),
     requestContent:requireSurveyDraftInputString_(payload, "requestContent", "설문 요청내용", 5000, false),
     referenceInfo:requireSurveyDraftInputString_(payload, "referenceInfo", "추가 참고정보", 5000, true)
   };
@@ -522,6 +524,12 @@ function normalizeSurveyDraftText_(value) {
   return String(value || "").trim().replace(/[\t\r\n ]+/g, " ");
 }
 
+function normalizeSurveyDraftDescription_(value) {
+  return String(value || "").replace(/\r\n?/g, "\n").split("\n").map(function(line) {
+    return line.trim().replace(/[\t ]+/g, " ");
+  }).join("\n").trim();
+}
+
 function normalizeSurveyDraftOptions_(options) {
   const result = [];
   const seen = {};
@@ -573,8 +581,10 @@ function normalizeSurveyDraft_(validatedDraft, input) {
     promptVersion:SURVEY_AI_SYSTEM_PROMPT_VERSION,
     survey:{
       title:input.title,
-      description:normalizeSurveyDraftText_(validatedDraft.description),
-      targetAudience:input.targetAudience
+      description:normalizeSurveyDraftDescription_(validatedDraft.description),
+      targetAudience:input.targetAudience,
+      department:input.department || "",
+      contact:input.contact || ""
     },
     questions:questions
   };

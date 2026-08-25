@@ -574,7 +574,7 @@ function testDynamicSurveyV2RegressionSuite() {
     equal_(rejected_({title:"x",type:"RESPONDENT",required:false,respondentField:"AGE_GROUP",choicePreset:"GENDER_BASIC"}),true,"preset respondentField 불일치 차단");
   });
   test_("Survey AI normalizer 시스템 식별자와 preset 적용",function(){
-    const input={title:"원본 조사명",targetAudience:"원본 조사 대상",requestContent:"요청",referenceInfo:""};
+    const input={title:"원본 조사명",targetAudience:"원본 조사 대상",department:"평생학습지원팀",contact:"031-752-3913",requestContent:"요청",referenceInfo:""};
     const raw={description:"  안내문  ",questions:[
       {title:"  선택 질문  ",type:"SINGLE",required:true,options:[" 가 ","나","가"]},
       {title:"척도",type:"SCALE",required:true,scalePreset:"SATISFACTION_5"}
@@ -582,12 +582,22 @@ function testDynamicSurveyV2RegressionSuite() {
     const normalized=normalizeSurveyDraft_(raw,input);
     equal_(normalized.survey.title,"원본 조사명","사용자 title 유지");equal_(normalized.survey.targetAudience,"원본 조사 대상","사용자 대상 유지");
     equal_(normalized.survey.description,"안내문","AI description 유지");equal_(normalized.questions[0].questionId,"Q1","Q1 생성");
+    equal_(normalized.survey.department,"평생학습지원팀","담당부서 metadata 유지");equal_(normalized.survey.contact,"031-752-3913","문의전화 metadata 유지");
     equal_(normalized.questions[1].questionId,"Q2","Q2 생성");equal_(normalized.questions[1].order,2,"order 생성");
     equal_(normalized.questions[0].options.join(","),"가,나","trim 및 중복 제거");
     equal_(normalized.questions[1].options.join(","),"매우 만족,만족,보통,불만족,매우 불만족","시스템 SCALE preset");
+    equal_(normalizeSurveyDraft_({description:"첫 문장\n둘째 문장",questions:[{title:"의견",type:"TEXT",required:false}]},input).survey.description,"첫 문장\n둘째 문장","description newline 유지");
+  });
+  test_("Survey host metadata 검증과 Gemini 책임 분리",function(){
+    const input=validateSurveyDraftInput_({title:" 조사 ",targetAudience:" 대상 ",department:" 평생학습지원팀 ",contact:" 031-752-3913 (ARS 3) ",requestContent:" 요청 ",referenceInfo:""});
+    equal_(input.department,"평생학습지원팀","담당부서 trim");equal_(input.contact,"031-752-3913 (ARS 3)","문의전화 trim");
+    const empty=validateSurveyDraftInput_({title:"조사",targetAudience:"대상",requestContent:"요청"});
+    equal_(empty.department,"","미입력 담당부서");equal_(empty.contact,"","미입력 문의전화");
+    const prompt=buildSurveyAiUserPrompt_(input);
+    equal_(prompt.indexOf(input.department),-1,"담당부서 Gemini 제외");equal_(prompt.indexOf(input.contact),-1,"문의전화 Gemini 제외");
   });
   test_("Survey AI choicePreset registry와 normalizer 확장",function(){
-    equal_(SURVEY_DRAFT_CONTRACT_VERSION,"1.1","contract version");
+    equal_(SURVEY_DRAFT_CONTRACT_VERSION,"1.2","contract version");
     equal_(SURVEY_CHOICE_PRESETS.PROGRAM_DISCOVERY_PATH.options.join("|"),"인터넷(도서관 홈페이지, SNS, 배움숲)|현수막, 안내문 등 홍보물|지인 추천(가족, 친구 등)|지역 커뮤니티 게시판|기타","참여경로 표준");
     equal_(SURVEY_CHOICE_PRESETS.ADULT_AGE_GROUP.options.join("|"),"20대|30대|40대|50대|60대|70대 이상","성인 연령 표준");
     equal_(SURVEY_CHOICE_PRESETS.CHILD_AGE_GROUP.options.join("|"),"유아|초1~2|초3~4|초5~6","어린이 연령 표준");
@@ -630,7 +640,7 @@ function testDynamicSurveyV2RegressionSuite() {
     ["MULTIPLE","SCALE","TEXT"].forEach(function(type){equal_(Object.prototype.hasOwnProperty.call(byType[type].properties,"choicePreset"),false,type+" choicePreset 금지");});
   });
   test_("Survey AI System Prompt v1.2 preset 책임 계약",function(){
-    equal_(SURVEY_AI_SYSTEM_PROMPT_VERSION,"1.2","prompt version");
+    equal_(SURVEY_AI_SYSTEM_PROMPT_VERSION,"1.3","prompt version");
     const prompt=getSurveyAiSystemPrompt_();[
       "사용자가 요청하지 않은 새로운 평가 개념","SCALE 한 문항은 하나의 독립적인 평가 요소",
       "확인되지 않은 실제 홍보·접수 채널","법률명·법률 조항","개인정보는 안전하게 보호됩니다",
