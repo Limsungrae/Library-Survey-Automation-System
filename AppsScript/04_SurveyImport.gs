@@ -282,26 +282,23 @@ function findBestSurveySheetForMapping_(
     return null;
   }
 
-  candidates.sort(function(a, b) {
-    const aResponseCount =
-      Math.max(
-        a.getLastRow() - 1,
-        0
-      );
+  const ranked = candidates.map(function(sheet, index) {
+    try {
+      return {
+        sheet: sheet,
+        responseCount: readSurveySheetStructureForMapping_(sheet).responseCount,
+        index: index
+      };
+    } catch (error) {
+      return null;
+    }
+  }).filter(Boolean);
 
-    const bResponseCount =
-      Math.max(
-        b.getLastRow() - 1,
-        0
-      );
-
-    return (
-      bResponseCount
-      - aResponseCount
-    );
+  ranked.sort(function(a, b) {
+    return b.responseCount - a.responseCount || a.index - b.index;
   });
 
-  return candidates[0];
+  return ranked.length ? ranked[0].sheet : null;
 }
 
 
@@ -414,23 +411,14 @@ function readSurveySheetStructureForMapping_(
   // 프로파일 통계는 실행 시간과 개인정보 노출을 제한하기 위해 최대
   // 200개 응답만 읽습니다. Gemini에는 이 중 열별 최대 3개 샘플만
   // 마스킹하여 전달합니다.
-  const profileRowCount =
-    Math.min(
-      Math.max(lastRow - headerRow, 0),
-      200
-    );
-
-  const responseRows =
-    profileRowCount > 0
-      ? sheet
-          .getRange(
-            headerRow + 1,
-            1,
-            profileRowCount,
-            lastColumn
-          )
-          .getDisplayValues()
-      : [];
+  const rawResponseRowCount = Math.max(lastRow - headerRow, 0);
+  const allResponseRows = rawResponseRowCount > 0
+    ? sheet.getRange(headerRow + 1, 1, rawResponseRowCount, lastColumn).getDisplayValues()
+    : [];
+  const nonEmptyResponseRows = allResponseRows.filter(function(row) {
+    return row.some(function(value) { return cleanText_(value) !== ""; });
+  });
+  const responseRows = nonEmptyResponseRows.slice(0, 200);
 
   return {
     headerRow:
@@ -446,10 +434,87 @@ function readSurveySheetStructureForMapping_(
       responseRows,
 
     responseCount:
-      Math.max(
-        lastRow - headerRow,
-        0
-      )
+      nonEmptyResponseRows.length
+  };
+}
+
+/** Excel과 Google Form 응답 snapshot을 동일한 09_범용원자료 계약으로 기록합니다. */
+function writeDynamicSurveyRawValues_(values, sourceMetadata) {
+  if (!Array.isArray(values) || !values.length || !Array.isArray(values[0])) {
+    throw new Error("설문 응답 구조를 확인할 수 없습니다.");
+  }
+  if (values.length > 20001 || values[0].length > 300
+      || values.length * values[0].length > 2000000) {
+    throw new Error("설문 데이터가 처리 한도를 초과했습니다(최대 20,000행, 300열, 2,000,000셀).");
+  }
+  const normalizedHeaders = {};
+  values[0].forEach(function(header, index) {
+    const normalized = normalizeHeader_(header);
+    if (!normalized) throw new Error((index + 1) + "번 열의 헤더가 비어 있습니다.");
+    if (normalizedHeaders[normalized]) throw new Error("중복 문항 헤더가 있습니다: " + cleanText_(header));
+    normalizedHeaders[normalized] = true;
+  });
+  const nonEmptyValues = [values[0]].concat(values.slice(1).filter(function(row) {
+    return row.some(function(value) { return cleanText_(value) !== ""; });
+  }));
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const targetSheetName = DYNAMIC_SURVEY_CONFIG.SHEETS.RAW;
+  let targetSheet = spreadsheet.getSheetByName(targetSheetName);
+  if (!targetSheet) targetSheet = spreadsheet.insertSheet(targetSheetName);
+  const rawRevision = markDynamicRawRevision_();
+  targetSheet.getRange(1, 1, targetSheet.getMaxRows(), targetSheet.getMaxColumns()).breakApart();
+  targetSheet.clear();
+  removeAllCharts_(targetSheet);
+  const actualColumnCount = nonEmptyValues[0].length;
+  const currentColumnCount = targetSheet.getMaxColumns();
+  if (currentColumnCount < actualColumnCount) {
+    targetSheet.insertColumnsAfter(currentColumnCount, actualColumnCount - currentColumnCount);
+  }
+  const normalizedValues = nonEmptyValues.map(function(row) {
+    const normalizedRow = row.slice(0, actualColumnCount);
+    while (normalizedRow.length < actualColumnCount) normalizedRow.push("");
+    return normalizedRow;
+  });
+  targetSheet.getRange(1, 1, normalizedValues.length, actualColumnCount).setValues(normalizedValues);
+  const remainingColumnCount = targetSheet.getMaxColumns();
+  if (remainingColumnCount > actualColumnCount) {
+    targetSheet.deleteColumns(actualColumnCount + 1, remainingColumnCount - actualColumnCount);
+  }
+  const note = Object.assign({}, sourceMetadata || {}, {
+    importedAt:new Date().toISOString(),
+    rawRevision:rawRevision,
+    blankRowsRemoved:values.length - nonEmptyValues.length
+  });
+  targetSheet.getRange(1, 1).setNote(JSON.stringify(note));
+  targetSheet.setFrozenRows(1);
+  if (targetSheet.getFilter()) targetSheet.getFilter().remove();
+  targetSheet.getRange(1, 1, normalizedValues.length, actualColumnCount).createFilter();
+  targetSheet.getBandings().forEach(function(banding) { banding.remove(); });
+  targetSheet.getRange(1, 1, normalizedValues.length, actualColumnCount)
+    .applyRowBanding(SpreadsheetApp.BandingTheme.LIGHT_GREY, true, false);
+  targetSheet.getRange(1, 1, 1, actualColumnCount).setBackground("#1b365d")
+    .setFontColor("#ffffff").setFontWeight("bold").setHorizontalAlignment("center").setWrap(true);
+  if (normalizedValues.length > 1) {
+    targetSheet.getRange(2, 1, normalizedValues.length - 1, actualColumnCount)
+      .setVerticalAlignment("top").setWrap(true);
+  }
+  targetSheet.autoResizeColumns(1, actualColumnCount);
+  const savedMappings = getSavedSurveyMappingsFromWeb();
+  if (savedMappings.success && savedMappings.exists) {
+    targetSheet.showColumns(1, targetSheet.getMaxColumns());
+    savedMappings.mappings.filter(function(mapping) { return mapping.selectedType === "PERSONAL_INFO"; })
+      .forEach(function(mapping) { if (mapping.columnNumber <= targetSheet.getMaxColumns()) targetSheet.hideColumns(mapping.columnNumber); });
+  }
+  SpreadsheetApp.flush();
+  return {
+    success:true,
+    sheetName:targetSheetName,
+    sourceSheet:cleanText_(note.sourceSheetName),
+    rawRevision:rawRevision,
+    rowCount:normalizedValues.length - 1,
+    columnCount:actualColumnCount,
+    message:targetSheetName + " 시트에 응답 " + (normalizedValues.length - 1)
+      + "건과 문항 " + actualColumnCount + "개를 저장했습니다."
   };
 }
 /**
@@ -548,22 +613,8 @@ function createGenericRawSheetFromWeb(fileData) {
         convertedFileId
       );
 
-    // 응답 데이터가 가장 많은 시트를 선택합니다.
-    const sourceSheet =
-      sourceSpreadsheet
-        .getSheets()
-        .filter(function(sheet) {
-          return (
-            sheet.getLastRow() >= 2
-            && sheet.getLastColumn() >= 2
-          );
-        })
-        .sort(function(a, b) {
-          return (
-            b.getLastRow()
-            - a.getLastRow()
-          );
-        })[0];
+    // Mapping과 동일한 시트 선택 및 헤더 탐지 규칙을 사용합니다.
+    const sourceSheet = findBestSurveySheetForMapping_(sourceSpreadsheet);
 
     if (!sourceSheet) {
       throw new Error(
@@ -571,156 +622,20 @@ function createGenericRawSheetFromWeb(fileData) {
       );
     }
 
-    const values =
-      sourceSheet
-        .getDataRange()
-        .getDisplayValues();
-
-    if (values.length > 20001 || values[0].length > 300
-        || values.length * values[0].length > 2000000) {
-      throw new Error("설문 데이터가 처리 한도를 초과했습니다(최대 20,000행, 300열, 2,000,000셀).");
-    }
-    const normalizedHeaders = {};
-    values[0].forEach(function(header, index) {
-      const normalized = normalizeHeader_(header);
-      if (!normalized) throw new Error((index + 1) + "번 열의 헤더가 비어 있습니다.");
-      if (normalizedHeaders[normalized]) throw new Error("중복 문항 헤더가 있습니다: " + cleanText_(header));
-      normalizedHeaders[normalized] = true;
-    });
-    const nonEmptyValues = [values[0]].concat(values.slice(1).filter(function(row) {
-      return row.some(function(value) { return cleanText_(value) !== ""; });
-    }));
-
-    const targetSheetName = DYNAMIC_SURVEY_CONFIG.SHEETS.RAW;
-
-    let targetSheet =
-      spreadsheet.getSheetByName(
-        targetSheetName
-      );
-
-    if (!targetSheet) {
-      targetSheet =
-        spreadsheet.insertSheet(
-          targetSheetName
-        );
-    }
-
-// 기존 시트에 병합 셀이 남아 있을 경우를 대비하여
-// 전체 병합을 해제한 뒤 내용을 초기화합니다.
-targetSheet
-  .getRange(
-    1,
-    1,
-    targetSheet.getMaxRows(),
-    targetSheet.getMaxColumns()
-  )
-  .breakApart();
-
-targetSheet.clear();
-removeAllCharts_(targetSheet);
-
-    const actualColumnCount = nonEmptyValues[0].length;
-    const currentColumnCount = targetSheet.getMaxColumns();
-
-    // 업로드 문항 수보다 시트 열이 부족한 경우 먼저 확장합니다.
-    if (currentColumnCount < actualColumnCount) {
-      targetSheet.insertColumnsAfter(
-        currentColumnCount,
-        actualColumnCount - currentColumnCount
-      );
-    }
-
-    // 모든 행의 길이를 헤더 열 수에 맞춰 안전하게 정규화합니다.
-    const normalizedValues = nonEmptyValues.map(function(row) {
-      const normalizedRow = row.slice(0, actualColumnCount);
-      while (normalizedRow.length < actualColumnCount) normalizedRow.push("");
-      return normalizedRow;
-    });
-
-    targetSheet
-      .getRange(
-        1,
-        1,
-        normalizedValues.length,
-        actualColumnCount
-      )
-      .setValues(normalizedValues);
-
-    // 이전 업로드에서 남은 빈 열(P열 등)을 실제 문항 수 뒤에서 제거합니다.
-    const remainingColumnCount = targetSheet.getMaxColumns();
-    if (remainingColumnCount > actualColumnCount) {
-      targetSheet.deleteColumns(
-        actualColumnCount + 1,
-        remainingColumnCount - actualColumnCount
-      );
-    }
-    Logger.log(
-      "[DYNAMIC_RAW_COLUMNS_NORMALIZED] sheet=" + targetSheetName
-      + " actualColumns=" + actualColumnCount
-      + " removedColumns=" + Math.max(remainingColumnCount - actualColumnCount, 0)
-    );
-    targetSheet.getRange(1, 1).setNote(JSON.stringify({
-      sourceFileName: fileName, sourceSheetName: sourceSheet.getName(), importedAt: new Date().toISOString(),
-      blankRowsRemoved: values.length - nonEmptyValues.length
-    }));
-
-    // 기본 서식
-    targetSheet.setFrozenRows(1);
-    if (targetSheet.getFilter()) targetSheet.getFilter().remove();
-    targetSheet.getRange(1, 1, normalizedValues.length, actualColumnCount).createFilter();
-    targetSheet.getBandings().forEach(function(banding){banding.remove();});
-    targetSheet.getRange(1, 1, normalizedValues.length, actualColumnCount)
-      .applyRowBanding(SpreadsheetApp.BandingTheme.LIGHT_GREY,true,false);
-
-    targetSheet
-      .getRange(
-        1,
-        1,
-        1,
-        actualColumnCount
-      )
-      .setBackground("#1b365d")
-      .setFontColor("#ffffff")
-      .setFontWeight("bold")
-      .setHorizontalAlignment("center")
-      .setWrap(true);
-
-    if (normalizedValues.length > 1) {
-      targetSheet
-        .getRange(
-          2,
-          1,
-          normalizedValues.length - 1,
-          actualColumnCount
-        )
-        .setVerticalAlignment("top")
-        .setWrap(true);
-    }
-
-    targetSheet.autoResizeColumns(
+    const structure = readSurveySheetStructureForMapping_(sourceSheet);
+    const values = sourceSheet.getRange(
+      structure.headerRow,
       1,
-      actualColumnCount
-    );
-    const savedMappings=getSavedSurveyMappingsFromWeb();
-    if(savedMappings.success&&savedMappings.exists){
-      targetSheet.showColumns(1,targetSheet.getMaxColumns());
-      savedMappings.mappings.filter(function(mapping){return mapping.selectedType==="PERSONAL_INFO";})
-        .forEach(function(mapping){if(mapping.columnNumber<=targetSheet.getMaxColumns())targetSheet.hideColumns(mapping.columnNumber);});
-    }
+      sourceSheet.getLastRow() - structure.headerRow + 1,
+      sourceSheet.getLastColumn()
+    ).getDisplayValues();
 
-    return {
-      success: true,
-      sheetName: targetSheetName,
-      sourceSheet: sourceSheet.getName(),
-      rowCount: nonEmptyValues.length - 1,
-      columnCount: actualColumnCount,
-      message:
-        targetSheetName + " 시트에 응답 "
-        + (nonEmptyValues.length - 1)
-        + "건과 문항 "
-        + actualColumnCount
-        + "개를 저장했습니다."
-    };
+    return writeDynamicSurveyRawValues_(values, {
+      sourceType:"EXCEL",
+      sourceFileName:fileName,
+      sourceSheetName:sourceSheet.getName(),
+      headerRow:structure.headerRow
+    });
 
   } catch (error) {
     return {
