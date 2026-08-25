@@ -160,3 +160,21 @@ function secureGenerateSurveyDraftFromWeb(payload, accessToken) {
     };
   }
 }
+
+/** 인증된 담당자의 검토 완료 Draft로만 Google Form을 생성합니다. */
+function secureCreateGoogleFormFromWeb(payload, accessToken) {
+  requireWebAccessToken_(accessToken);
+  try {
+    return {success:true, form:createGoogleFormFromReviewedDraft_(payload)};
+  } catch (error) {
+    console.error("Secure Google Form generation failed", error && error.stack ? error.stack : error);
+    const validation = error && error.code === "SURVEY_FORM_VALIDATION_ERROR";
+    return {
+      success:false,
+      code:validation ? "SURVEY_FORM_VALIDATION_ERROR" : "SURVEY_FORM_CREATE_ERROR",
+      error:validation
+        ? "Google Form으로 만들 수 없는 문항이 있습니다. 설문 초안을 확인해 주세요."
+        : "Google Form을 생성하지 못했습니다. 잠시 후 다시 시도해 주세요."
+    };
+  }
+}

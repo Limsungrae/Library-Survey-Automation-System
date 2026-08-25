@@ -44,9 +44,15 @@ assert(css.includes('.survey-create-summary__meta{display:grid')&&css.includes('
 assert(css.includes('min-width:0')&&css.includes('overflow-wrap:anywhere'),'summary content avoids horizontal overflow');
 assert(app.includes('state.view="INPUT"')&&html.includes('입력내용 수정'),'review can return to input while retaining state');
 assert(app.includes('표준 만족도 5점 척도')&&!app.includes('survey-create-question__options'),'five-point cards render a compact summary');
-assert(app.includes('Google Form 생성 기능은 다음 개발 단계에서 연결됩니다.'),'mock completion is explicit');
-assert(!app.includes('mockSurveyGenerator')&&!app.includes('mockQuestions_'),'production generation has no mock fallback');
-assert(!app.includes('FormApp')&&!app.includes('GEMINI_API_KEY'),'no Form API or Gemini secret in the browser');
+assert(!html.includes('Mock 완료')&&!html.includes('생성 준비가 완료되었습니다.')&&!app.includes('startFormMock_'),'mock completion was removed');
+assert(app.includes('createGoogleForm:function')&&app.includes('secureCreateGoogleFormFromWeb'),'authenticated real Form API exists');
+assert(app.includes('buildReviewedFormPayload_')&&app.includes('generatedForm:null'),'reviewed payload and generated result state exist');
+assert(app.includes('state.view="FORM_CREATING"')&&app.includes('state.view="DRAFT_REVIEW"'),'creation state blocks duplicates and failure returns to review');
+assert(app.includes('questions:state.questions.map')&&!app.includes('questions:state.questions}'),'final payload explicitly maps reviewed questions');
+['surveyCreatePublishedLink','surveyCreateEditLink','surveyCreateSpreadsheetLink','surveyCreateGeneratedLinks'].forEach(id=>assert(html.includes(`id="${id}"`),`${id} exists`));
+assert.strictEqual((html.match(/target="_blank" rel="noopener noreferrer"/g)||[]).length,3,'generated links open safely');
+assert(!app.includes('mockSurveyGenerator')&&!app.includes('mockQuestions_'),'production generation has no AI mock fallback');
+assert(!app.includes('FormApp')&&!app.includes('GEMINI_API_KEY'),'Form API and Gemini secret remain server-side');
 assert(app.includes('sessionStorage.getItem(TOKEN_KEY)')&&app.includes('validateWebAppTokenFromWeb')&&app.includes('verifyWebAppPasscodeFromWeb')&&app.includes('logoutWebAppFromWeb'),'existing authentication contract is reused');
 assert(!app.includes('setInterval(')&&!app.match(/\b\d+%/),'no fake percentage progress');
 assert(css.includes('@media(max-width:720px)')&&css.includes('prefers-reduced-motion:reduce'),'responsive and reduced-motion rules exist');

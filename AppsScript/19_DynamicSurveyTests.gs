@@ -654,6 +654,22 @@ function testDynamicSurveyV2RegressionSuite() {
     equal_(prompt.indexOf("2~3개의 짧은 문단"),-1,"기존 다문단 description 규칙 제거");
     equal_(getSurveyDraftGeminiResponseSchema_().properties.questions.items.anyOf.length,5,"responseSchema 유지");
   });
+  test_("Reviewed Google Form spec 검증과 description 조립",function(){
+    equal_(SURVEY_FORM_GENERATION_VERSION,"1.0","Form generation version");
+    const scale=["매우 만족","만족","보통","불만족","매우 불만족"];
+    const reviewed=validateReviewedSurveyForForm_({survey:{title:" 조사 ",targetAudience:" 대상 ",description:"안내",department:" 부서 ",contact:" 031 "},questions:[
+      {title:"단일",type:"SINGLE",required:true,options:["온라인","기타"]},
+      {title:"복수",type:"MULTIPLE",required:false,options:["가","나"]},
+      {title:"척도",type:"SCALE",required:true,options:scale},
+      {title:"의견",type:"TEXT",required:false},
+      {title:"응답자",type:"RESPONDENT",required:false,options:["남","여"]}
+    ]});
+    equal_(reviewed.survey.title,"조사","reviewed title trim");equal_(reviewed.questions.length,5,"문항 5종 허용");
+    equal_(buildGoogleFormDescription_(reviewed.survey),"안내\n\n대상: 대상\n담당부서: 부서\n문의: 031","Form description 조립");
+    equal_(prepareFormChoiceOptions_(["온라인","기타"]).choiceValues.join(","),"온라인","native 기타 제외");
+    equal_(prepareFormChoiceOptions_(["기타 의견","기타 서비스"]).hasOther,false,"부분 문자열 기타 유지");
+    let rejected=false;try{validateReviewedSurveyForForm_({survey:reviewed.survey,questions:[]});}catch(error){rejected=error.code==="SURVEY_FORM_VALIDATION_ERROR";}equal_(rejected,true,"빈 문항 차단");
+  });
   return {success:results.every(function(r){return r.status==="PASS";}),passed:results.filter(function(r){return r.status==="PASS";}).length,
     failed:results.filter(function(r){return r.status==="FAIL";}).length,results:results};
 }
@@ -678,7 +694,8 @@ function testDynamicSurveyPublicApiContracts() {
     "secureExportDynamicSurveyReportFromWeb",
     "securePrepareDynamicVisualizationPdfExportFromWeb",
     "securePrepareDynamicVisualizationPngExportFromWeb",
-    "secureGenerateSurveyDraftFromWeb"
+    "secureGenerateSurveyDraftFromWeb",
+    "secureCreateGoogleFormFromWeb"
   ];
   const missing = requiredApis.filter(function(apiName) {
     return typeof globalThis[apiName] !== "function";
