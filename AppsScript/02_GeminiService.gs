@@ -164,6 +164,31 @@ function callGeminiText_(payload) {
           ? firstCandidate.content.parts
           : [];
 
+      // Gemini 2.5 계열은 사고 과정(thought)과 최종 응답을 서로 다른
+      // content.parts 항목으로 반환할 수 있습니다. 내용 자체는 기록하지 않고
+      // 응답 envelope와 part 종류만 기록해 안전하게 extraction 경계를 진단합니다.
+      console.log("Gemini 응답 구조", {
+        rootKeys: Object.keys(json || {}).sort(),
+        candidateCount: candidates.length,
+        contentKeys: firstCandidate && firstCandidate.content
+          ? Object.keys(firstCandidate.content).sort()
+          : [],
+        partCount: parts.length,
+        parts: parts.map(function(part, index) {
+          return {
+            index: index,
+            keys: Object.keys(part || {}).sort(),
+            hasText: typeof (part && part.text) === "string",
+            textLength: typeof (part && part.text) === "string" ? part.text.length : 0,
+            thought: part && part.thought === true,
+            hasThoughtSignature: Boolean(part && part.thoughtSignature)
+          };
+        }),
+        finishReason: firstCandidate && firstCandidate.finishReason
+          ? firstCandidate.finishReason
+          : ""
+      });
+
 
       if (!parts.length) {
 
@@ -202,13 +227,7 @@ function callGeminiText_(payload) {
       }
 
 
-      const text =
-        parts
-          .map(function(part) {
-            return part.text || "";
-          })
-          .join("")
-          .trim();
+      const text = extractGeminiCandidateText_(parts);
 
 
       if (!text) {
@@ -303,6 +322,24 @@ function callGeminiText_(payload) {
   throw new Error(
     "Gemini API 호출에 실패했습니다."
   );
+}
+
+/**
+ * Gemini content.parts에서 사고 과정은 제외하고 최종 응답 텍스트만 결합합니다.
+ * thoughtSignature 등 text가 아닌 metadata는 문자열로 강제 변환하지 않습니다.
+ */
+function extractGeminiCandidateText_(parts) {
+  return (Array.isArray(parts) ? parts : [])
+    .filter(function(part) {
+      return part
+        && part.thought !== true
+        && typeof part.text === "string";
+    })
+    .map(function(part) {
+      return part.text;
+    })
+    .join("")
+    .trim();
 }
 
 

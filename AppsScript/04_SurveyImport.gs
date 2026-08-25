@@ -282,26 +282,23 @@ function findBestSurveySheetForMapping_(
     return null;
   }
 
-  candidates.sort(function(a, b) {
-    const aResponseCount =
-      Math.max(
-        a.getLastRow() - 1,
-        0
-      );
+  const ranked = candidates.map(function(sheet, index) {
+    try {
+      return {
+        sheet: sheet,
+        responseCount: readSurveySheetStructureForMapping_(sheet).responseCount,
+        index: index
+      };
+    } catch (error) {
+      return null;
+    }
+  }).filter(Boolean);
 
-    const bResponseCount =
-      Math.max(
-        b.getLastRow() - 1,
-        0
-      );
-
-    return (
-      bResponseCount
-      - aResponseCount
-    );
+  ranked.sort(function(a, b) {
+    return b.responseCount - a.responseCount || a.index - b.index;
   });
 
-  return candidates[0];
+  return ranked.length ? ranked[0].sheet : null;
 }
 
 
@@ -414,23 +411,14 @@ function readSurveySheetStructureForMapping_(
   // 프로파일 통계는 실행 시간과 개인정보 노출을 제한하기 위해 최대
   // 200개 응답만 읽습니다. Gemini에는 이 중 열별 최대 3개 샘플만
   // 마스킹하여 전달합니다.
-  const profileRowCount =
-    Math.min(
-      Math.max(lastRow - headerRow, 0),
-      200
-    );
-
-  const responseRows =
-    profileRowCount > 0
-      ? sheet
-          .getRange(
-            headerRow + 1,
-            1,
-            profileRowCount,
-            lastColumn
-          )
-          .getDisplayValues()
-      : [];
+  const rawResponseRowCount = Math.max(lastRow - headerRow, 0);
+  const allResponseRows = rawResponseRowCount > 0
+    ? sheet.getRange(headerRow + 1, 1, rawResponseRowCount, lastColumn).getDisplayValues()
+    : [];
+  const nonEmptyResponseRows = allResponseRows.filter(function(row) {
+    return row.some(function(value) { return cleanText_(value) !== ""; });
+  });
+  const responseRows = nonEmptyResponseRows.slice(0, 200);
 
   return {
     headerRow:
@@ -446,10 +434,7 @@ function readSurveySheetStructureForMapping_(
       responseRows,
 
     responseCount:
-      Math.max(
-        lastRow - headerRow,
-        0
-      )
+      nonEmptyResponseRows.length
   };
 }
 /**
@@ -548,22 +533,8 @@ function createGenericRawSheetFromWeb(fileData) {
         convertedFileId
       );
 
-    // 응답 데이터가 가장 많은 시트를 선택합니다.
-    const sourceSheet =
-      sourceSpreadsheet
-        .getSheets()
-        .filter(function(sheet) {
-          return (
-            sheet.getLastRow() >= 2
-            && sheet.getLastColumn() >= 2
-          );
-        })
-        .sort(function(a, b) {
-          return (
-            b.getLastRow()
-            - a.getLastRow()
-          );
-        })[0];
+    // Mapping과 동일한 시트 선택 및 헤더 탐지 규칙을 사용합니다.
+    const sourceSheet = findBestSurveySheetForMapping_(sourceSpreadsheet);
 
     if (!sourceSheet) {
       throw new Error(
@@ -571,10 +542,13 @@ function createGenericRawSheetFromWeb(fileData) {
       );
     }
 
-    const values =
-      sourceSheet
-        .getDataRange()
-        .getDisplayValues();
+    const structure = readSurveySheetStructureForMapping_(sourceSheet);
+    const values = sourceSheet.getRange(
+      structure.headerRow,
+      1,
+      sourceSheet.getLastRow() - structure.headerRow + 1,
+      sourceSheet.getLastColumn()
+    ).getDisplayValues();
 
     if (values.length > 20001 || values[0].length > 300
         || values.length * values[0].length > 2000000) {
@@ -604,6 +578,10 @@ function createGenericRawSheetFromWeb(fileData) {
           targetSheetName
         );
     }
+
+    // 쓰기 전에 기존 분석 lineage를 먼저 무효화합니다. 이후 시트 쓰기가
+    // 실패하더라도 이전 결과가 현재 원자료 결과로 다시 인정되지 않습니다.
+    const rawRevision = markDynamicRawRevision_();
 
 // 기존 시트에 병합 셀이 남아 있을 경우를 대비하여
 // 전체 병합을 해제한 뒤 내용을 초기화합니다.
@@ -661,6 +639,8 @@ removeAllCharts_(targetSheet);
     );
     targetSheet.getRange(1, 1).setNote(JSON.stringify({
       sourceFileName: fileName, sourceSheetName: sourceSheet.getName(), importedAt: new Date().toISOString(),
+      rawRevision: rawRevision,
+      headerRow: structure.headerRow,
       blankRowsRemoved: values.length - nonEmptyValues.length
     }));
 
@@ -708,10 +688,13 @@ removeAllCharts_(targetSheet);
         .forEach(function(mapping){if(mapping.columnNumber<=targetSheet.getMaxColumns())targetSheet.hideColumns(mapping.columnNumber);});
     }
 
+    SpreadsheetApp.flush();
+
     return {
       success: true,
       sheetName: targetSheetName,
       sourceSheet: sourceSheet.getName(),
+      rawRevision: rawRevision,
       rowCount: nonEmptyValues.length - 1,
       columnCount: actualColumnCount,
       message:
