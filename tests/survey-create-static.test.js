@@ -22,7 +22,7 @@ assert(html.includes('AI가 알기 어려운 프로그램명·서비스명·강�
 assert(html.includes('role="alert"')&&html.includes('role="status"')&&html.includes('aria-live="polite"')&&html.includes('aria-busy="true"'),'accessibility status contract');
 assert(html.includes('?page=home')&&html.includes('?page=survey&amp;ui=v2'),'home and analysis navigation');
 assert(app.includes('INPUT')&&app.includes('GENERATING')&&app.includes('DRAFT_REVIEW')&&app.includes('FORM_CREATING')&&app.includes('COMPLETED'),'mock workflow states exist');
-assert(app.includes('const mockSurveyGenerator')&&app.includes('mockQuestions_()')&&app.includes('renderQuestions_'),'mock data is separated from renderer');
+assert(app.includes('secureGenerateSurveyDraftFromWeb')&&app.includes('api.generateSurveyDraft(input)')&&app.includes('renderQuestions_'),'secure Gemini result feeds the existing renderer');
 assert(app.includes('data-action="edit"')&&app.includes('data-action="delete"')&&app.includes('data-action="up"')&&app.includes('data-action="down"'),'question editing actions exist');
 assert(app.includes('addQuestion_')&&app.includes('data-edit="required"')&&app.includes('data-edit="type"'),'question addition and editable fields exist');
 assert(app.includes('data-option-index')&&app.includes('add-option')&&app.includes('remove-option'),'options use individual input rows');
@@ -32,9 +32,9 @@ assert(app.includes('data-action="cancel"')&&app.includes('data-action="save"')&
 assert(app.includes('draftCounts_()')&&app.includes('renderSummary_()')&&app.includes('state.questions.filter'),'summary counts are derived from the draft model');
 assert(app.includes('state.view="INPUT"')&&html.includes('입력내용 수정'),'review can return to input while retaining state');
 assert(app.includes('표준 만족도 5점 척도')&&!app.includes('survey-create-question__options'),'five-point cards render a compact summary');
-assert(app.includes('70대 이상')&&!app.includes('10대 이하'),'adult mock age options are appropriate');
 assert(app.includes('Google Form 생성 기능은 다음 개발 단계에서 연결됩니다.'),'mock completion is explicit');
-assert(!app.includes('FormApp')&&!app.includes('secureGenerateSurveyDraftFromWeb')&&!app.includes('callGemini')&&!app.includes('GEMINI_API'),'no real Form or Gemini integration');
+assert(!app.includes('mockSurveyGenerator')&&!app.includes('mockQuestions_'),'production generation has no mock fallback');
+assert(!app.includes('FormApp')&&!app.includes('GEMINI_API_KEY'),'no Form API or Gemini secret in the browser');
 assert(app.includes('sessionStorage.getItem(TOKEN_KEY)')&&app.includes('validateWebAppTokenFromWeb')&&app.includes('verifyWebAppPasscodeFromWeb')&&app.includes('logoutWebAppFromWeb'),'existing authentication contract is reused');
 assert(!app.includes('setInterval(')&&!app.match(/\b\d+%/),'no fake percentage progress');
 assert(css.includes('@media(max-width:720px)')&&css.includes('prefers-reduced-motion:reduce'),'responsive and reduced-motion rules exist');

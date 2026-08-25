@@ -533,6 +533,45 @@ function testDynamicSurveyV2RegressionSuite() {
     const invalid=validateSurveyMappings_([{columnNumber:1,originalHeader:"유익성",selectedType:"SCALE",scaleKind:"RECOMMENDATION_1_5",scaleValueMap:{"보통":3},scaleValueOptions:[{label:"보통"},{label:"기타"}]}]);
     equal_(invalid.valid,false,"미매핑 응답 저장 차단");
   });
+  test_("Survey AI validator 허용 문항 5종",function(){
+    const valid={description:" 안내문 ",questions:[
+      {title:"단일",type:"SINGLE",required:true,options:["가","나"]},
+      {title:"복수",type:"MULTIPLE",required:false,options:["가","나","다"],maxSelections:2},
+      {title:"척도",type:"SCALE",required:true,scalePreset:"SATISFACTION_5"},
+      {title:"의견",type:"TEXT",required:false},
+      {title:"연령",type:"RESPONDENT",respondentField:"AGE_GROUP",required:false,options:["20대","30대"]}
+    ]};
+    equal_(validateSurveyDraftAiResponse_(valid),valid,"허용 구조 통과");
+  });
+  test_("Survey AI validator 금지 구조 차단",function(){
+    function rejected_(question,top){let rejected=false;try{validateSurveyDraftAiResponse_(top||{description:"안내",questions:[question]});}catch(error){rejected=error.code==="SURVEY_AI_VALIDATION_ERROR";}return rejected;}
+    equal_(rejected_({title:"x",type:"UNKNOWN",required:true}),true,"미지원 type");
+    equal_(rejected_({title:"x",type:"SINGLE",required:true,options:["하나"]}),true,"단일 선택지 부족");
+    equal_(rejected_({title:"x",type:"MULTIPLE",required:true,options:["가","나"],maxSelections:3}),true,"최대 선택 초과");
+    equal_(rejected_({title:"x",type:"MULTIPLE",required:true,options:["가","나"],maxSelections:1}),true,"최대 선택 1 차단");
+    equal_(rejected_({title:"x",type:"SCALE",required:true,scalePreset:"SATISFACTION_5",options:["가","나"]}),true,"SCALE options 차단");
+    equal_(rejected_({title:"x",type:"SCALE",required:true,scalePreset:"OTHER"}),true,"미지원 preset");
+    equal_(rejected_({title:"x",type:"TEXT",required:false,options:["가","나"]}),true,"TEXT options 차단");
+    equal_(rejected_({title:"x",type:"RESPONDENT",required:false,respondentField:"UNKNOWN",options:["가","나"]}),true,"미지원 respondentField");
+    equal_(rejected_({title:" ",type:"TEXT",required:false}),true,"빈 title");
+    equal_(rejected_({title:"x",type:"TEXT",required:"false"}),true,"required 문자열");
+    equal_(rejected_({title:"x",type:"TEXT",required:false,extra:true}),true,"추가 property");
+    equal_(rejected_(null,{description:"안내",questions:[]}),true,"빈 questions");
+    equal_(rejected_({questionId:"Q1",title:"x",type:"TEXT",required:false}),true,"AI questionId 차단");
+  });
+  test_("Survey AI normalizer 시스템 식별자와 preset 적용",function(){
+    const input={title:"원본 조사명",targetAudience:"원본 조사 대상",requestContent:"요청",referenceInfo:""};
+    const raw={description:"  안내문  ",questions:[
+      {title:"  선택 질문  ",type:"SINGLE",required:true,options:[" 가 ","나","가"]},
+      {title:"척도",type:"SCALE",required:true,scalePreset:"SATISFACTION_5"}
+    ]};
+    const normalized=normalizeSurveyDraft_(raw,input);
+    equal_(normalized.survey.title,"원본 조사명","사용자 title 유지");equal_(normalized.survey.targetAudience,"원본 조사 대상","사용자 대상 유지");
+    equal_(normalized.survey.description,"안내문","AI description 유지");equal_(normalized.questions[0].questionId,"Q1","Q1 생성");
+    equal_(normalized.questions[1].questionId,"Q2","Q2 생성");equal_(normalized.questions[1].order,2,"order 생성");
+    equal_(normalized.questions[0].options.join(","),"가,나","trim 및 중복 제거");
+    equal_(normalized.questions[1].options.join(","),"매우 만족,만족,보통,불만족,매우 불만족","시스템 SCALE preset");
+  });
   return {success:results.every(function(r){return r.status==="PASS";}),passed:results.filter(function(r){return r.status==="PASS";}).length,
     failed:results.filter(function(r){return r.status==="FAIL";}).length,results:results};
 }
@@ -556,7 +595,8 @@ function testDynamicSurveyPublicApiContracts() {
     "secureGenerateDynamicAIReportFromWeb",
     "secureExportDynamicSurveyReportFromWeb",
     "securePrepareDynamicVisualizationPdfExportFromWeb",
-    "securePrepareDynamicVisualizationPngExportFromWeb"
+    "securePrepareDynamicVisualizationPngExportFromWeb",
+    "secureGenerateSurveyDraftFromWeb"
   ];
   const missing = requiredApis.filter(function(apiName) {
     return typeof globalThis[apiName] !== "function";

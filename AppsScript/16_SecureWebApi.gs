@@ -145,3 +145,18 @@ function securePrepareDynamicVisualizationPngExportFromWeb(expectedRawRevision, 
   requireWebAccessToken_(accessToken);
   return prepareDynamicVisualizationPngExportFromWeb(expectedRawRevision);
 }
+
+/** 인증된 담당자에게만 Gemini 설문 초안 생성을 허용합니다. */
+function secureGenerateSurveyDraftFromWeb(payload, accessToken) {
+  requireWebAccessToken_(accessToken);
+  try {
+    return {success:true, draft:generateSurveyDraft_(payload)};
+  } catch (error) {
+    console.error("Survey AI draft generation failed", error && error.stack ? error.stack : error);
+    return {
+      success:false,
+      code:error && error.code ? error.code : "SURVEY_AI_API_ERROR",
+      error:"설문 초안을 생성하지 못했습니다. 잠시 후 다시 시도해 주세요."
+    };
+  }
+}
