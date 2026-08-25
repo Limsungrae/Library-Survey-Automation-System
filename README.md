@@ -1,4 +1,4 @@
-# 📊 중원도서관 만족도 조사 자동화 시스템
+# 📊 도서관 만족도 조사 자동화 시스템
 
 ![Google Apps Script](https://img.shields.io/badge/Google%20Apps%20Script-34A853?style=for-the-badge&logo=google&logoColor=white)
 ![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black)
@@ -322,7 +322,7 @@ Library-Survey-Automation-System
 
 **임성래**
 
-성남도시개발공사 중원도서관 청년 체험형 인턴
+
 
 Google Apps Script · JavaScript · Gemini AI 기반 업무 자동화 프로젝트
 
