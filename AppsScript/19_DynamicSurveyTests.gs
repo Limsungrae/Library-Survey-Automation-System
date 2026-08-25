@@ -581,6 +581,19 @@ function testDynamicSurveyV2RegressionSuite() {
     equal_(extractGeminiCandidateText_(parts),'{"description":"안내","questions":[]}',"최종 응답 text만 반환");
     equal_(parseSurveyDraftGeminiResponse_(extractGeminiCandidateText_(parts)).description,"안내","직접 JSON parse 성공");
   });
+  test_("Survey AI responseSchema 문항 type별 분리",function(){
+    const variants=getSurveyDraftGeminiResponseSchema_().properties.questions.items.anyOf;
+    equal_(variants.length,5,"문항 schema 5종");
+    const byType={};variants.forEach(function(variant){byType[variant.properties.type.enum[0]]=variant;});
+    equal_(Object.keys(byType).sort().join(","),"MULTIPLE,RESPONDENT,SCALE,SINGLE,TEXT","허용 type 5종");
+    equal_(Object.keys(byType.SINGLE.properties).sort().join(","),"options,required,title,type","SINGLE 필드");
+    equal_(Object.keys(byType.MULTIPLE.properties).sort().join(","),"maxSelections,options,required,title,type","MULTIPLE 필드");
+    equal_(byType.MULTIPLE.required.indexOf("maxSelections"),-1,"maxSelections 선택 필드");
+    equal_(Object.keys(byType.SCALE.properties).sort().join(","),"required,scalePreset,title,type","SCALE 필드");
+    equal_(byType.SCALE.properties.scalePreset.enum[0],"SATISFACTION_5","SCALE preset 고정");
+    equal_(Object.keys(byType.TEXT.properties).sort().join(","),"required,title,type","TEXT 필드");
+    equal_(Object.keys(byType.RESPONDENT.properties).sort().join(","),"options,required,respondentField,title,type","RESPONDENT 필드");
+  });
   return {success:results.every(function(r){return r.status==="PASS";}),passed:results.filter(function(r){return r.status==="PASS";}).length,
     failed:results.filter(function(r){return r.status==="FAIL";}).length,results:results};
 }

@@ -265,6 +265,64 @@ function buildSurveyAiUserPrompt_(input) {
 }
 
 function getSurveyDraftGeminiResponseSchema_() {
+  const commonProperties = {
+    title:{type:"STRING"},
+    required:{type:"BOOLEAN"}
+  };
+  const options = {type:"ARRAY", items:{type:"STRING"}};
+  const questionSchemas = [
+    {
+      type:"OBJECT",
+      required:["title", "type", "required", "options"],
+      properties:{
+        title:commonProperties.title,
+        type:{type:"STRING", enum:["SINGLE"]},
+        required:commonProperties.required,
+        options:options
+      }
+    },
+    {
+      type:"OBJECT",
+      required:["title", "type", "required", "options"],
+      properties:{
+        title:commonProperties.title,
+        type:{type:"STRING", enum:["MULTIPLE"]},
+        required:commonProperties.required,
+        options:options,
+        maxSelections:{type:"INTEGER"}
+      }
+    },
+    {
+      type:"OBJECT",
+      required:["title", "type", "required", "scalePreset"],
+      properties:{
+        title:commonProperties.title,
+        type:{type:"STRING", enum:["SCALE"]},
+        required:commonProperties.required,
+        scalePreset:{type:"STRING", enum:["SATISFACTION_5"]}
+      }
+    },
+    {
+      type:"OBJECT",
+      required:["title", "type", "required"],
+      properties:{
+        title:commonProperties.title,
+        type:{type:"STRING", enum:["TEXT"]},
+        required:commonProperties.required
+      }
+    },
+    {
+      type:"OBJECT",
+      required:["title", "type", "required", "respondentField", "options"],
+      properties:{
+        title:commonProperties.title,
+        type:{type:"STRING", enum:["RESPONDENT"]},
+        required:commonProperties.required,
+        respondentField:{type:"STRING", enum:SURVEY_AI_RESPONDENT_FIELDS.slice()},
+        options:options
+      }
+    }
+  ];
   return {
     type:"OBJECT",
     required:["description", "questions"],
@@ -273,17 +331,7 @@ function getSurveyDraftGeminiResponseSchema_() {
       questions:{
         type:"ARRAY",
         items:{
-          type:"OBJECT",
-          required:["title", "type", "required"],
-          properties:{
-            title:{type:"STRING"},
-            type:{type:"STRING", enum:SURVEY_AI_ALLOWED_TYPES.slice()},
-            required:{type:"BOOLEAN"},
-            options:{type:"ARRAY", items:{type:"STRING"}},
-            maxSelections:{type:"INTEGER"},
-            scalePreset:{type:"STRING"},
-            respondentField:{type:"STRING"}
-          }
+          anyOf:questionSchemas
         }
       }
     }

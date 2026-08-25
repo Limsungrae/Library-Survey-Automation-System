@@ -17,6 +17,21 @@ const prompt = run('getSurveyAiSystemPrompt_()');
   '개인정보 최소화','questionId, order','유효한 JSON 하나만 반환'
 ].forEach(token => assert(prompt.includes(token), `system prompt contains: ${token}`));
 
+const responseSchema = JSON.parse(JSON.stringify(run('getSurveyDraftGeminiResponseSchema_()')));
+const variants = responseSchema.properties.questions.items.anyOf;
+assert.strictEqual(variants.length, 5);
+const variantByType = Object.fromEntries(variants.map(variant => [variant.properties.type.enum[0], variant]));
+assert.deepStrictEqual(Object.keys(variantByType).sort(), ['MULTIPLE','RESPONDENT','SCALE','SINGLE','TEXT']);
+assert.deepStrictEqual(Object.keys(variantByType.SINGLE.properties).sort(), ['options','required','title','type']);
+assert.deepStrictEqual(Object.keys(variantByType.MULTIPLE.properties).sort(), ['maxSelections','options','required','title','type']);
+assert(!variantByType.MULTIPLE.required.includes('maxSelections'));
+assert.deepStrictEqual(Object.keys(variantByType.SCALE.properties).sort(), ['required','scalePreset','title','type']);
+assert.deepStrictEqual(variantByType.SCALE.properties.scalePreset.enum, ['SATISFACTION_5']);
+assert(!variantByType.SCALE.properties.options);
+assert.deepStrictEqual(Object.keys(variantByType.TEXT.properties).sort(), ['required','title','type']);
+assert.deepStrictEqual(Object.keys(variantByType.RESPONDENT.properties).sort(), ['options','required','respondentField','title','type']);
+assert.deepStrictEqual(variantByType.RESPONDENT.properties.respondentField.enum, ['AGE_GROUP','GENDER','RESIDENCE','USER_TYPE','OTHER']);
+
 const valid = {
   description:'설문 안내',
   questions:[
