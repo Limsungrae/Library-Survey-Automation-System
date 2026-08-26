@@ -30,6 +30,16 @@ function extractFunctionSource(name) {
 const formatMetric = extractFunction('formatMetric_');
 const qualityLabel = extractFunction('qualityLabel');
 const normalizedProcessingState = extractFunction('normalizedProcessingState_');
+const renderUploadSource = extractFunctionSource('renderUpload');
+const saveSettingsSource = extractFunctionSource('saveSettings');
+assert.match(renderUploadSource, /const file=[^;]+manualPanel=el\("v2GoogleFormManualPanel"\)/, 'renderUpload declares manualPanel in strict mode');
+assert.doesNotMatch(renderUploadSource, /;\s*manualPanel\s*=/, 'renderUpload has no undeclared manualPanel assignment');
+const renderElements = new Proxy({}, {get(target,id){return target[id]||(target[id]={hidden:false,className:'',textContent:'',disabled:false,title:'',innerHTML:''});}});
+const renderContext = {state:{selectedFile:null,googleFormSource:null,respondentCount:0,mappings:[],filePayload:null,uploadStatus:'idle',error:'',inputSource:'EXCEL'},el:id=>renderElements[id],Boolean,setButtonBusy_(){},escapeHtml:String};
+vm.createContext(renderContext);vm.runInContext('"use strict";'+renderUploadSource+';renderUpload();', renderContext);
+assert.strictEqual(renderElements.v2GoogleFormManualPanel.hidden, false, 'settings-triggered render completes without strict-mode ReferenceError');
+const savingIndex=saveSettingsSource.indexOf('setState({settingsStatus:"saving"'),apiIndex=saveSettingsSource.indexOf('api.saveSettings(payload)');
+assert(savingIndex>=0&&apiIndex>savingIndex, 'saveSettings reaches the secure save call after the saving render');
 assert.strictEqual(formatMetric(1, '명', 0), '1명');
 assert.strictEqual(formatMetric(30, '명', 0), '30명');
 assert.strictEqual(formatMetric(80, '명', 0), '80명');
