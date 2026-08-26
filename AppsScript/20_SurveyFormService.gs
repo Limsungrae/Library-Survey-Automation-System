@@ -142,16 +142,21 @@ function createGoogleFormFromReviewedDraft_(payload) {
     });
     spreadsheet = SpreadsheetApp.create(reviewed.survey.title + " - 응답");
     form.setDestination(FormApp.DestinationType.SPREADSHEET, spreadsheet.getId());
-    return {
-      generationVersion:SURVEY_FORM_GENERATION_VERSION,
-      formId:form.getId(),
-      title:reviewed.survey.title,
-      editUrl:form.getEditUrl(),
-      publishedUrl:form.getPublishedUrl(),
-      responseSpreadsheetId:spreadsheet.getId(),
-      responseSpreadsheetUrl:spreadsheet.getUrl(),
-      questionCount:reviewed.questions.length
+    const generated = {
+      generationVersion:SURVEY_FORM_GENERATION_VERSION, formId:form.getId(), title:reviewed.survey.title,
+      editUrl:form.getEditUrl(), publishedUrl:form.getPublishedUrl(), responseSpreadsheetId:spreadsheet.getId(),
+      responseSpreadsheetUrl:spreadsheet.getUrl(), questionCount:reviewed.questions.length,
+      registryRegistered:false, surveyId:"", warning:""
     };
+    try {
+      if (typeof registerManagedSurvey_ !== "function") throw new Error("Survey Registry service is unavailable.");
+      const registration = registerManagedSurvey_(reviewed, generated);
+      generated.registryRegistered = true; generated.surveyId = registration.surveyId;
+    } catch (registryError) {
+      console.error("Survey Registry registration failed after Form creation", registryError && registryError.stack ? registryError.stack : registryError);
+      generated.warning = "Google Form은 생성되었지만 내 설문에 등록하지 못했습니다.";
+    }
+    return generated;
   } catch (error) {
     console.error("Google Form creation failed", {
       formId:form && typeof form.getId === "function" ? form.getId() : "",
