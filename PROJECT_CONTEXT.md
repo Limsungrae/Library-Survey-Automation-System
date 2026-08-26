@@ -294,7 +294,20 @@ Manual Google Form response connection과 Managed Survey Registry 구현은 완�
 
 Live Test는 배포된 Apps Script 및 실제 Workspace 권한으로 별도 수행해야 합니다.
 
-## 13. Protected Architecture Rules
+## 13. Analysis Workspace Lineage
+
+새 설문 분석은 `ANL-YYYYMMDD-XXXXXXXX` 형식의 workspace ID를 사용합니다. 현재 ID와 settings, mapping, raw stage lineage는 Spreadsheet의 Document Properties에 저장됩니다. 새 workspace를 시작해도 이전 결과 sheet를 물리 삭제하지 않지만, workspace 또는 raw revision lineage가 일치하지 않는 기존 Mapping/Raw/Statistics/Quality/AI 결과는 현재 작업의 완료 상태로 인정하지 않습니다.
+
+- `DYNAMIC_SURVEY_WORKSPACE_ID`: 현재 분석 workspace
+- `DYNAMIC_SURVEY_SETTINGS_WORKSPACE_ID`: 현재 settings lineage
+- `DYNAMIC_SURVEY_MAPPING_WORKSPACE_ID`: 현재 mapping lineage
+- `DYNAMIC_SURVEY_RAW_WORKSPACE_ID`: 현재 raw lineage
+- `DYNAMIC_SURVEY_RAW_WORKSPACE_REVISION`: raw workspace에 연결된 revision
+- `secureBeginDynamicSurveyWorkspaceFromWeb(accessToken)`: 인증된 새 분석 시작 API
+
+workspace ID가 아직 없는 기존 workbook은 legacy continuation mode로 기존 결과를 계속 복원합니다. 새 분석 intent에서는 transient upload state를 sessionStorage에서 복원하지 않으며, 새 settings 저장 전후의 server status는 새 workspace lineage만 사용합니다.
+
+## 14. Protected Architecture Rules
 
 1. 현재 repository의 실제 코드와 테스트가 source of truth입니다.
 2. Excel과 Google Form은 공통 Mapping 이후 같은 분석 pipeline을 사용합니다.
@@ -307,7 +320,7 @@ Live Test는 배포된 Apps Script 및 실제 Workspace 권한으로 별도 수�
 9. Mapping/Raw 이후 기존 Analysis, Quality, AI, Report 동작을 최대한 변경하지 않습니다.
 10. Workspace runtime 동작은 실제 Live Test 없이 검증 완료로 보고하지 않습니다.
 
-## 14. Operational Unknowns
+## 15. Operational Unknowns
 
 다음은 repository만으로 확인할 수 없어 **Needs Verification** 상태입니다.
 
@@ -318,7 +331,7 @@ Live Test는 배포된 Apps Script 및 실제 Workspace 권한으로 별도 수�
 - 운영 Spreadsheet에 이미 존재하는 `20_설문관리` 상태
 - 운영 환경에서의 응답 수 조회 성능
 
-## 15. Reference Commits
+## 16. Reference Commits
 
 환경의 merge/rebase에 따라 SHA는 달라질 수 있으므로 현재 코드 존재 여부가 우선입니다.
 

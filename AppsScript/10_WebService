@@ -1,5 +1,13 @@
 /** Dynamic survey web services. */
 
+const DYNAMIC_SURVEY_WORKSPACE_KEYS_ = Object.freeze({
+  CURRENT: "DYNAMIC_SURVEY_WORKSPACE_ID",
+  SETTINGS: "DYNAMIC_SURVEY_SETTINGS_WORKSPACE_ID",
+  MAPPING: "DYNAMIC_SURVEY_MAPPING_WORKSPACE_ID",
+  RAW: "DYNAMIC_SURVEY_RAW_WORKSPACE_ID",
+  RAW_REVISION: "DYNAMIC_SURVEY_RAW_WORKSPACE_REVISION"
+});
+
 const DYNAMIC_SURVEY_REVISION_KEYS_ = Object.freeze({
   RAW: "DYNAMIC_SURVEY_RAW_REVISION",
   STATISTICS: "DYNAMIC_SURVEY_STATISTICS_REVISION",
@@ -11,6 +19,48 @@ const DYNAMIC_SURVEY_REVISION_KEYS_ = Object.freeze({
 
 function getDynamicSurveyRevisionStore_() {
   return PropertiesService.getDocumentProperties();
+}
+
+function createDynamicSurveyWorkspaceId_() {
+  return "ANL-" + Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Etc/UTC", "yyyyMMdd")
+    + "-" + Utilities.getUuid().replace(/-/g, "").slice(0, 8).toUpperCase();
+}
+
+function beginDynamicSurveyWorkspaceFromWeb() {
+  const properties = getDynamicSurveyRevisionStore_();
+  const workspaceId = createDynamicSurveyWorkspaceId_();
+  properties.setProperty(DYNAMIC_SURVEY_WORKSPACE_KEYS_.CURRENT, workspaceId);
+  [DYNAMIC_SURVEY_WORKSPACE_KEYS_.SETTINGS, DYNAMIC_SURVEY_WORKSPACE_KEYS_.MAPPING,
+    DYNAMIC_SURVEY_WORKSPACE_KEYS_.RAW, DYNAMIC_SURVEY_WORKSPACE_KEYS_.RAW_REVISION].forEach(function(key) { properties.deleteProperty(key); });
+  return {success:true, workspaceId:workspaceId};
+}
+
+function markDynamicSurveyWorkspaceStage_(stage, store) {
+  const properties = store || getDynamicSurveyRevisionStore_();
+  const workspaceId = properties.getProperty(DYNAMIC_SURVEY_WORKSPACE_KEYS_.CURRENT) || "";
+  const key = DYNAMIC_SURVEY_WORKSPACE_KEYS_[stage];
+  if (workspaceId && key) {
+    properties.setProperty(key, workspaceId);
+    if (stage === "RAW") properties.setProperty(DYNAMIC_SURVEY_WORKSPACE_KEYS_.RAW_REVISION,
+      properties.getProperty(DYNAMIC_SURVEY_REVISION_KEYS_.RAW) || "");
+  }
+  return workspaceId;
+}
+
+function getDynamicSurveyWorkspaceState_(store) {
+  const properties = store || getDynamicSurveyRevisionStore_();
+  const workspaceId = properties.getProperty(DYNAMIC_SURVEY_WORKSPACE_KEYS_.CURRENT) || "";
+  if (!workspaceId) return {workspaceId:"",legacy:true,settingsCurrent:true,mappingCurrent:true,rawCurrent:true};
+  return {
+    workspaceId:workspaceId,
+    legacy:false,
+    settingsCurrent:properties.getProperty(DYNAMIC_SURVEY_WORKSPACE_KEYS_.SETTINGS) === workspaceId,
+    mappingCurrent:properties.getProperty(DYNAMIC_SURVEY_WORKSPACE_KEYS_.MAPPING) === workspaceId,
+    rawCurrent:properties.getProperty(DYNAMIC_SURVEY_WORKSPACE_KEYS_.RAW) === workspaceId
+      && Boolean(properties.getProperty(DYNAMIC_SURVEY_WORKSPACE_KEYS_.RAW_REVISION))
+      && properties.getProperty(DYNAMIC_SURVEY_WORKSPACE_KEYS_.RAW_REVISION)
+        === properties.getProperty(DYNAMIC_SURVEY_REVISION_KEYS_.RAW)
+  };
 }
 
 function getDynamicSurveyRevisionState_(store) {
@@ -237,25 +287,24 @@ function getDynamicSurveySystemStatusFromWeb() {
         && settingsSheet.getLastRow() >= 2
       );
 
-    const mappingExists =
-      mappingCount > 0;
-
-    const rawSheetExists =
-      respondentCount > 0;
+    const workspace = getDynamicSurveyWorkspaceState_();
+    const mappingExists = workspace.mappingCurrent && mappingCount > 0;
+    const rawSheetExists = workspace.rawCurrent && respondentCount > 0;
 
     const revisions = getDynamicSurveyRevisionState_();
     const freshness = buildDynamicSurveyFreshnessState_(revisions, {
       statisticsSheetsComplete: statisticalSheetCount === statisticalSheetNames.length,
       aiSheetsComplete: aiSheetCount === aiSheetNames.length
     });
-    const statisticsComplete = freshness.statisticsFresh;
-    const aiComplete = freshness.aiFresh;
-    const qualityStatus = freshness.qualityFresh
+    const statisticsComplete = workspace.rawCurrent && freshness.statisticsFresh;
+    const aiComplete = workspace.rawCurrent && freshness.aiFresh;
+    const qualityStatus = workspace.rawCurrent && freshness.qualityFresh
       ? (revisions.qualityStatus || "NOT_RUN")
-      : (revisions.qualityRevision || qualitySheet ? "STALE" : "NOT_RUN");
-    const qualityAiAllowed = freshness.qualityFresh && revisions.qualityAiAllowed;
+      : (workspace.rawCurrent && (revisions.qualityRevision || qualitySheet) ? "STALE" : "NOT_RUN");
+    const qualityAiAllowed = workspace.rawCurrent && freshness.qualityFresh && revisions.qualityAiAllowed;
     const exportReady =
-      settingsExists
+      workspace.settingsCurrent
+      && settingsExists
       && mappingExists
       && rawSheetExists
       && freshness.exportReady;
@@ -264,22 +313,25 @@ function getDynamicSurveySystemStatusFromWeb() {
       success: true,
 
       settingsExists:
-        settingsExists,
+        workspace.settingsCurrent && settingsExists,
+
+      workspaceId: workspace.workspaceId,
+      workspaceLegacy: workspace.legacy,
 
       mappingExists:
         mappingExists,
 
       mappingCount:
-        mappingCount,
+        mappingExists ? mappingCount : 0,
 
       rawSheetExists:
         rawSheetExists,
 
       respondentCount:
-        respondentCount,
+        rawSheetExists ? respondentCount : 0,
 
       rawColumnCount:
-        rawColumnCount,
+        workspace.rawCurrent ? rawColumnCount : 0,
 
       statisticalSheetCount:
         statisticalSheetCount,

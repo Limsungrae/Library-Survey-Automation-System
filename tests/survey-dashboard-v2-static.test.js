@@ -108,7 +108,7 @@ assert.deepStrictEqual([...references].filter(id => !ids.has(id)), [], 'all el()
 
 const requiredApis = [
   'secureGetSurveySettingsForWeb', 'secureSaveSurveySettingsFromWeb',
-  'secureGetDynamicSurveySystemStatusFromWeb', 'secureInspectSurveyExcelForMappingFromWeb',
+  'secureGetDynamicSurveySystemStatusFromWeb', 'secureBeginDynamicSurveyWorkspaceFromWeb', 'secureInspectSurveyExcelForMappingFromWeb',
   'secureInspectSurveyExcelByRuleFromWeb', 'secureGetSavedSurveyMappingsFromWeb',
   'secureInspectGoogleFormResponsesForMappingFromWeb', 'secureImportGoogleFormResponsesToRawFromWeb',
   'secureSaveSurveyMappingsFromWeb', 'secureCreateGenericRawSheetFromWeb',

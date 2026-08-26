@@ -23,6 +23,11 @@ function secureGetDynamicSurveySystemStatusFromWeb(accessToken) {
   return getDynamicSurveySystemStatusFromWeb();
 }
 
+function secureBeginDynamicSurveyWorkspaceFromWeb(accessToken) {
+  requireWebAccessToken_(accessToken);
+  return beginDynamicSurveyWorkspaceFromWeb();
+}
+
 /**
  * 조사 설정 저장
  */

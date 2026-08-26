@@ -672,6 +672,7 @@ function saveSurveySettingsFromWeb(settingsData) {
       360
     );
 
+    if (typeof markDynamicSurveyWorkspaceStage_ === "function") markDynamicSurveyWorkspaceStage_("SETTINGS");
     return {
       success: true,
       message: "조사 기본정보를 저장했습니다.",
