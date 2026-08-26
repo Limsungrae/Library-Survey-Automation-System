@@ -506,6 +506,7 @@ function writeDynamicSurveyRawValues_(values, sourceMetadata) {
       .forEach(function(mapping) { if (mapping.columnNumber <= targetSheet.getMaxColumns()) targetSheet.hideColumns(mapping.columnNumber); });
   }
   SpreadsheetApp.flush();
+  if (typeof markDynamicSurveyWorkspaceStage_ === "function") markDynamicSurveyWorkspaceStage_("RAW");
   return {
     success:true,
     sheetName:targetSheetName,

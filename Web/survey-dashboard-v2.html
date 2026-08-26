@@ -120,24 +120,24 @@
           <div class="v2-page-heading">
             <div><p class="v2-eyebrow">STEP 3</p><h2 id="v2UploadTitle">응답 가져오기</h2><p>Excel 또는 Google Form 응답을 불러옵니다. 원자료는 문항 매핑 저장 후 생성됩니다.</p></div>
           </div>
-          <article id="v2GoogleFormSourceCard" class="v2-card v2-upload-card" hidden>
-            <div class="v2-card__heading"><div><p class="v2-eyebrow">GOOGLE FORM</p><h3>Google Form 응답 시트 연결됨</h3></div><span class="v2-badge v2-badge--success">연결됨</span></div>
-            <dl class="v2-upload-metadata"><div><dt>설문</dt><dd id="v2GoogleFormSourceTitle">-</dd></div><div><dt>응답</dt><dd id="v2GoogleFormResponseCount">확인 전</dd></div></dl>
-            <button id="v2GoogleFormInspectButton" class="v2-button v2-button--primary" type="button">응답 불러오기</button>
-          </article>
+          <div class="v2-input-source-grid">
           <article class="v2-card v2-upload-card">
+            <div class="v2-card__heading"><div><p class="v2-eyebrow">EXCEL</p><h3>Excel 파일</h3></div></div>
             <div id="v2Dropzone" class="v2-dropzone" role="group" aria-labelledby="v2DropzoneTitle">
-              <span class="v2-dropzone__icon" aria-hidden="true">⇧</span>
-              <h3 id="v2DropzoneTitle">파일을 끌어 놓거나 선택하세요</h3>
-              <p>.xlsx 또는 .xls · 최대 12MB</p>
-              <button id="v2ChooseFileButton" class="v2-button v2-button--secondary" type="button">파일 선택</button>
-              <input id="v2FileInput" type="file" accept=".xlsx,.xls" hidden>
+              <span class="v2-dropzone__icon" aria-hidden="true">⇧</span><h3 id="v2DropzoneTitle">파일을 끌어 놓거나 선택하세요</h3><p>.xlsx 또는 .xls · 최대 12MB</p>
+              <button id="v2ChooseFileButton" class="v2-button v2-button--secondary" type="button">파일 선택</button><input id="v2FileInput" type="file" accept=".xlsx,.xls" hidden>
             </div>
             <div id="v2SelectedFile" class="v2-file-summary" hidden></div>
             <dl id="v2UploadMetadata" class="v2-upload-metadata" hidden><div><dt>파일명</dt><dd id="v2UploadFileName">-</dd></div><div><dt>응답자 수</dt><dd id="v2UploadRespondents">분석 후 확인</dd></div><div><dt>인식 문항 수</dt><dd id="v2UploadQuestions">분석 후 확인</dd></div></dl>
-            <div id="v2UploadStatus" class="v2-upload-status" aria-live="polite">분석할 파일을 선택해 주세요.</div>
-            <button id="v2UploadButton" class="v2-button v2-button--primary" type="button" disabled>문항 매핑으로 계속</button>
+            <div id="v2UploadStatus" class="v2-upload-status" aria-live="polite">분석할 파일을 선택해 주세요.</div><button id="v2UploadButton" class="v2-button v2-button--primary" type="button" disabled>문항 매핑으로 계속</button>
           </article>
+          <article id="v2GoogleFormCard" class="v2-card v2-upload-card">
+            <div class="v2-card__heading"><div><p class="v2-eyebrow">GOOGLE FORM</p><h3>Google Form 응답</h3></div></div>
+            <p class="v2-muted">Google Form에 연결된 응답 Spreadsheet를 불러옵니다.</p>
+            <div id="v2GoogleFormSourceCard" hidden><p class="v2-connected-title">✓ Google Form 응답 시트 연결됨</p><dl class="v2-upload-metadata"><div><dt>설문</dt><dd id="v2GoogleFormSourceTitle">-</dd></div><div><dt>응답</dt><dd id="v2GoogleFormResponseCount">확인 전</dd></div></dl><div class="v2-inline-actions"><button id="v2GoogleFormInspectButton" class="v2-button v2-button--primary" type="button">응답 불러오기</button><button id="v2GoogleFormChangeButton" class="v2-button v2-button--quiet" type="button">다른 응답 시트 연결</button></div></div>
+            <div id="v2GoogleFormManualPanel"><button id="v2ManagedSurveyOpenButton" class="v2-button v2-button--secondary" type="button">내 설문에서 선택</button><div id="v2ManagedSurveyPanel" class="v2-managed-survey-panel" hidden><div class="v2-card__heading"><strong>수집 중인 설문</strong><button id="v2ManagedSurveyCloseButton" class="v2-button v2-button--quiet" type="button">닫기</button></div><p id="v2ManagedSurveyStatus" class="v2-muted">목록을 불러오고 있습니다.</p><div id="v2ManagedSurveyList"></div></div><div class="v2-source-divider"><span>또는 직접 연결</span></div><label class="v2-source-input"><span>응답 시트 URL 또는 ID</span><input id="v2GoogleFormSpreadsheetInput" type="text" maxlength="500" autocomplete="off" placeholder="Spreadsheet URL 또는 ID"></label><p id="v2GoogleFormManualStatus" class="v2-upload-status" aria-live="polite">Google Form에 연결된 응답 시트 URL을 입력해 주세요.</p><button id="v2GoogleFormConnectButton" class="v2-button v2-button--primary" type="button">Google Form 응답 연결</button></div>
+          </article>
+          </div>
         </section>
 
         <section id="v2PageMapping" class="v2-page" aria-labelledby="v2MappingTitle" hidden>

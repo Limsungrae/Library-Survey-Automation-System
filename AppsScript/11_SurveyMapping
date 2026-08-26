@@ -1503,6 +1503,7 @@ function saveSurveyMappingsFromWeb(payload) {
     sheet.autoResizeColumns(1, headers.length);
     sheet.setColumnWidth(3, 420);
     sheet.setColumnWidth(4, 260);
+    if (typeof markDynamicSurveyWorkspaceStage_ === "function") markDynamicSurveyWorkspaceStage_("MAPPING");
     return {success: true, savedCount: rows.length, sheetName: DYNAMIC_SURVEY_CONFIG.SHEETS.MAPPING, mappingVersion: mappingVersion,
       validation: validation, message: "문항 매핑 " + rows.length + "개를 저장했습니다."};
   } catch (error) {
