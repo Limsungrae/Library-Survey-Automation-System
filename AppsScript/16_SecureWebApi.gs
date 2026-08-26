@@ -210,3 +210,8 @@ function secureImportGoogleFormResponsesToRawFromWeb(request, accessToken) {
     return {success:false, code:code, error:message};
   }
 }
+
+
+function secureListManagedSurveysFromWeb(options, accessToken) { requireWebAccessToken_(accessToken); try { return listManagedSurveysFromWeb(options); } catch(error) { console.error("Managed survey list failed", error && error.stack ? error.stack : error); return {success:false,error:"내 설문 목록을 불러오지 못했습니다."}; } }
+function secureGetManagedSurveyFromWeb(surveyId, accessToken) { requireWebAccessToken_(accessToken); try { return getManagedSurveyFromWeb(surveyId); } catch(error) { console.error("Managed survey lookup failed", error && error.stack ? error.stack : error); return {success:false,code:error&&error.code||"SURVEY_REGISTRY_ERROR",error:"설문을 찾을 수 없습니다."}; } }
+function secureArchiveManagedSurveyFromWeb(surveyId, accessToken) { requireWebAccessToken_(accessToken); try { return archiveManagedSurveyFromWeb(surveyId); } catch(error) { console.error("Managed survey archive failed", error && error.stack ? error.stack : error); return {success:false,code:error&&error.code||"SURVEY_REGISTRY_ERROR",error:"설문을 보관하지 못했습니다."}; } }
