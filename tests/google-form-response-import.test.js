@@ -22,7 +22,7 @@ context.request={responseSpreadsheetId:' sheet-id ',formId:' form-id ',title:'�
   {title:headers[1],type:'MULTIPLE'},{title:'성별',type:'RESPONDENT'},{title:'연령대',type:'RESPONDENT'},{title:'거주지역',type:'RESPONDENT'}
 ]};
 const inspect=JSON.parse(JSON.stringify(vm.runInContext('inspectGoogleFormResponsesForMappingFromWeb(request)',context)));
-assert.strictEqual(calls.openId,'sheet-id');assert.strictEqual(calls.best,1);assert.strictEqual(calls.read,1);
+assert.strictEqual(calls.openId,'sheet-id');assert.strictEqual(calls.best,0);assert.strictEqual(calls.read,1);
 assert.strictEqual(inspect.responseCount,1);assert.strictEqual(inspect.mappings[0].selectedType,'EXCLUDE');
 assert.strictEqual(inspect.mappings[1].selectedType,'MULTIPLE');
 assert.deepStrictEqual(inspect.mappings.slice(2).map(x=>x.selectedType),['RESPONDENT','RESPONDENT','RESPONDENT']);
@@ -30,6 +30,14 @@ assert(inspect.mappings.slice(1).every(x=>x.mappingSource==='GENERATED_FORM'));
 context.request.questionHints=[{title:'일치하지 않는 제목',type:'MULTIPLE'}];
 const mismatch=JSON.parse(JSON.stringify(vm.runInContext('inspectGoogleFormResponsesForMappingFromWeb(request)',context)));
 assert.strictEqual(mismatch.mappings[1].selectedType,'SINGLE');assert.strictEqual(mismatch.mappingSource,'RULE');
+const unrelatedSheet={getName:()=> '데이터',getLastRow:()=>50,getLastColumn:()=>2,getRange:()=>({getDisplayValues:()=>[['항목','값']]})};
+const emptyResponseSheet={getName:()=> '사용자 지정 이름',getLastRow:()=>1,getLastColumn:()=>headers.length,getRange:()=>({getDisplayValues:()=>[headers]})};
+spreadsheet.getSheets=()=>[unrelatedSheet,emptyResponseSheet];
+context.readSurveySheetStructureForMapping_=candidate=>candidate===unrelatedSheet?{headerRow:1,headers:['항목','값'],sampleRow:['a','b'],responseCount:49}:{headerRow:1,headers,sampleRow:headers.map(()=>''),responseCount:0};
+context.request.questionHints=[{title:headers[1],type:'MULTIPLE'},{title:'성별',type:'RESPONDENT'}];
+const emptySource=vm.runInContext('openGoogleFormResponseSource_(request)',context);assert.strictEqual(emptySource.sheet.getName(),'사용자 지정 이름');assert.strictEqual(emptySource.structure.responseCount,0);
+assert.throws(()=>vm.runInContext('inspectGoogleFormResponsesForMappingFromWeb(request)',context),error=>error.code==='GOOGLE_FORM_RESPONSE_EMPTY');
+spreadsheet.getSheets=()=>[sheet];context.readSurveySheetStructureForMapping_=()=>({headerRow:1,headers,sampleRow:rows[1],responseRows:[rows[1]],responseCount:1});
 context.request.questionHints=[];
 const imported=vm.runInContext('importGoogleFormResponsesToRawFromWeb(request)',context);
 assert.strictEqual(imported.success,true);assert.deepStrictEqual(calls.raw.values,rows);

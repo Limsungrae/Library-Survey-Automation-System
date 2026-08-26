@@ -47,6 +47,7 @@ assert.strictEqual(routedFile({ page: "promo" }), "promo-assistant", "promo 경�
 assert.strictEqual(routedFile({ page: "index" }), "promo-assistant", "기존 index 경로는 홍보 비서로 호환해야 합니다.");
 assert.strictEqual(routedFile({ page: "survey", ui: "v2" }), "survey-dashboard-v2", "설문 v2 경로를 유지해야 합니다.");
 assert.strictEqual(routedFile({ page: "survey", ui: "create" }), "survey-create", "설문 만들기 경로를 지원해야 합니다.");
+assert.strictEqual(routedFile({ page: "survey", ui: "manage" }), "survey-manage", "내 설문 경로를 지원해야 합니다.");
 assert.strictEqual(routedFile({ page: "survey" }), "survey-dashboard", "기존 설문 경로를 유지해야 합니다.");
 
 assert.match(home, /class="service-grid"/);
