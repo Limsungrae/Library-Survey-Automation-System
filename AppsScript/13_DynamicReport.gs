@@ -135,7 +135,7 @@ function createDynamicOverviewSheet_(analysis, settings) {
     ["조사대상",getDynamicSettingDisplay_(settings,"조사대상","surveyTarget")],
     ["조사방법",getDynamicSettingDisplay_(settings,"조사방법","surveyMethod")],
     ["표본 수",Number(analysis.respondentCount||0)+"명"],
-    ["분석방법",getDynamicSettingDisplay_(settings,"분석방법","analysisMethod")]
+    ["분석방법",getDynamicReportAnalysisMethod_(analysis,settings)]
   ];
   sheet.getRange("A4:B4").merge().setValue("구분");
   sheet.getRange("C4:H4").merge().setValue("내용");
@@ -150,6 +150,17 @@ function createDynamicOverviewSheet_(analysis, settings) {
   });
   sheet.setRowHeight(4,30);
   finishDynamicReportSheet_(sheet,12,8);
+}
+
+function getDynamicReportAnalysisMethod_(analysis,settings) {
+  const configured=cleanText_(getDynamicSettingValue_(settings,"분석방법","analysisMethod"));
+  const systemDefaults=["문항 유형과 응답 구조에 따른 시스템 자동 분석","단일응답 빈도, 복수응답 이중 비율, 5점 척도 및 주관식 의미 범주 분석 등"];
+  if(configured&&systemDefaults.indexOf(configured)<0)return configured;
+  const methods=["단일응답 빈도","복수응답 이중 비율"];
+  if((analysis.scale||[]).length)methods.push("5점 척도");
+  if((analysis.score||[]).length)methods.push("점수평가");
+  if((analysis.text||[]).length)methods.push("주관식 의미 범주 분석");
+  return methods.join(", ")+" 등";
 }
 
 
@@ -183,8 +194,8 @@ function createDynamicDashboardSheet_(analysis, settings) {
       .setBorder(true,true,true,true,false,false,"#D9E2EC",SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
   });
 
-  styleDynamicDashboardSection_(sheet,"A11:P11","만족도 문항별 결과");
-  renderDynamicDashboardSatisfactionRows_(sheet,model.satisfactionItems,model.hasMoreSatisfaction);
+  styleDynamicDashboardSection_(sheet,"A11:P11",model.evaluationSectionTitle);
+  renderDynamicDashboardSatisfactionRows_(sheet,model.satisfactionItems,model.hasMoreSatisfaction,model.evaluationMode);
   let cursor=21;
   model.multipleSections.forEach(function(section,index){
     styleDynamicDashboardSection_(sheet,"A"+cursor+":P"+cursor,section.title);
@@ -211,15 +222,15 @@ function styleDynamicDashboardSection_(sheet,a1,title){
 }
 
 
-function renderDynamicDashboardSatisfactionRows_(sheet,items,hasMore){
+function renderDynamicDashboardSatisfactionRows_(sheet,items,hasMore,mode){
   const shown=(items||[]).slice(0,5);
   sheet.getRange("A12:J12").merge().setValue("문항");
   sheet.getRange("K12:M12").merge().setValue("평균");
-  sheet.getRange("N12:P12").merge().setValue("긍정률");
+  sheet.getRange("N12:P12").merge().setValue(mode==="SCORE"?"유효응답":"긍정률");
   styleDynamicReportHeader_(sheet.getRange("A12:P12"));sheet.setRowHeight(12,30);
   if(!shown.length){
     sheet.getRange("A13:P13").setBackground("#FFFFFF").setFontColor("#64748B").setFontSize(10);
-    sheet.getRange("A13").setValue("만족도 문항이 없습니다.");return;
+    sheet.getRange("A13").setValue("평가 문항이 없습니다.");return;
   }
   shown.forEach(function(item,index){
     const row=13+index;
@@ -228,12 +239,13 @@ function renderDynamicDashboardSatisfactionRows_(sheet,items,hasMore){
     safeMergeDynamicDashboardRange_(sheet,"K"+row+":M"+row,"satisfaction-score-"+row)
       .setValue(Number(item.value)).setNumberFormat('0.00"점"').setHorizontalAlignment("right").setFontWeight("bold");
     safeMergeDynamicDashboardRange_(sheet,"N"+row+":P"+row,"satisfaction-positive-"+row)
-      .setValue(item.rate===null?"-":Number(item.rate)/100).setNumberFormat(item.rate===null?"@":"0.0%").setHorizontalAlignment("right");
+      .setValue(mode==="SCORE"?Number(item.validCount||0):(item.rate===null?"-":Number(item.rate)/100))
+      .setNumberFormat(mode==="SCORE"?'0"건"':item.rate===null?"@":"0.0%").setHorizontalAlignment("right");
     sheet.setRowHeight(row,getDynamicDashboardRowHeight_(item.label,55,32,70));
   });
   if(hasMore){
     safeMergeDynamicDashboardRange_(sheet,"A19:P19","satisfaction-guide")
-      .setValue("※ 전체 만족도 문항별 세부 분석 결과는 '05_만족도분석' 시트에서 확인하실 수 있습니다.")
+      .setValue("※ 전체 "+(mode==="SCORE"?"점수 평가":"만족도")+" 문항별 세부 분석 결과는 '05_만족도분석' 시트에서 확인하실 수 있습니다.")
       .setBackground("#F0F4F8").setFontColor("#2B547E").setFontSize(10).setWrap(true)
       .setVerticalAlignment("middle").setHorizontalAlignment("left")
       .setBorder(true,false,true,false,false,false,"#D9E2EC",SpreadsheetApp.BorderStyle.SOLID);
@@ -453,6 +465,25 @@ function getDynamicRecommendationKpiLabel_(item) {
   return "의향 긍정률";
 }
 
+function getDynamicScoreProfile_(items) {
+  if(typeof getSurveyProfiles_!=="function"||typeof matchSurveyProfileQuestion_!=="function")return null;
+  return getSurveyProfiles_().find(function(profile){
+    const expected=(profile.questions||[]).filter(function(question){return question.type==="SCORE";});
+    return expected.length>0&&expected.length===(items||[]).length&&expected.every(function(question){
+      return (items||[]).some(function(item){return matchSurveyProfileQuestion_(item.question,question);});
+    });
+  })||null;
+}
+
+function getDynamicScoreReportTitle_(question,profile) {
+  const text=cleanText_(question);
+  if(profile&&typeof matchSurveyProfileQuestion_==="function"){
+    const matched=(profile.questions||[]).find(function(item){return item.type==="SCORE"&&matchSurveyProfileQuestion_(text,item);});
+    if(matched)return cleanText_(matched.reportTitle||matched.title);
+  }
+  return text;
+}
+
 function buildDynamicDashboardModel_(analysis,settings){
   const respondentCount=Number(analysis&&analysis.respondentCount||0);
   const overallAverage=analysis&&analysis.scaleSummary&&analysis.scaleSummary.weightedAverage!==null
@@ -461,6 +492,10 @@ function buildDynamicDashboardModel_(analysis,settings){
     &&analysis.scaleSummary.overallPositiveRate!==undefined?Number(analysis.scaleSummary.overallPositiveRate):null;
   const surveyName=getDynamicSettingValue_(settings,"조사명","surveyName")||"만족도 조사";
   const scale=(analysis&&analysis.scale||[]).filter(function(item){return item.average!==null&&item.average!==undefined&&Number.isFinite(Number(item.average));});
+  const score=(analysis&&analysis.score||[]).filter(function(item){return item.average!==null&&item.average!==undefined&&Number.isFinite(Number(item.average));});
+  const scoreSummary=analysis&&analysis.scoreSummary||{};
+  const hasScore=score.length>0&&scoreSummary.weightedAverage!==null&&scoreSummary.weightedAverage!==undefined;
+  const scoreProfile=getDynamicScoreProfile_(score);
   const recommendation=analysis&&analysis.recommendation||[];
   const fivePointItem=recommendation.find(function(item){return item.scaleKind!=="NPS_0_10"&&Number.isFinite(Number(item.positiveRate));})||null;
   const npsItem=recommendation.find(function(item){return item.scaleKind==="NPS_0_10"&&item.nps!==null&&item.nps!==undefined&&Number.isFinite(Number(item.nps));})||null;
@@ -476,15 +511,21 @@ function buildDynamicDashboardModel_(analysis,settings){
     /(?:향후.*(?:희망|원하|이용)|희망.*(?:서비스|프로그램)|원하는.*(?:서비스|프로그램)|참여하고\s*싶은)/i);
   const improvement=selectDynamicDashboardMultipleQuestion_(analysis&&analysis.multiple||[],/(?:개선|불편|보완|필요|요구)/i,future);
   const multipleSections=buildDynamicDashboardMultipleSections_(analysis&&analysis.multiple||[]);
-  const satisfactionItems=buildDynamicDashboardItems_(scale,5,5,true);
+  const satisfactionItems=hasScore?score.map(function(item){return {label:getDynamicScoreReportTitle_(item.question,scoreProfile),value:Number(item.average),rate:null,validCount:Number(item.validCount||0)};}):buildDynamicDashboardItems_(scale,5,5,true);
   const futureItems=future?buildDynamicDashboardItems_(future.items,null,5,false):[];
   const improvementItems=improvement?buildDynamicDashboardItems_(improvement.items,null,5,false):[];
   let highestScale=null;
   scale.forEach(function(item){if(!highestScale||Number(item.average)>Number(highestScale.average))highestScale=item;});
+  const sortedScore=score.slice().sort(function(a,b){return Number(b.average)-Number(a.average);});
+  const highestScore=sortedScore[0]||null,lowestScore=sortedScore[sortedScore.length-1]||null;
   const highestText=highestScale?Number(highestScale.average).toFixed(2)+"점":"해당 없음";
   const averageText=overallAverage!==null&&Number.isFinite(overallAverage)?overallAverage.toFixed(2)+" / 5점":"해당 없음";
   const positiveText=overallPositiveRate!==null&&Number.isFinite(overallPositiveRate)?overallPositiveRate.toFixed(1)+"%":"해당 없음";
-  const coreMetrics=[
+  const coreMetrics=hasScore?[
+    {label:"자료서비스 종합점수",value:Number(scoreSummary.weightedAverage).toFixed(1)+"점"},
+    {label:"최고 평가영역",value:highestScore?getDynamicScoreReportTitle_(highestScore.question,scoreProfile)+" "+Number(highestScore.average).toFixed(2)+"점":"해당 없음"},
+    {label:"최저 평가영역",value:lowestScore?getDynamicScoreReportTitle_(lowestScore.question,scoreProfile)+" "+Number(lowestScore.average).toFixed(2)+"점":"해당 없음"}
+  ]:[
     {label:"최고 만족도",value:highestText},
     {label:"종합 만족도",value:averageText},
     {label:"긍정 응답률",value:positiveText},
@@ -492,8 +533,14 @@ function buildDynamicDashboardModel_(analysis,settings){
     {label:"NPS",value:signedNps}
   ];
   const interpretations=[];
-  if(overallAverage!==null&&Number.isFinite(overallAverage))interpretations.push("종합 만족도는 5점 만점에 "+overallAverage.toFixed(2)+"점으로 나타났습니다.");
-  if(highestScale)interpretations.push("가장 높은 만족도 문항은 ‘"+cleanText_(highestScale.question)+"’("+Number(highestScale.average).toFixed(2)+"점)입니다.");
+  if(hasScore){
+    interpretations.push("자료서비스 종합점수는 "+Number(scoreSummary.weightedAverage).toFixed(1)+"점으로 나타났습니다.");
+    if(highestScore)interpretations.push("최고 평가는 ‘"+getDynamicScoreReportTitle_(highestScore.question,scoreProfile)+"’("+Number(highestScore.average).toFixed(2)+"점)입니다.");
+    if(lowestScore)interpretations.push("최저 평가는 ‘"+getDynamicScoreReportTitle_(lowestScore.question,scoreProfile)+"’("+Number(lowestScore.average).toFixed(2)+"점)입니다.");
+  }else{
+    if(overallAverage!==null&&Number.isFinite(overallAverage))interpretations.push("종합 만족도는 5점 만점에 "+overallAverage.toFixed(2)+"점으로 나타났습니다.");
+    if(highestScale)interpretations.push("가장 높은 만족도 문항은 ‘"+cleanText_(highestScale.question)+"’("+Number(highestScale.average).toFixed(2)+"점)입니다.");
+  }
   if(improvementItems.length)interpretations.push("가장 많이 선택된 개선 요구는 ‘"+improvementItems[0].label+"’입니다.");
   if(futureItems.length)interpretations.push("향후 희망 서비스는 ‘"+futureItems[0].label+"’ 응답이 가장 많았습니다.");
   const surveyInfo=["조사기간: "+getDynamicSettingDisplay_(settings,"조사기간","surveyPeriod"),
@@ -502,13 +549,20 @@ function buildDynamicDashboardModel_(analysis,settings){
   const generatedAt=Utilities.formatDate(new Date(),Session.getScriptTimeZone(),"yyyy-MM-dd HH:mm:ss");
   return {
     title:surveyName+" 결과 요약",surveyInfo:surveyInfo,
-    kpis:[
+    kpis:hasScore?[
+      {label:"총 응답자",value:respondentCount,displayText:respondentCount.toLocaleString("ko-KR")+"명"},
+      {label:"자료서비스 종합점수",value:Number(scoreSummary.weightedAverage),displayText:Number(scoreSummary.weightedAverage).toFixed(1)+"점"},
+      {label:"최고 평가영역",value:highestScore&&highestScore.average,displayText:highestScore?getDynamicScoreReportTitle_(highestScore.question,scoreProfile)+"\n"+Number(highestScore.average).toFixed(2)+"점":"해당 없음"},
+      {label:"최저 평가영역",value:lowestScore&&lowestScore.average,displayText:lowestScore?getDynamicScoreReportTitle_(lowestScore.question,scoreProfile)+"\n"+Number(lowestScore.average).toFixed(2)+"점":"해당 없음"}
+    ]:[
       {label:"총 응답자",value:respondentCount,displayText:respondentCount.toLocaleString("ko-KR")+"명"},
       {label:"종합 만족도",value:overallAverage,displayText:averageText.replace("점","")},
       {label:"긍정 응답률",value:overallPositiveRate,displayText:positiveText},
       {label:fourthLabel,value:null,displayText:fourthDisplay}
     ],
-    satisfactionItems:satisfactionItems,hasMoreSatisfaction:scale.length>5,
+    satisfactionItems:satisfactionItems,hasMoreSatisfaction:(hasScore?score.length:scale.length)>5,
+    evaluationMode:hasScore?"SCORE":"SCALE",
+    evaluationSectionTitle:hasScore?(scoreProfile?"자료서비스 점수평가 문항별 결과":"점수 평가 문항별 결과"):"만족도 문항별 결과",
     improvementItems:improvementItems,futureItems:futureItems,coreMetrics:coreMetrics,
     multipleSections:multipleSections,
     interpretations:interpretations.slice(0,3),
@@ -773,7 +827,14 @@ function buildDynamicMultipleTotalRow_(question) {
 function createDynamicSatisfactionSheet_(analysis) {
   const sheet=resetDynamicReportSheet_(getDynamicReportSheetName_("SATISFACTION", "05_만족도분석"));
   setDynamicReportTitle_(sheet,"A1:R2","Ⅴ. 만족도 분석");
-  let row=appendDynamicScaleAnalysis_(sheet,4,analysis)+2;
+  const hasScale=(analysis.scale||[]).length>0,hasScore=(analysis.score||[]).length>0;
+  let row=4;
+  if(hasScale)row=appendDynamicScaleAnalysis_(sheet,row,analysis)+2;
+  if(hasScore)row=appendDynamicScoreAnalysis_(sheet,row,analysis)+2;
+  if(!hasScale&&!hasScore){
+    sheet.getRange(row,1,1,18).merge().setValue("평가 대상 문항이 없습니다.").setFontColor("#64748B");
+    row+=2;
+  }
   row=appendDynamicRecommendationAnalysis_(sheet,row,analysis);
   sheet.setColumnWidth(1,420);sheet.setColumnWidths(2,17,95);
   finishDynamicReportSheet_(sheet,row,18);
@@ -813,6 +874,23 @@ function appendDynamicScaleAnalysis_(sheet,startRow,analysis) {
   sheet.getRange(row,1,1,18).merge().setValue("※ 전체 평균은 전체 유효 척도 응답 기준 가중평균입니다.\n※ 전체 만족도 긍정률은 모든 만족도 문항의 전체 유효응답 중 4점과 5점 응답 비율입니다.\n※ 표준편차는 모집단 기준이며, 순위는 평균 → 긍정률 → 5점 응답 수 순으로 산정합니다.")
     .setWrap(true).setHorizontalAlignment("left");
   return row+1;
+}
+
+function appendDynamicScoreAnalysis_(sheet,startRow,analysis) {
+  let row=startRow;const items=analysis.score||[],summary=analysis.scoreSummary||{};
+  const scoreProfile=getDynamicScoreProfile_(items);
+  const sectionTitle=scoreProfile?"자료서비스 점수평가":"점수 평가";
+  const labels=[];
+  items.forEach(function(item){(item.distribution||[]).forEach(function(entry){if(labels.indexOf(entry.label)<0)labels.push(entry.label);});});
+  labels.sort(function(a,b){const left=items.reduce(function(value,item){const found=(item.distribution||[]).find(function(entry){return entry.label===a;});return found?Number(found.score):value;},0),right=items.reduce(function(value,item){const found=(item.distribution||[]).find(function(entry){return entry.label===b;});return found?Number(found.score):value;},0);return right-left;});
+  const width=8+labels.length;
+  sheet.getRange(row,1,1,width).merge().setValue(sectionTitle).setBackground("#B4C6E7").setFontColor("#17375E").setFontWeight("bold");row++;
+  const rows=[["문항","유효응답","무응답","평균","최저","최고","미매핑","분모"].concat(labels)];
+  items.forEach(function(item,index){const counts={};(item.distribution||[]).forEach(function(entry){counts[entry.label]=entry.count;});const reportQuestion=Object.assign({},item,{question:getDynamicScoreReportTitle_(item.question,scoreProfile)});rows.push([formatDynamicQuestionTitle_(reportQuestion,index),item.validCount,item.missingCount,item.average,item.min,item.max,item.unmappedCount,item.denominator].concat(labels.map(function(label){return Number(counts[label]||0);})));});
+  rows.push(["전체 가중평균",summary.totalValidResponses,"",summary.weightedAverage,"","","",summary.denominator].concat(labels.map(function(){return "";})));
+  sheet.getRange(row,1,rows.length,width).setValues(rows);styleDynamicReportHeader_(sheet.getRange(row,1,1,width));if(rows.length>1)sheet.getRange(row+1,4,rows.length-1,3).setNumberFormat("0.00");styleDynamicReportTotalRow_(sheet.getRange(row+rows.length-1,1,1,width));row+=rows.length;
+  if(scoreProfile&&scoreProfile.analysisNote){sheet.getRange(row,1,1,width).merge().setValue("※ "+scoreProfile.analysisNote).setWrap(true);row++;}
+  return row;
 }
 
 function appendDynamicRecommendationAnalysis_(sheet,startRow,analysis) {
@@ -1173,10 +1251,10 @@ function styleDynamicReportHeader_(range) {
 function formatDynamicQuestionTitle_(question, index) {
   const source=question||{};
   let title=cleanText_(source.originalHeader||source.questionText||source.header||source.question||"");
-  const titleCode=title.match(/^\s*(Q\d+)\s*[.:：)_-]?\s*/i);
-  let code=cleanText_(source.questionId||"");
+  const titleCode=title.match(/^\s*((?:Q\s*)?\d+)\s*[.:：)_-]?\s*/i);
+  let code=Number(source.displayQuestionNumber)>0?"Q"+Number(source.displayQuestionNumber):cleanText_(source.questionId||"");
   if(!code&&Number(source.columnNumber)>0)code="Q"+Number(source.columnNumber);
-  if(titleCode){if(!code)code=titleCode[1].toUpperCase();title=title.substring(titleCode[0].length).trim();}
+  if(titleCode){if(!code)code=titleCode[1].replace(/\s/g,"").toUpperCase();title=title.substring(titleCode[0].length).trim();}
   if(/^\d+$/.test(code))code="Q"+code;
   if(!code)code="문항 "+(Number(index||0)+1);
   return title?code+". "+title:code;

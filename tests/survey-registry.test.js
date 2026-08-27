@@ -1,0 +1,18 @@
+const assert=require('assert'),fs=require('fs'),vm=require('vm');
+const source=fs.readFileSync('AppsScript/22_SurveyRegistry.gs','utf8');
+const secure=fs.readFileSync('AppsScript/16_SecureWebApi.gs','utf8');
+const headers=['surveyId','title','targetAudience','department','contact','formId','publishedUrl','editUrl','responseSpreadsheetId','responseSpreadsheetUrl','questionSchemaJson','status','createdAt','updatedAt','archivedAt'];
+let values=[headers.slice()], uuidCounter=0, deleted=false;
+const range=(row,col,numRows,numCols)=>({setValues(rows){rows.forEach((r,ri)=>r.forEach((v,ci)=>{values[row-1+ri]||(values[row-1+ri]=[]);values[row-1+ri][col-1+ci]=v;}));return this;},getValues(){return values.slice(row-1,row-1+numRows).map(r=>r.slice(col-1,col-1+numCols));},getDisplayValues(){return this.getValues().map(r=>r.map(v=>String(v??'')));}});
+const sheet={getLastColumn:()=>headers.length,getLastRow:()=>values.length,getRange:range,appendRow:r=>values.push(r.slice()),setFrozenRows(){}};
+const context={console,Utilities:{formatDate:()=> '20260826',getUuid:()=>`a83f29c${++uuidCounter}-0000-0000-0000-000000000000`},Session:{getScriptTimeZone:()=> 'Etc/UTC'},LockService:{getScriptLock:()=>({waitLock(){},releaseLock(){}})},SpreadsheetApp:{getActiveSpreadsheet:()=>({getSheetByName:()=>sheet,insertSheet:()=>sheet})},openGoogleFormResponseSource_:()=>({structure:{responseCount:3}}),Date,JSON,Object};
+vm.createContext(context);vm.runInContext(source,context);
+context.reviewed={survey:{title:'만족도',targetAudience:'회원',department:'기획',contact:'031'},questions:[{title:'만족?',type:'SCALE',required:true,response:'저장 금지'}]};context.form={formId:'form',publishedUrl:'view',editUrl:'edit',responseSpreadsheetId:'sheet',responseSpreadsheetUrl:'sheet-url'};
+const first=vm.runInContext('registerManagedSurvey_(reviewed,form)',context);const second=vm.runInContext('registerManagedSurvey_(reviewed,form)',context);
+assert.notStrictEqual(first.surveyId,second.surveyId);assert(/^SVY-20260826-[A-F0-9]{8}$/.test(first.surveyId));assert.strictEqual(values[1][11],'COLLECTING');
+const schema=JSON.parse(values[1][10]);assert.deepStrictEqual(schema,[{title:'만족?',type:'SCALE',required:true}]);assert(!values.flat().join('|').includes('저장 금지'),'responses are never persisted');
+let list=vm.runInContext('listManagedSurveysFromWeb({})',context);assert.strictEqual(list.surveys.length,2);assert.strictEqual(list.surveys[0].responseCount,3);
+context.id=first.surveyId;vm.runInContext('archiveManagedSurveyFromWeb(id)',context);assert.strictEqual(values[1][11],'ARCHIVED');assert.strictEqual(deleted,false,'archive never deletes Form/Sheet');assert.strictEqual(vm.runInContext('listManagedSurveysFromWeb({})',context).surveys.length,1);assert.strictEqual(vm.runInContext('listManagedSurveysFromWeb({includeArchived:true})',context).surveys.length,2);assert.throws(()=>vm.runInContext('getManagedSurveyFromWeb("bad")',context));
+['secureListManagedSurveysFromWeb','secureGetManagedSurveyFromWeb','secureArchiveManagedSurveyFromWeb'].forEach(name=>{const start=secure.indexOf('function '+name), auth=secure.indexOf('requireWebAccessToken_',start), next=secure.indexOf('function ',start+10);assert(start>=0&&auth>start&&(next<0||auth<next));});
+assert(!source.includes('DriveApp')&&!source.includes('FormApp')&&!source.match(/\.delete|setTrashed/));
+console.log('survey registry checks passed');

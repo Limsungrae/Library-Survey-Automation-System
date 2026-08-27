@@ -238,6 +238,18 @@ function callGeminiText_(payload) {
 
       }
 
+      const completedReason = firstCandidate && firstCandidate.finishReason
+        ? String(firstCandidate.finishReason).toUpperCase() : "";
+
+      if (completedReason !== "STOP") {
+        console.warn("Gemini 응답 미완료", {model:model,attempt:attempt,finishReason:completedReason||"확인되지 않음"});
+        if (completedReason === "MAX_TOKENS" && attempt < maxAttempts) {
+          Utilities.sleep(baseWaitTimeMs * Math.pow(2, attempt - 1));
+          continue;
+        }
+        throw new Error("Gemini 응답이 완전하게 생성되지 않았습니다. 종료 사유: "+(completedReason||"확인되지 않음"));
+      }
+
 
       return text;
     }

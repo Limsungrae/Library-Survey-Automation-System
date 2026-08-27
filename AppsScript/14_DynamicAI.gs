@@ -382,6 +382,7 @@ function buildDynamicAIContext_(analysis, opinionAnalysis, settings, quality) {
     quality: quality || null,
     respondentCount: analysis.respondentCount, // 총 응답자 수
     satisfactionSummary: analysis.scaleSummary, // 척도(만족도) 문항 종합 요약 점수
+    scoreSummary: analysis.scoreSummary || null, // 서버가 계산한 범용 점수 평가 종합값
 
     // 2. 개별 만족도 척도 문항 통계 데이터 매핑
     satisfactionQuestions: (analysis.scale || []).map(function(item) {
@@ -395,6 +396,19 @@ function buildDynamicAIContext_(analysis, opinionAnalysis, settings, quality) {
         negativeRate: item.negativeRate, // 부정 응답률 (%)
         rank: item.rank,                 // 전체 만족도 문항 중 순위
         deviation: item.deviation        // 전체 가중평균 대비 차이
+      };
+    }),
+
+    scoreQuestions: (analysis.score || []).map(function(item) {
+      return {
+        question: item.question,
+        validCount: item.validCount,
+        missingCount: item.missingCount,
+        average: item.average,
+        min: item.min,
+        max: item.max,
+        distribution: item.distribution,
+        unmappedCount: item.unmappedCount
       };
     }),
 
@@ -521,12 +535,12 @@ ${buildDynamicAIInterpretationRules_()}
 - 서로 관련된 통계는 하나의 ○ 문단에 묶고, "- "는 의미 범주를 구분해야 할 때만 제한적으로 사용한다.
 - 문장은 짧은 개조식으로 작성하고 '~나타남', '~확인됨', '~파악됨', '~차지함', '~검토할 필요가 있음' 등으로 종결한다.
 - '~입니다', '~했습니다', '추천합니다', '제안합니다', '기대됩니다', '~하는 것이 좋습니다' 문체를 사용하지 않는다.
-- 가용 데이터 범위에서 주요 ○ 문단 4~7개와 시사점 1~3개를 권장하되, 근거가 부족하면 개수를 줄인다.
+- 가용 데이터 범위에서 주요 ○ 문단은 최대 5개, 시사점은 최대 2개로 작성하고 전체는 1,500자 이내로 제한한다.
 
 내용 순서(데이터가 있는 항목만 작성):
 1. 조사 참여 및 응답자 특성
 2. 주요 이용 현황 또는 인지 경로
-3. 만족도 전체 평균·긍정률과 최고·상대적 최저 문항
+3. 만족도 전체 평균·긍정률 또는 점수 평가 종합점수와 최고·최저 문항
 4. 재이용·추천 또는 NPS
 5. 실제 개선 요구
 6. 실제 향후 수요
@@ -534,6 +548,7 @@ ${buildDynamicAIInterpretationRules_()}
 
 추가 제한:
 - 만족도 문항을 모두 나열하지 말고 전체 지표와 최고·상대적 최저 중심으로 작성한다.
+- 점수 평가가 있으면 scoreSummary와 scoreQuestions의 서버 계산값만 사용하고 점수를 다시 계산하지 않는다.
 - 복수응답 비율은 컨텍스트의 selectionRate, respondentRate, validRespondentRate 의미를 바꾸지 않는다.
 - 복수응답 주요 결과에는 건수와 respondentRate를 함께 쓰며, 값이 없을 때 다른 비율을 응답자 선택률이라고 부르지 않는다.
 - 평균은 소수점 둘째 자리, 백분율과 NPS는 소수점 첫째 자리, 응답자와 건수는 정수로 표시하되 값을 재계산하지 않는다.
