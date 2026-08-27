@@ -13,8 +13,8 @@ function getSurveyProfiles_() {
       {no:3,title:"도서관에서 소장중인 자료 중 자주 이용하는 자료는 무엇입니까?",type:"MULTIPLE",tokens:["소장중인자료","자주이용","자료"]},
       {no:4,title:"대출할 자료를 선택할 때 주로 고려하는 기준은 무엇입니까?",type:"MULTIPLE",tokens:["대출할자료","선택","고려","기준"]},
       {no:5,title:"중원도서관에서 제공하는 자료 이용 서비스 중 알고 있는 항목을 선택해 주십시오.",type:"MULTIPLE",groupId:"자료 이용 서비스 인지도",tokens:["중원도서관","자료이용서비스","알고있는항목"]},
-      {no:6,title:"중원도서관 홈페이지에서 제공하는 정보 및 서비스 중 이용해 본 항목을 선택해 주십시오.",type:"MULTIPLE",groupId:"홈페이지 서비스 이용 경험",tokens:["중원도서관홈페이지","정보및서비스","이용해본항목"]},
-      {no:7,title:"중원도서관에서 제공하는 독서정보 중 도움을 받은 항목을 선택해 주십시오.",type:"MULTIPLE",groupId:"독서정보 도움 경험",tokens:["중원도서관","독서정보","도움을받은항목"]},
+      {no:6,title:"중원도서관 홈페이지에서 제공하는 정보 및 서비스 중 이용해 본 항목을 선택해 주십시오.",type:"MULTIPLE",groupId:"홈페이지 서비스 이용 경험",multipleChoices:["(커뮤니티) 페이스북, X(舊 트위터), 블로그, 인스타그램, 유튜브, 카카오톡 채널 등"],tokens:["중원도서관홈페이지","정보및서비스","이용해본항목"]},
+      {no:7,title:"중원도서관에서 제공하는 독서정보 중 도움을 받은 항목을 선택해 주십시오.",type:"MULTIPLE",groupId:"독서정보 도움 경험",multipleChoices:["(커뮤니티) 페이스북, X(舊 트위터), 블로그, 인스타그램, 유튜브, 카카오톡 채널 등"],tokens:["중원도서관","독서정보","도움을받은항목"]},
       {no:8,title:"중원도서관의 독서증진 사업 및 특화 코너 중 알고 있는 항목을 선택해 주십시오.",type:"MULTIPLE",groupId:"독서증진 사업 인지도",tokens:["중원도서관","독서증진사업","특화코너","알고있는항목"]},
       {no:9,title:"장서구성 평가",type:"SCORE",scoreMap:scoreMap,tokens:["장서구성","평가"]},
       {no:10,title:"자료입수 평가 점수",type:"SCORE",scoreMap:scoreMap,tokens:["자료입수","평가","점수"]},
@@ -49,5 +49,5 @@ function detectSurveyProfile_(headers) {
 function applySurveyProfileMappings_(mappings,detection) {
   if(!detection||!detection.profileMatched)return mappings;
   const byColumn={};detection.matches.forEach(function(match){byColumn[match.columnIndex+1]=match.question;});
-  return (mappings||[]).map(function(mapping){const question=byColumn[mapping.columnNumber];if(!question)return mapping;return Object.assign({},mapping,{suggestedType:question.type,suggestedTypeLabel:getSurveyQuestionTypeLabel_(question.type),selectedType:question.type,analysisTarget:true,groupId:question.groupId||"",scoreMap:Object.assign({},question.scoreMap||{}),scaleValueMap:question.type==="SCORE"?{}:mapping.scaleValueMap,mappingSource:detection.status,reviewStatus:detection.status==="AUTO_PROFILE"?"AUTO_REVIEWED":"REVIEW_REQUIRED",confidence:detection.confidence,reason:"사전 등록 설문 프로필 "+detection.profileId+" 문항과 일치했습니다."});});
+  return (mappings||[]).map(function(mapping){const question=byColumn[mapping.columnNumber];if(!question)return mapping;return Object.assign({},mapping,{suggestedType:question.type,suggestedTypeLabel:getSurveyQuestionTypeLabel_(question.type),selectedType:question.type,analysisTarget:true,groupId:question.groupId||"",scoreMap:Object.assign({},question.scoreMap||{}),multipleChoices:(question.multipleChoices||[]).slice(),scaleValueMap:question.type==="SCORE"?{}:mapping.scaleValueMap,mappingSource:detection.status,reviewStatus:detection.status==="AUTO_PROFILE"?"AUTO_REVIEWED":"REVIEW_REQUIRED",confidence:detection.confidence,reason:"사전 등록 설문 프로필 "+detection.profileId+" 문항과 일치했습니다."});});
 }

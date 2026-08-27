@@ -104,7 +104,9 @@ function getDynamicSurveySource_() {
         scaleValueMap: mappingHeaders.indexOf("척도 값 매핑 JSON") >= 0
           ? parseSurveyMappingScoreMap_(mappingValue_(row, "척도 값 매핑 JSON", 20))
           : null,
-        reviewStatus: cleanText_(mappingValue_(row, "검토 상태", 19))
+        reviewStatus: cleanText_(mappingValue_(row, "검토 상태", 19)),
+        multipleChoices: mappingHeaders.indexOf("복수응답 선택지 JSON") >= 0
+          ? parseSurveyMappingValueOptions_(mappingValue_(row, "복수응답 선택지 JSON", 22)) : []
       };
     });
 
@@ -400,7 +402,7 @@ function analyzeDynamicMultipleQuestions_(source) {
     source.rows.forEach(function(row) {
       const raw = cleanText_(row[mapping.columnNumber - 1]);
       if (!raw) return;
-      const selections = splitDynamicMultipleValue_(raw);
+      const selections = splitDynamicMultipleValue_(raw, mapping.multipleChoices);
       if (!selections.length) return;
       const respondentKeys = {};
       selections.forEach(function(original) {
@@ -717,8 +719,20 @@ function buildDynamicScaleSummary_(scaleResults) {
  * @param {string} value 원본 복수응답
  * @return {Array<string>}
  */
-function splitDynamicMultipleValue_(value) {
-  const text = cleanText_(value);
+function splitDynamicMultipleValue_(value, knownChoices) {
+  let text = cleanText_(value);
+  const protectedChoices = [];
+
+  (Array.isArray(knownChoices) ? knownChoices : [])
+    .slice()
+    .sort(function(a, b) { return String(b).length - String(a).length; })
+    .forEach(function(choice) {
+      const label = cleanText_(choice);
+      if (!label || text.indexOf(label) < 0) return;
+      const token = "__MULTIPLE_CHOICE_" + protectedChoices.length + "__";
+      protectedChoices.push(label);
+      text = text.split(label).join(token);
+    });
 
   if (!text) {
     return [];
@@ -775,7 +789,11 @@ function splitDynamicMultipleValue_(value) {
     result.push(lastItem);
   }
 
-  return result;
+  return result.map(function(item) {
+    return item.replace(/__MULTIPLE_CHOICE_(\d+)__/g, function(match, index) {
+      return protectedChoices[Number(index)] || match;
+    });
+  });
 }
 
 function normalizeDynamicMultipleItem_(value) {
