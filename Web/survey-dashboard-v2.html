@@ -155,6 +155,7 @@
           </div>
 
           <div id="v2MappingStatus" class="v2-upload-status" aria-live="polite">문항 매핑을 불러오는 중입니다.</div>
+          <article id="v2ProfileDetected" class="v2-card v2-profile-detected" hidden><div><span class="v2-badge v2-badge--success">사전 등록 양식</span><h3 id="v2ProfileTitle">설문 프로필 감지</h3><p id="v2ProfileMatch"></p></div><div class="v2-inline-actions"><button id="v2ProfileReviewButton" class="v2-button v2-button--quiet" type="button">분석 기준 확인</button><label><input id="v2ProfileIncludeAi" type="checkbox"> AI 자유의견 분석까지 실행</label><button id="v2ProfileAutoRunButton" class="v2-button v2-button--primary" type="button">자동 분석 실행</button></div><p id="v2ProfileRunStatus" class="v2-upload-status" aria-live="polite"></p></article>
           <section id="v2MappingSummary" class="v2-mapping-summary" aria-label="문항 매핑 요약" hidden></section>
           <div id="v2MappingToolbar" class="v2-mapping-toolbar" hidden>
             <label class="v2-mapping-search" for="v2MappingSearch"><span>문항 검색</span><input id="v2MappingSearch" type="search" placeholder="문항명, 예시 응답, 문항 유형 검색" autocomplete="off"></label>
@@ -230,7 +231,7 @@
           </section>
           <section id="v2AnalysisResults" class="v2-analysis-results" hidden>
             <div id="v2AnalysisTabs" class="v2-analysis-tabs" role="tablist" aria-label="분석 유형">
-              <button type="button" role="tab" data-analysis-tab="respondent">응답자 특성</button><button type="button" role="tab" data-analysis-tab="single">단일응답</button><button type="button" role="tab" data-analysis-tab="multiple">복수응답</button><button type="button" role="tab" data-analysis-tab="satisfaction">만족도</button><button type="button" role="tab" data-analysis-tab="recommendation">추천·재이용</button><button type="button" role="tab" data-analysis-tab="text">주관식</button>
+              <button type="button" role="tab" data-analysis-tab="respondent">응답자 특성</button><button type="button" role="tab" data-analysis-tab="single">단일응답</button><button type="button" role="tab" data-analysis-tab="multiple">복수응답</button><button type="button" role="tab" data-analysis-tab="satisfaction">만족도</button><button type="button" role="tab" data-analysis-tab="score">점수평가</button><button type="button" role="tab" data-analysis-tab="recommendation">추천·재이용</button><button type="button" role="tab" data-analysis-tab="text">주관식</button>
             </div>
             <div id="v2AnalysisPanel" class="v2-card v2-analysis-panel" role="tabpanel"></div>
           </section>

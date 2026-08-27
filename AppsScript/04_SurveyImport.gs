@@ -156,14 +156,18 @@ function inspectSurveyExcelForMappingFromWeb(fileData, options) {
     // 기존 규칙 기반 매핑으로 정상 복구합니다.
     const ruleOnly = options && options.ruleOnly === true;
     const ruleMappings = buildSurveyQuestionMappings_(structure.headers, structure.sampleRow);
-    const mappingResult = ruleOnly
-      ? {mappings: ruleMappings, surveyStructure: {title: "", description: "",
-          respondentColumnNumber: null, confidence: 0, reason: ""}, mappingSource: "RULE",
-          fallbackUsed: false, fallbackReason: "", aiWarnings: []}
-      : buildSurveyQuestionMappingsWithAI_(structure.headers, structure.sampleRow, structure.responseRows);
+    const profileDetection = typeof detectSurveyProfile_ === "function" ? detectSurveyProfile_(structure.headers) : {profileMatched:false,status:"NO_PROFILE"};
+    let mappingResult = profileDetection.status === "AUTO_PROFILE"
+      ? {mappings:applySurveyProfileMappings_(ruleMappings,profileDetection),surveyStructure:{title:profileDetection.profile.title,description:profileDetection.profile.purpose,respondentColumnNumber:null,confidence:profileDetection.confidence,reason:"사전 등록 설문 프로필 자동 감지"},mappingSource:"AUTO_PROFILE",fallbackUsed:false,fallbackReason:"",aiWarnings:[]}
+      : ruleOnly
+        ? {mappings: ruleMappings, surveyStructure: {title: "", description: "", respondentColumnNumber: null, confidence: 0, reason: ""}, mappingSource: "RULE", fallbackUsed: false, fallbackReason: "", aiWarnings: []}
+        : buildSurveyQuestionMappingsWithAI_(structure.headers, structure.sampleRow, structure.responseRows);
+    if(profileDetection.status === "PROFILE_REVIEW") {
+      mappingResult.mappings=applySurveyProfileMappings_(mappingResult.mappings,profileDetection);
+      mappingResult.mappingSource="PROFILE_REVIEW";
+    }
 
-    const mappings =
-      mappingResult.mappings;
+    const mappings = mappingResult.mappings;
 
     const validation =
       validateSurveyMappings_(
@@ -206,6 +210,17 @@ function inspectSurveyExcelForMappingFromWeb(fileData, options) {
 
       aiWarnings:
         mappingResult.aiWarnings || [],
+
+      profileMatched: Boolean(profileDetection.profileMatched),
+      profileId: profileDetection.profileId || "",
+      profileTitle: profileDetection.profileTitle || "",
+      profileStatus: profileDetection.status || "NO_PROFILE",
+      matchedQuestionCount: Number(profileDetection.matchedQuestionCount || 0),
+      expectedQuestionCount: Number(profileDetection.expectedQuestionCount || 0),
+      confidence: Number(profileDetection.confidence || 0),
+      unmatchedHeaders: profileDetection.unmatchedHeaders || [],
+      profileNote: profileDetection.profile && profileDetection.profile.analysisNote || "",
+      profileSections: profileDetection.profile && profileDetection.profile.sections || [],
 
       validation:
         validation,

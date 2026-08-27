@@ -423,6 +423,11 @@ function getDynamicSurveyDashboardDataFromWeb() {
         overallPositiveRate:
           analysis.scaleSummary.overallPositiveRate,
 
+        scoreQuestionCount: analysis.scoreSummary.questionCount,
+        scoreOverallAverage: analysis.scoreSummary.weightedAverage,
+        scoreHighestQuestion: analysis.scoreSummary.highestQuestion,
+        scoreLowestQuestion: analysis.scoreSummary.lowestQuestion,
+
         recommendationAverage:
           fivePointItems.length ? fivePointItems[0].average : null,
 
@@ -464,6 +469,9 @@ function getDynamicSurveyDashboardDataFromWeb() {
               item.rank
           };
         }),
+
+      scores: (analysis.score || []).map(function(item) { return {question:item.question,validCount:item.validCount,missingCount:item.missingCount,average:item.average,min:item.min,max:item.max,distribution:item.distribution,unmappedValues:item.unmappedValues}; }),
+      scoreSummary: analysis.scoreSummary,
 
       multiple:
         analysis.multiple.map(function(question) {

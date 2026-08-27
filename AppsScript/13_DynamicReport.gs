@@ -774,6 +774,7 @@ function createDynamicSatisfactionSheet_(analysis) {
   const sheet=resetDynamicReportSheet_(getDynamicReportSheetName_("SATISFACTION", "05_만족도분석"));
   setDynamicReportTitle_(sheet,"A1:R2","Ⅴ. 만족도 분석");
   let row=appendDynamicScaleAnalysis_(sheet,4,analysis)+2;
+  row=appendDynamicScoreAnalysis_(sheet,row,analysis)+2;
   row=appendDynamicRecommendationAnalysis_(sheet,row,analysis);
   sheet.setColumnWidth(1,420);sheet.setColumnWidths(2,17,95);
   finishDynamicReportSheet_(sheet,row,18);
@@ -813,6 +814,17 @@ function appendDynamicScaleAnalysis_(sheet,startRow,analysis) {
   sheet.getRange(row,1,1,18).merge().setValue("※ 전체 평균은 전체 유효 척도 응답 기준 가중평균입니다.\n※ 전체 만족도 긍정률은 모든 만족도 문항의 전체 유효응답 중 4점과 5점 응답 비율입니다.\n※ 표준편차는 모집단 기준이며, 순위는 평균 → 긍정률 → 5점 응답 수 순으로 산정합니다.")
     .setWrap(true).setHorizontalAlignment("left");
   return row+1;
+}
+
+function appendDynamicScoreAnalysis_(sheet,startRow,analysis) {
+  let row=startRow;const items=analysis.score||[],summary=analysis.scoreSummary||{};
+  sheet.getRange(row,1,1,8).merge().setValue("자료서비스 점수평가").setBackground("#B4C6E7").setFontColor("#17375E").setFontWeight("bold");row++;
+  const rows=[["문항","유효응답","무응답","평균","최저","최고","미매핑","분모"]];
+  items.forEach(function(item){rows.push([item.question,item.validCount,item.missingCount,item.average,item.min,item.max,item.unmappedCount,item.denominator]);});
+  rows.push(["전체 가중평균",summary.totalValidResponses,"",summary.weightedAverage,"","","",summary.denominator]);
+  sheet.getRange(row,1,rows.length,8).setValues(rows);styleDynamicReportHeader_(sheet.getRange(row,1,1,8));if(rows.length>1)sheet.getRange(row+1,4,rows.length-1,3).setNumberFormat("0.00");styleDynamicReportTotalRow_(sheet.getRange(row+rows.length-1,1,1,8));row+=rows.length;
+  if(items.length&&typeof getSurveyProfiles_==="function"){const profile=getSurveyProfiles_().find(function(item){return item.profileId==="JUNGWON_MATERIAL_SATISFACTION_2026";});if(profile&&profile.analysisNote){sheet.getRange(row,1,1,8).merge().setValue("※ "+profile.analysisNote).setWrap(true);row++;}}
+  return row;
 }
 
 function appendDynamicRecommendationAnalysis_(sheet,startRow,analysis) {

@@ -51,7 +51,7 @@ const writerContext={console,Date,JSON,Object,cleanText_:v=>String(v||'').trim()
 vm.createContext(writerContext);vm.runInContext(writerMatch[0],writerContext);writerContext.values=[['타임스탬프','성별','만족도'],['2026-08-25 17:19','남','매우 만족']];writerContext.meta={sourceType:'GOOGLE_FORM',sourceSheetName:'응답'};
 const writeResult=vm.runInContext('writeDynamicSurveyRawValues_(values,meta)',writerContext);
 assert.strictEqual(written.revision,1);assert.deepStrictEqual(JSON.parse(JSON.stringify(written.values)),JSON.parse(JSON.stringify(writerContext.values)));assert.strictEqual(writeResult.rowCount,1);assert.strictEqual(JSON.parse(written.note).sourceType,'GOOGLE_FORM');
-const splitMatch=analysis.match(/function splitDynamicMultipleValue_\(value\) \{[\s\S]*?\n\}/);
+const splitMatch=analysis.match(/function splitDynamicMultipleValue_\(value[^)]*\) \{[\s\S]*?\n\}/);
 assert(splitMatch);vm.runInContext(splitMatch[0],context);
 context.multiple='독서·글쓰기, 인문학·교양';assert.deepStrictEqual(Array.from(vm.runInContext('splitDynamicMultipleValue_(multiple)',context)),['독서·글쓰기','인문학·교양']);
 context.multiple='인터넷(도서관 홈페이지, SNS, 배움숲), 홍보물';assert.deepStrictEqual(Array.from(vm.runInContext('splitDynamicMultipleValue_(multiple)',context)),['인터넷(도서관 홈페이지, SNS, 배움숲)','홍보물']);
