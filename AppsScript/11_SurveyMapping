@@ -1482,10 +1482,10 @@ function saveSurveyMappingsFromWeb(payload) {
       "순번", "원본 컬럼번호", "원본 문항", "예시 응답", "자동 추천 유형", "최종 선택 유형",
       "파일명", "원본 시트명", "저장일시", "정규화 문항", "분석대상", "그룹 ID", "행렬 ID",
       "척도 유형", "점수 매핑 JSON", "신뢰도", "판단 이유", "매핑 출처", "매핑 버전", "검토 상태",
-      "척도 값 매핑 JSON", "척도 응답값 JSON", "복수응답 선택지 JSON"
+      "척도 값 매핑 JSON", "척도 응답값 JSON", "복수응답 선택지 JSON", "표시 문항번호"
     ];
     const savedAt = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
-    const mappingVersion = "3";
+    const mappingVersion = "4";
     const rows = payload.mappings.map(function(mapping, index) {
       const selectedType = cleanText_(mapping.selectedType || mapping.suggestedType).toUpperCase();
       const analysisTarget = selectedType !== "EXCLUDE" && selectedType !== "PERSONAL_INFO"
@@ -1502,7 +1502,8 @@ function saveSurveyMappingsFromWeb(payload) {
         cleanText_(mapping.groupId), cleanText_(mapping.matrixId), cleanText_(mapping.scaleKind), JSON.stringify(scoreMap),
         Math.max(0, Math.min(1, Number(mapping.confidence) || 0)), cleanText_(mapping.reason),
         cleanText_(mapping.mappingSource || payload.mappingSource || "USER"), mappingVersion,
-        cleanText_(mapping.reviewStatus || "USER_REVIEWED"), JSON.stringify(scaleValueMap), JSON.stringify(scaleValueOptions), JSON.stringify(Array.isArray(mapping.multipleChoices) ? mapping.multipleChoices : [])
+        cleanText_(mapping.reviewStatus || "USER_REVIEWED"), JSON.stringify(scaleValueMap), JSON.stringify(scaleValueOptions), JSON.stringify(Array.isArray(mapping.multipleChoices) ? mapping.multipleChoices : []),
+        Number(mapping.displayQuestionNumber || mapping.profileQuestionNo || 0) || ""
       ];
     });
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
@@ -1566,7 +1567,8 @@ function getSavedSurveyMappingsFromWeb() {
         mappingSource: at_(row, "매핑 출처", 17) || "RULE", updatedAt: at_(row, "저장일시", 8),
         mappingVersion: at_(row, "매핑 버전", 18) || "1",
         reviewStatus: at_(row, "검토 상태", 19) || "REVIEW_REQUIRED",
-        multipleChoices: header.indexOf("복수응답 선택지 JSON") >= 0 ? parseSurveyMappingValueOptions_(at_(row, "복수응답 선택지 JSON", 22)) : []
+        multipleChoices: header.indexOf("복수응답 선택지 JSON") >= 0 ? parseSurveyMappingValueOptions_(at_(row, "복수응답 선택지 JSON", 22)) : [],
+        displayQuestionNumber: header.indexOf("표시 문항번호") >= 0 ? Number(at_(row, "표시 문항번호", 23) || 0) : 0
       };
     });
     return {success: true, exists: true, fileName: at_(values[1], "파일명", 6),
