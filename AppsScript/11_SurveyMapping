@@ -66,6 +66,10 @@ function getSurveyQuestionTypeOptions_() {
       label: "만족도 척도"
     },
     {
+      value: "SCORE",
+      label: "점수 평가"
+    },
+    {
       value: "RECOMMENDATION",
       label: "재이용·추천"
     },
@@ -763,7 +767,7 @@ function buildSurveyMappingAIPrompt_(profiles) {
   return [
     "너는 만족도 조사 문항 구조를 분류하는 보조자이다.",
     "각 Column Profile만 근거로 모든 열을 정확히 한 번씩 분류한다.",
-    "허용 questionType: RESPONDENT, SINGLE, MULTIPLE, SCALE, RECOMMENDATION, TEXT, PERSONAL_INFO, EXCLUDE.",
+    "허용 questionType: RESPONDENT, SINGLE, MULTIPLE, SCALE, SCORE, RECOMMENDATION, TEXT, PERSONAL_INFO, EXCLUDE.",
     "RECOMMENDATION 문항은 반드시 scaleKind를 지정한다.",
 "0~10 추천 문항 → NPS_0_10",
 "1~5 추천 문항 → RECOMMENDATION_1_5",
@@ -1291,6 +1295,13 @@ function validateSurveyMappings_(
         );
       }
 
+      if (type === "SCORE") {
+        const numericScoreMap = mapping.scoreMap && typeof mapping.scoreMap === "object" && !Array.isArray(mapping.scoreMap) ? mapping.scoreMap : {};
+        if (!Object.keys(numericScoreMap).length || Object.keys(numericScoreMap).some(function(key) { return !Number.isFinite(Number(numericScoreMap[key])); })) {
+          errors.push((index + 1) + "번째 점수 평가 문항의 점수 매핑을 지정해 주세요.");
+        }
+      }
+
       if (type === "RECOMMENDATION"
           && DYNAMIC_SURVEY_CONFIG.ALLOWED_RECOMMENDATION_KINDS.indexOf(cleanText_(mapping.scaleKind).toUpperCase()) === -1) {
         errors.push((index + 1) + "번째 추천 문항의 척도 유형을 NPS_0_10 또는 RECOMMENDATION_1_5로 지정해 주세요.");
@@ -1503,6 +1514,7 @@ function saveSurveyMappingsFromWeb(payload) {
     sheet.autoResizeColumns(1, headers.length);
     sheet.setColumnWidth(3, 420);
     sheet.setColumnWidth(4, 260);
+    if (typeof markDynamicSurveyWorkspaceStage_ === "function") markDynamicSurveyWorkspaceStage_("MAPPING");
     return {success: true, savedCount: rows.length, sheetName: DYNAMIC_SURVEY_CONFIG.SHEETS.MAPPING, mappingVersion: mappingVersion,
       validation: validation, message: "문항 매핑 " + rows.length + "개를 저장했습니다."};
   } catch (error) {

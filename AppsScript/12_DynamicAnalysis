@@ -243,6 +243,9 @@ function calculateDynamicSurveyAnalysis_(sourceOverride) {
         source
       ),
 
+    score:
+      analyzeDynamicScoreQuestions_(source),
+
     recommendation:
       analyzeDynamicRecommendationQuestions_(
         source
@@ -260,6 +263,7 @@ function calculateDynamicSurveyAnalysis_(sourceOverride) {
     buildDynamicScaleSummary_(
       analysis.scale
     );
+  analysis.scoreSummary = buildDynamicScoreSummary_(analysis.score);
 
   analysis.groups = buildDynamicGroupSummaries_(analysis, source.mappings);
   analysis.matrix = buildDynamicMatrixSummaries_(analysis.scale, source.mappings);
@@ -509,6 +513,31 @@ function analyzeDynamicScaleQuestions_(source) {
       : round_(item.average - summary.weightedAverage, 2);
   });
   return results;
+}
+
+function dynamicMappedNumericScore_(value, mapping) {
+  const text=cleanText_(value);if(!text)return null;
+  const scoreMap=mapping&&mapping.scoreMap&&typeof mapping.scoreMap==="object"&&!Array.isArray(mapping.scoreMap)?mapping.scoreMap:{};
+  if(Object.prototype.hasOwnProperty.call(scoreMap,text)){const score=Number(scoreMap[text]);return Number.isFinite(score)?score:null;}
+  const normalized=normalizeDynamicScaleMapKey_(text),key=Object.keys(scoreMap).find(function(item){return normalizeDynamicScaleMapKey_(item)===normalized;});
+  if(key!==undefined){const score=Number(scoreMap[key]);return Number.isFinite(score)?score:null;}
+  return null;
+}
+
+function analyzeDynamicScoreQuestions_(source) {
+  return source.mappings.filter(function(mapping){return mapping.selectedType==="SCORE"&&mapping.analysisTarget!==false;}).map(function(mapping){
+    const labelCounts={},scoreCounts={},scores=[];let missingCount=0;const unmapped={};
+    source.rows.forEach(function(row){const label=cleanText_(row[mapping.columnNumber-1]);if(!label){missingCount++;return;}const score=dynamicMappedNumericScore_(label,mapping);if(score===null){unmapped[label]=(unmapped[label]||0)+1;return;}scores.push(score);labelCounts[label]=(labelCounts[label]||0)+1;scoreCounts[score]=(scoreCounts[score]||0)+1;});
+    const validCount=scores.length,sum=scores.reduce(function(total,score){return total+score;},0),average=validCount?round_(sum/validCount,4):null;
+    return {columnNumber:mapping.columnNumber,questionId:"Q"+mapping.columnNumber,question:mapping.originalHeader,type:"SCORE",groupId:mapping.groupId||"",validCount:validCount,validResponses:validCount,missingCount:missingCount,missingResponses:missingCount,scoreSum:sum,average:average,min:validCount?Math.min.apply(null,scores):null,max:validCount?Math.max.apply(null,scores):null,minimum:validCount?Math.min.apply(null,scores):null,maximum:validCount?Math.max.apply(null,scores):null,distribution:Object.keys(labelCounts).map(function(label){return {label:label,score:dynamicMappedNumericScore_(label,mapping),count:labelCounts[label],rate:validCount?round_(labelCounts[label]/validCount*100,1):0};}).sort(function(a,b){return b.score-a.score;}),scoreDistribution:scoreCounts,unmappedCount:Object.keys(unmapped).reduce(function(total,key){return total+unmapped[key];},0),unmappedValues:Object.keys(unmapped).map(function(value){return {value:value,count:unmapped[value]};}),denominator:"점수 매핑에 성공한 전체 유효응답"};
+  });
+}
+
+function buildDynamicScoreSummary_(scoreResults) {
+  const valid=(scoreResults||[]).filter(function(item){return item.validCount>0;});
+  if(!valid.length)return {questionCount:0,macroAverage:null,weightedAverage:null,overallAverage:null,totalValidResponses:0,totalScoreSum:0,highestQuestion:null,lowestQuestion:null,denominator:"점수 매핑에 성공한 전체 SCORE 유효응답"};
+  const totalValid=valid.reduce(function(total,item){return total+item.validCount;},0),totalScore=valid.reduce(function(total,item){return total+item.scoreSum;},0),macro=valid.reduce(function(total,item){return total+item.average;},0)/valid.length,sorted=valid.slice().sort(function(a,b){return b.average-a.average||a.columnNumber-b.columnNumber;});
+  return {questionCount:valid.length,macroAverage:round_(macro,4),weightedAverage:round_(totalScore/totalValid,4),overallAverage:round_(totalScore/totalValid,4),totalValidResponses:totalValid,totalScoreSum:totalScore,highestQuestion:{question:sorted[0].question,average:sorted[0].average},lowestQuestion:{question:sorted[sorted.length-1].question,average:sorted[sorted.length-1].average},denominator:"모든 SCORE 문항에서 점수 매핑에 성공한 유효응답 수"};
 }
 
 /**
@@ -966,7 +995,7 @@ function buildDynamicMatrixSummaries_(scaleResults, mappings) {
 
 function buildDynamicAnalysisSummary_(analysis) {
   const allQuestions = [].concat(analysis.respondent || [], analysis.single || [], analysis.multiple || [],
-    analysis.scale || [], analysis.recommendation || [], analysis.text || []);
+    analysis.scale || [], analysis.score || [], analysis.recommendation || [], analysis.text || []);
   const missing = allQuestions.reduce(function(sum, item) {
     return sum + Number(item.missingCount !== undefined ? item.missingCount : (item.missingResponses || 0));
   }, 0);
