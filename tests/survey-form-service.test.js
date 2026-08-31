@@ -23,7 +23,7 @@ const form={
   setDestination(type,id){calls.destination={type,id};return this;},getId(){return 'form-id';},
   getEditUrl(){return 'https://forms.example/edit';},getPublishedUrl(){return 'https://forms.example/view';}
 };
-const context={console,FormApp:{DestinationType:{SPREADSHEET:'SPREADSHEET'},create(title){calls.formTitle=title;return form;}},SpreadsheetApp:{create(title){calls.spreadsheets.push(title);return {getId:()=> 'sheet-id',getUrl:()=> 'https://sheets.example/sheet-id'};}}};
+const context={console,registerManagedSurvey_:()=>({surveyId:'SVY-20260826-A83F29C1'}),FormApp:{DestinationType:{SPREADSHEET:'SPREADSHEET'},create(title){calls.formTitle=title;return form;}},SpreadsheetApp:{create(title){calls.spreadsheets.push(title);return {getId:()=> 'sheet-id',getUrl:()=> 'https://sheets.example/sheet-id'};}}};
 vm.createContext(context);vm.runInContext(source,context,{filename:'AppsScript/20_SurveyFormService.gs'});
 const run=expression=>vm.runInContext(expression,context);
 assert.strictEqual(run('SURVEY_FORM_GENERATION_VERSION'),'1.0');
@@ -60,7 +60,7 @@ context.survey={description:'안내',targetAudience:'대상',department:'',conta
 assert.strictEqual(run('buildGoogleFormDescription_(survey)'),'안내\n\n대상: 대상');
 
 const result=JSON.parse(JSON.stringify(run('createGoogleFormFromReviewedDraft_(fixture)')));
-assert.strictEqual(result.generationVersion,'1.0');assert.strictEqual(result.questionCount,5);
+assert.strictEqual(result.generationVersion,'1.0');assert.strictEqual(result.questionCount,5);assert.strictEqual(result.registryRegistered,true);assert.strictEqual(result.surveyId,'SVY-20260826-A83F29C1');
 assert.strictEqual(calls.formTitle,'조사');assert.deepStrictEqual(calls.spreadsheets,['조사 - 응답']);
 assert.deepStrictEqual(calls.destination,{type:'SPREADSHEET',id:'sheet-id'});
 assert.deepStrictEqual(calls.items.map(x=>x.kind),['multipleChoice','checkbox','multipleChoice','paragraph','multipleChoice']);
@@ -70,6 +70,7 @@ assert.deepStrictEqual(calls.items[2].choices,scale);
 calls.items.forEach((created,index)=>{assert.strictEqual(created.title,valid.questions[index].title);assert.strictEqual(created.required,valid.questions[index].required);});
 assert.strictEqual(form.quiz,false);assert.strictEqual(form.confirmation,'응답이 제출되었습니다. 감사합니다.');
 assert(!source.includes('DriveApp')&&!source.includes('setCollectEmail')&&!source.includes('setLimitOneResponsePerUser'));
+context.registerManagedSurvey_=()=>{throw new Error('registry unavailable')};const createdDespiteRegistryFailure=JSON.parse(JSON.stringify(run('createGoogleFormFromReviewedDraft_(fixture)')));assert.strictEqual(createdDespiteRegistryFailure.formId,'form-id');assert.strictEqual(createdDespiteRegistryFailure.registryRegistered,false);assert(createdDespiteRegistryFailure.warning);
 assert(secureSource.includes('function secureCreateGoogleFormFromWeb(payload, accessToken)'));
 const secureBody=secureSource.match(/function secureCreateGoogleFormFromWeb[\s\S]*?\n\}/)[0];
 assert(secureBody.indexOf('requireWebAccessToken_(accessToken)')<secureBody.indexOf('createGoogleFormFromReviewedDraft_(payload)'));

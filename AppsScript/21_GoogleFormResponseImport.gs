@@ -31,6 +31,48 @@ function validateGoogleFormResponseRequest_(request) {
   return {responseSpreadsheetId:spreadsheetId, formId:formId, title:title, questionHints:hints};
 }
 
+
+function isGoogleFormTimestampHeader_(header) {
+  return /^(timestamp|타임스탬프|응답일시|제출일시|제출시간)$/.test(normalizeHeader_(header));
+}
+
+function readGoogleFormSheetStructure_(sheet) {
+  if (sheet.getLastRow() < 1 || sheet.getLastColumn() < 2) {
+    throw createGoogleFormImportError_("GOOGLE_FORM_RESPONSE_STRUCTURE_ERROR", "설문 응답 구조를 확인할 수 없습니다.");
+  }
+  if (sheet.getLastRow() >= 2) return readSurveySheetStructureForMapping_(sheet);
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0].map(function(value) { return String(value || "").trim(); });
+  if (headers.filter(Boolean).length < 2) throw createGoogleFormImportError_("GOOGLE_FORM_RESPONSE_STRUCTURE_ERROR", "설문 응답 구조를 확인할 수 없습니다.");
+  return {headerRow:1, headers:headers, sampleRow:headers.map(function() { return ""; }), responseCount:0};
+}
+
+function scoreGoogleFormResponseSheet_(sheet, structure, questionHints, index) {
+  const normalizedHeaders = structure.headers.map(normalizeHeader_).filter(Boolean);
+  const hintHeaders = (questionHints || []).map(function(hint) { return normalizeHeader_(hint.title); }).filter(Boolean);
+  const hintMatches = hintHeaders.filter(function(header) { return normalizedHeaders.indexOf(header) >= 0; }).length;
+  const hintRatio = hintHeaders.length ? hintMatches / hintHeaders.length : 0;
+  const timestamp = structure.headers.some(isGoogleFormTimestampHeader_);
+  return {
+    sheet:sheet,
+    structure:structure,
+    score:(timestamp ? 1000 : 0) + hintMatches * 150 + hintRatio * 1200 + Math.min(structure.headers.length, 100) * 2 + Math.min(structure.responseCount, 200),
+    hintMatches:hintMatches,
+    timestamp:timestamp,
+    index:index
+  };
+}
+
+function findBestGoogleFormResponseSheet_(spreadsheet, questionHints) {
+  const ranked = spreadsheet.getSheets().map(function(sheet, index) {
+    try { return scoreGoogleFormResponseSheet_(sheet, readGoogleFormSheetStructure_(sheet), questionHints, index); }
+    catch (error) { return null; }
+  }).filter(Boolean);
+  ranked.sort(function(left, right) {
+    return right.score - left.score || Number(right.timestamp) - Number(left.timestamp) || right.hintMatches - left.hintMatches || right.structure.responseCount - left.structure.responseCount || left.index - right.index;
+  });
+  return ranked.length ? ranked[0] : null;
+}
+
 function openGoogleFormResponseSource_(request) {
   const validated = validateGoogleFormResponseRequest_(request);
   let spreadsheet;
@@ -39,17 +81,9 @@ function openGoogleFormResponseSource_(request) {
   } catch (error) {
     throw createGoogleFormImportError_("GOOGLE_FORM_RESPONSE_ACCESS_ERROR", "Google Form 응답 시트에 접근할 수 없습니다. 응답 시트 권한을 확인해 주세요.");
   }
-  const sheet = findBestSurveySheetForMapping_(spreadsheet);
-  if (!sheet) {
-    throw createGoogleFormImportError_("GOOGLE_FORM_RESPONSE_STRUCTURE_ERROR", "설문 응답 구조를 확인할 수 없습니다.");
-  }
-  let structure;
-  try {
-    structure = readSurveySheetStructureForMapping_(sheet);
-  } catch (error) {
-    throw createGoogleFormImportError_("GOOGLE_FORM_RESPONSE_STRUCTURE_ERROR", "설문 응답 구조를 확인할 수 없습니다.");
-  }
-  return {request:validated, spreadsheet:spreadsheet, sheet:sheet, structure:structure};
+  const selected = findBestGoogleFormResponseSheet_(spreadsheet, validated.questionHints);
+  if (!selected) throw createGoogleFormImportError_("GOOGLE_FORM_RESPONSE_STRUCTURE_ERROR", "설문 응답 구조를 확인할 수 없습니다.");
+  return {request:validated, spreadsheet:spreadsheet, sheet:selected.sheet, structure:selected.structure};
 }
 
 function applyGeneratedFormQuestionHints_(mappings, hints) {

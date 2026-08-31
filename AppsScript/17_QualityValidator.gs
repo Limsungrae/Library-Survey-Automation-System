@@ -68,6 +68,12 @@ function validateDynamicSurveyQuality_(analysis, source) {
       if(question.missingCount/denominator*100>=DYNAMIC_SURVEY_CONFIG.QUALITY.HIGH_MISSING_RATE)
         add_("WARNING","HIGH_MISSING_RATE","문항 결측률이 50% 이상입니다.",question.questionId,{missingRate:question.missingCount/denominator*100});
     });
+    (analysis.score || []).forEach(function(question) {
+      const distributionSum=(question.distribution||[]).reduce(function(sum,item){return sum+Number(item.count||0);},0);
+      questionStats.push({questionId:question.questionId,type:"SCORE",validCount:question.validCount,missingCount:question.missingCount,unmappedCount:question.unmappedCount});
+      if(distributionSum!==question.validCount)add_("ERROR","SCORE_DISTRIBUTION_MISMATCH","점수 분포 합계가 유효응답 수와 다릅니다.",question.questionId,{distributionSum:distributionSum});
+      if(question.unmappedCount>0)add_("ERROR","SCORE_UNMAPPED_VALUE","점수 평가 문항에 변환되지 않은 응답이 있습니다.",question.questionId,{values:question.unmappedValues});
+    });
     (analysis.recommendation || []).forEach(function(question) {
       if(DYNAMIC_SURVEY_CONFIG.ALLOWED_RECOMMENDATION_KINDS.indexOf(question.scaleKind)===-1)
         add_("ERROR","RECOMMENDATION_SCALE_KIND_REQUIRED","추천 문항의 척도 유형을 명시해야 합니다.",question.questionId,{scaleKind:question.scaleKind});

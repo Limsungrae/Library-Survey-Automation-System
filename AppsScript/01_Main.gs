@@ -64,12 +64,16 @@ function doGet(e) {
     page === "survey"
     && requestedUi === "create";
 
+  const useSurveyManage = page === "survey" && requestedUi === "manage";
+
   const usePromoAssistant =
     page === "promo"
     || page === "index";
 
   const fileName =
-    useSurveyCreate
+    useSurveyManage
+      ? "survey-manage"
+      : useSurveyCreate
       ? "survey-create"
       : useSurveyV2
       ? "survey-dashboard-v2"
@@ -89,7 +93,9 @@ function doGet(e) {
     .evaluate()
     .setTitle(
       page === "survey"
-        ? useSurveyCreate
+        ? useSurveyManage
+          ? "성남시중원도서관 내 설문"
+          : useSurveyCreate
           ? "성남시중원도서관 AI 설문 만들기"
           : useSurveyV2
           ? "Survey Insight Studio v2"
