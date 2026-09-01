@@ -104,7 +104,11 @@ function getDynamicSurveySource_() {
         scaleValueMap: mappingHeaders.indexOf("척도 값 매핑 JSON") >= 0
           ? parseSurveyMappingScoreMap_(mappingValue_(row, "척도 값 매핑 JSON", 20))
           : null,
-        reviewStatus: cleanText_(mappingValue_(row, "검토 상태", 19))
+        reviewStatus: cleanText_(mappingValue_(row, "검토 상태", 19)),
+        multipleChoices: mappingHeaders.indexOf("복수응답 선택지 JSON") >= 0
+          ? parseSurveyMappingValueOptions_(mappingValue_(row, "복수응답 선택지 JSON", 22)) : [],
+        displayQuestionNumber: mappingHeaders.indexOf("표시 문항번호") >= 0
+          ? Number(mappingValue_(row, "표시 문항번호", 23) || 0) : 0
       };
     });
 
@@ -243,6 +247,9 @@ function calculateDynamicSurveyAnalysis_(sourceOverride) {
         source
       ),
 
+    score:
+      analyzeDynamicScoreQuestions_(source),
+
     recommendation:
       analyzeDynamicRecommendationQuestions_(
         source
@@ -260,6 +267,7 @@ function calculateDynamicSurveyAnalysis_(sourceOverride) {
     buildDynamicScaleSummary_(
       analysis.scale
     );
+  analysis.scoreSummary = buildDynamicScoreSummary_(analysis.score);
 
   analysis.groups = buildDynamicGroupSummaries_(analysis, source.mappings);
   analysis.matrix = buildDynamicMatrixSummaries_(analysis.scale, source.mappings);
@@ -267,6 +275,14 @@ function calculateDynamicSurveyAnalysis_(sourceOverride) {
 
 
   return analysis;
+}
+
+function dynamicDisplayQuestionNumber_(mapping) {
+  return Number(mapping&&mapping.displayQuestionNumber||0)||Number(mapping&&mapping.columnNumber||0);
+}
+
+function dynamicQuestionId_(mapping) {
+  return "Q"+dynamicDisplayQuestionNumber_(mapping);
 }
 
 
@@ -354,6 +370,12 @@ function analyzeDynamicSingleQuestions_(
         columnNumber:
           mapping.columnNumber,
 
+        displayQuestionNumber:
+          dynamicDisplayQuestionNumber_(mapping),
+
+        questionId:
+          dynamicQuestionId_(mapping),
+
         question:
           mapping.originalHeader,
 
@@ -396,7 +418,7 @@ function analyzeDynamicMultipleQuestions_(source) {
     source.rows.forEach(function(row) {
       const raw = cleanText_(row[mapping.columnNumber - 1]);
       if (!raw) return;
-      const selections = splitDynamicMultipleValue_(raw);
+      const selections = splitDynamicMultipleValue_(raw, mapping.multipleChoices);
       if (!selections.length) return;
       const respondentKeys = {};
       selections.forEach(function(original) {
@@ -421,7 +443,7 @@ function analyzeDynamicMultipleQuestions_(source) {
         respondentRate: source.respondentCount ? round_(count / source.respondentCount * 100, 1) : 0,
         validRespondentRate: validRespondents ? round_(count / validRespondents * 100, 1) : 0};
     }).sort(function(a,b) { return b.count - a.count || a.label.localeCompare(b.label, "ko"); });
-    return {columnNumber: mapping.columnNumber, questionId: "Q" + mapping.columnNumber,
+    return {columnNumber: mapping.columnNumber, displayQuestionNumber:dynamicDisplayQuestionNumber_(mapping), questionId: dynamicQuestionId_(mapping),
       question: mapping.originalHeader, type: "MULTIPLE", totalRespondentCount: source.respondentCount,
       totalRespondents: source.respondentCount, validRespondentCount: validRespondents,
       validRespondents: validRespondents, validResponses: validRespondents,
@@ -478,7 +500,7 @@ function analyzeDynamicScaleQuestions_(source) {
     const positiveCount = distribution[4] + distribution[5];
     const neutralCount = distribution[3];
     const negativeCount = distribution[1] + distribution[2];
-    return {columnNumber: mapping.columnNumber, questionId: "Q" + mapping.columnNumber,
+    return {columnNumber: mapping.columnNumber, displayQuestionNumber:dynamicDisplayQuestionNumber_(mapping), questionId: dynamicQuestionId_(mapping),
       question: mapping.originalHeader, type: "SCALE", groupId: mapping.groupId || "",
       matrixId: mapping.matrixId || "", validCount: validCount, validResponses: validCount,
       missingCount: missingCount, missingResponses: missingCount,
@@ -509,6 +531,31 @@ function analyzeDynamicScaleQuestions_(source) {
       : round_(item.average - summary.weightedAverage, 2);
   });
   return results;
+}
+
+function dynamicMappedNumericScore_(value, mapping) {
+  const text=cleanText_(value);if(!text)return null;
+  const scoreMap=mapping&&mapping.scoreMap&&typeof mapping.scoreMap==="object"&&!Array.isArray(mapping.scoreMap)?mapping.scoreMap:{};
+  if(Object.prototype.hasOwnProperty.call(scoreMap,text)){const score=Number(scoreMap[text]);return Number.isFinite(score)?score:null;}
+  const normalized=normalizeDynamicScaleMapKey_(text),key=Object.keys(scoreMap).find(function(item){return normalizeDynamicScaleMapKey_(item)===normalized;});
+  if(key!==undefined){const score=Number(scoreMap[key]);return Number.isFinite(score)?score:null;}
+  return null;
+}
+
+function analyzeDynamicScoreQuestions_(source) {
+  return source.mappings.filter(function(mapping){return mapping.selectedType==="SCORE"&&mapping.analysisTarget!==false;}).map(function(mapping){
+    const labelCounts={},scoreCounts={},scores=[];let missingCount=0;const unmapped={};
+    source.rows.forEach(function(row){const label=cleanText_(row[mapping.columnNumber-1]);if(!label){missingCount++;return;}const score=dynamicMappedNumericScore_(label,mapping);if(score===null){unmapped[label]=(unmapped[label]||0)+1;return;}scores.push(score);labelCounts[label]=(labelCounts[label]||0)+1;scoreCounts[score]=(scoreCounts[score]||0)+1;});
+    const validCount=scores.length,sum=scores.reduce(function(total,score){return total+score;},0),average=validCount?round_(sum/validCount,4):null;
+    return {columnNumber:mapping.columnNumber,displayQuestionNumber:dynamicDisplayQuestionNumber_(mapping),questionId:dynamicQuestionId_(mapping),question:mapping.originalHeader,type:"SCORE",groupId:mapping.groupId||"",validCount:validCount,validResponses:validCount,missingCount:missingCount,missingResponses:missingCount,scoreSum:sum,average:average,min:validCount?Math.min.apply(null,scores):null,max:validCount?Math.max.apply(null,scores):null,minimum:validCount?Math.min.apply(null,scores):null,maximum:validCount?Math.max.apply(null,scores):null,distribution:Object.keys(labelCounts).map(function(label){return {label:label,score:dynamicMappedNumericScore_(label,mapping),count:labelCounts[label],rate:validCount?round_(labelCounts[label]/validCount*100,1):0};}).sort(function(a,b){return b.score-a.score;}),scoreDistribution:scoreCounts,unmappedCount:Object.keys(unmapped).reduce(function(total,key){return total+unmapped[key];},0),unmappedValues:Object.keys(unmapped).map(function(value){return {value:value,count:unmapped[value]};}),denominator:"점수 매핑에 성공한 전체 유효응답"};
+  });
+}
+
+function buildDynamicScoreSummary_(scoreResults) {
+  const valid=(scoreResults||[]).filter(function(item){return item.validCount>0;});
+  if(!valid.length)return {questionCount:0,macroAverage:null,weightedAverage:null,overallAverage:null,totalValidResponses:0,totalScoreSum:0,highestQuestion:null,lowestQuestion:null,denominator:"점수 매핑에 성공한 전체 SCORE 유효응답"};
+  const totalValid=valid.reduce(function(total,item){return total+item.validCount;},0),totalScore=valid.reduce(function(total,item){return total+item.scoreSum;},0),macro=valid.reduce(function(total,item){return total+item.average;},0)/valid.length,sorted=valid.slice().sort(function(a,b){return b.average-a.average||a.columnNumber-b.columnNumber;});
+  return {questionCount:valid.length,macroAverage:round_(macro,4),weightedAverage:round_(totalScore/totalValid,4),overallAverage:round_(totalScore/totalValid,4),totalValidResponses:totalValid,totalScoreSum:totalScore,highestQuestion:{question:sorted[0].question,average:sorted[0].average},lowestQuestion:{question:sorted[sorted.length-1].question,average:sorted[sorted.length-1].average},denominator:"모든 SCORE 문항에서 점수 매핑에 성공한 유효응답 수"};
 }
 
 /**
@@ -543,7 +590,7 @@ function analyzeDynamicNpsQuestion_(mapping, values, totalRespondents) {
   });
   const valid=scores.length, promoters=scores.filter(function(v){return v>=9;}).length,
     passives=scores.filter(function(v){return v>=7&&v<=8;}).length, detractors=scores.filter(function(v){return v<=6;}).length;
-  return {columnNumber:mapping.columnNumber,questionId:"Q"+mapping.columnNumber,question:mapping.originalHeader,
+  return {columnNumber:mapping.columnNumber,displayQuestionNumber:dynamicDisplayQuestionNumber_(mapping),questionId:dynamicQuestionId_(mapping),question:mapping.originalHeader,
     type:"RECOMMENDATION",scaleKind:"NPS_0_10",scaleMode:"NPS_0_10",totalRespondents:totalRespondents,
     validCount:valid,validResponses:valid,missingCount:missingCount,missingResponses:missingCount,
     unmappedCount:Object.keys(invalidValues).reduce(function(t,k){return t+invalidValues[k];},0),
@@ -558,7 +605,7 @@ function analyzeDynamicNpsQuestion_(mapping, values, totalRespondents) {
 function analyzeDynamicRecommendationFivePoint_(mapping, values, totalRespondents, scaleKind) {
   const source={respondentCount:totalRespondents,rows:values.map(function(v){return [v];}),mappings:[Object.assign({},mapping,{columnNumber:1,selectedType:"SCALE"})]};
   const result=analyzeDynamicScaleQuestions_(source)[0];
-  return Object.assign({},result,{columnNumber:mapping.columnNumber,questionId:"Q"+mapping.columnNumber,
+  return Object.assign({},result,{columnNumber:mapping.columnNumber,displayQuestionNumber:dynamicDisplayQuestionNumber_(mapping),questionId:dynamicQuestionId_(mapping),
     question:mapping.originalHeader,type:"RECOMMENDATION",scaleKind:scaleKind,scaleMode:scaleKind,nps:null});
 }
 
@@ -600,7 +647,7 @@ function analyzeDynamicTextQuestions_(
         const responseId = String(mapping.columnNumber) + "-" + String(rowIndex + 1);
         const valid = isValidDynamicOpinion_(opinion);
         const exclusionReason = !opinion ? "MISSING" : (valid ? "" : "MEANINGLESS_RESPONSE");
-        responses.push({responseId: responseId, questionId: "Q" + mapping.columnNumber,
+        responses.push({responseId: responseId, questionId: dynamicQuestionId_(mapping),
           responseNumber: String(rowIndex + 1), text: opinion,
           maskedText: opinion ? maskDynamicPersonalInfo_(opinion) : "", valid: valid,
           exclusionReason: exclusionReason});
@@ -613,7 +660,7 @@ function analyzeDynamicTextQuestions_(
             opinion,
 
           responseId: responseId,
-          questionId: "Q" + mapping.columnNumber,
+          questionId: dynamicQuestionId_(mapping),
           maskedText: maskDynamicPersonalInfo_(opinion)
         });
       });
@@ -622,6 +669,12 @@ function analyzeDynamicTextQuestions_(
       return {
         columnNumber:
           mapping.columnNumber,
+
+        displayQuestionNumber:
+          dynamicDisplayQuestionNumber_(mapping),
+
+        questionId:
+          dynamicQuestionId_(mapping),
 
         question:
           mapping.originalHeader,
@@ -688,8 +741,29 @@ function buildDynamicScaleSummary_(scaleResults) {
  * @param {string} value 원본 복수응답
  * @return {Array<string>}
  */
-function splitDynamicMultipleValue_(value) {
-  const text = cleanText_(value);
+function splitDynamicMultipleValue_(value, knownChoices) {
+  let text = cleanText_(value);
+  const protectedChoices = [];
+
+  (Array.isArray(knownChoices) ? knownChoices : [])
+    .slice()
+    .sort(function(a, b) { return String(b).length - String(a).length; })
+    .forEach(function(choice) {
+      const label = cleanText_(choice);
+      if (!label) return;
+      const token = "__MULTIPLE_CHOICE_" + protectedChoices.length + "__";
+      let start=text.indexOf(label),end=start+label.length;
+      if(start<0){
+        const compactText=[],positions=[];
+        for(let i=0;i<text.length;i++){if(!/\s/.test(text.charAt(i))){compactText.push(text.charAt(i));positions.push(i);}}
+        const compactLabel=label.replace(/\s/g,"");
+        const compactStart=compactText.join("").indexOf(compactLabel);
+        if(compactStart<0)return;
+        start=positions[compactStart];end=positions[compactStart+compactLabel.length-1]+1;
+      }
+      protectedChoices.push(label);
+      text=text.substring(0,start)+token+text.substring(end);
+    });
 
   if (!text) {
     return [];
@@ -746,7 +820,11 @@ function splitDynamicMultipleValue_(value) {
     result.push(lastItem);
   }
 
-  return result;
+  return result.map(function(item) {
+    return item.replace(/__MULTIPLE_CHOICE_(\d+)__/g, function(match, index) {
+      return protectedChoices[Number(index)] || match;
+    });
+  });
 }
 
 function normalizeDynamicMultipleItem_(value) {
@@ -966,7 +1044,7 @@ function buildDynamicMatrixSummaries_(scaleResults, mappings) {
 
 function buildDynamicAnalysisSummary_(analysis) {
   const allQuestions = [].concat(analysis.respondent || [], analysis.single || [], analysis.multiple || [],
-    analysis.scale || [], analysis.recommendation || [], analysis.text || []);
+    analysis.scale || [], analysis.score || [], analysis.recommendation || [], analysis.text || []);
   const missing = allQuestions.reduce(function(sum, item) {
     return sum + Number(item.missingCount !== undefined ? item.missingCount : (item.missingResponses || 0));
   }, 0);

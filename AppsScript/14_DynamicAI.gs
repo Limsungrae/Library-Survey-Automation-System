@@ -35,6 +35,7 @@
  */
 function generateDynamicAIReport(onStage) {
   let lock=null;
+  const timing={startedAt:Date.now()};
   const updateStage = typeof onStage === "function"
     ? onStage
     : function() {};
@@ -54,16 +55,26 @@ function generateDynamicAIReport(onStage) {
         error:"품질검사 오류를 먼저 해결해 주세요.",quality:quality,generatedSheets:[getDynamicAIReportSheetName_("AI_SUMMARY", "07_AI총평")]};
     }
     // 외부 호출 중에는 ScriptLock을 보유하지 않습니다.
-    const opinionAnalysis=analyzeDynamicOpinionsWithAI_(analysis,settings,updateStage);
+    const opinionStartedAt=Date.now();
+    const opinionAnalysis=analyzeDynamicOpinionsWithAI_(analysis,settings,updateStage,source);
+    timing.opinionCollectMs=Number(opinionAnalysis._timing&&opinionAnalysis._timing.collectMs||0);
+    timing.opinionClassificationMs=Number(opinionAnalysis._timing&&opinionAnalysis._timing.classificationMs||Date.now()-opinionStartedAt);
     updateStage("검증된 AI 컨텍스트 생성");
+    const contextStartedAt=Date.now();
     const context=buildDynamicAIContext_(analysis,opinionAnalysis,settings,quality);
+    timing.contextBuildMs=Date.now()-contextStartedAt;
     updateStage("Gemini 총평 요청");
+    const summaryStartedAt=Date.now();
     const summaryText=generateDynamicAISummaryText_(context);
+    timing.summaryMs=Date.now()-summaryStartedAt;
     updateStage("Gemini 총평 응답 처리");
     updateStage("Gemini 향후계획 요청");
+    const futureStartedAt=Date.now();
     const futurePlanText=generateDynamicFuturePlanText_(context,summaryText);
+    timing.futurePlanMs=Date.now()-futureStartedAt;
     updateStage("Gemini 향후계획 응답 처리");
     updateStage("보고서 저장 잠금 획득");
+    const sheetStartedAt=Date.now();
     lock=LockService.getScriptLock();lock.waitLock(30000);
     invalidateDynamicAIRevision_();
     updateStage("06_주관식분석 시트 생성");
@@ -101,6 +112,9 @@ updateStage("AI 보고서 시트 정렬 및 저장");
 moveDynamicAISheetsInOrder_();
 SpreadsheetApp.flush();
     markDynamicAIRevision_(revisions.rawRevision);
+    timing.sheetWriteMs=Date.now()-sheetStartedAt;
+    timing.totalMs=Date.now()-timing.startedAt;
+    console.log("Dynamic AI timing",timing);
     const generatedSheets=[
       getDynamicAIReportSheetName_("OPINION", "06_주관식분석"),
       getDynamicAIReportSheetName_("AI_SUMMARY", "07_AI총평"),
@@ -168,23 +182,31 @@ function generateDynamicAIReportFromWeb() {
  * @param {Object} settings 조사 설정
  * @return {Object} AI 분석 및 검증이 완료된 데이터 구조
  */
-function analyzeDynamicOpinionsWithAI_(analysis, settings, onStage) {
+function analyzeDynamicOpinionsWithAI_(analysis, settings, onStage, source) {
+  const collectStartedAt=Date.now();
   const updateStage = typeof onStage === "function"
     ? onStage
     : function() {};
   updateStage("주관식 의견 수집 및 개인정보 마스킹");
   const opinions = []; // AI에게 보낼 정돈된 의견들을 담을 배열
+  const participantIndex=(source&&source.headers||[]).findIndex(function(header){return cleanText_(header).replace(/\s/g,"")==="참여자";});
 
   // 분석 데이터 내 텍스트 문항 배열을 순회합니다.
   (analysis.text || []).forEach(function(question) {
-    // 각 주관식 문항 안에 들어있는 개별 답변(의견)들을 순회합니다.
-    (question.opinions || []).forEach(function(opinion) {
+    const sourceOpinions=Array.isArray(question.responses)&&question.responses.length
+      ? question.responses.filter(function(item){return cleanText_(item.text);}).map(function(item){return {responseNumber:item.responseNumber,text:item.text};})
+      : (question.opinions||[]);
+    // 원문은 Raw/06 시트에 유지하고 Gemini 전송 대상만 이후 단계에서 축약합니다.
+    sourceOpinions.forEach(function(opinion) {
+      const responseIndex=Math.max(0,Number(opinion.responseNumber||1)-1);
       opinions.push({
         // 문항 고유 컬럼 번호와 응답 행 번호를 조합하여 고유 ID를 만듭니다 (예: "11-4")
         id: String(question.columnNumber) + "-" + String(opinion.responseNumber),
         responseNumber: String(opinion.responseNumber), // 응답 번호
         question: cleanText_(question.question),       // 줄바꿈이나 공백을 정리한 질문 문항 텍스트
-        text: maskDynamicPersonalInfo_(opinion.text)   // 개인정보(전화번호, 이메일)를 마스킹 처리한 답변 원문
+        text: cleanText_(opinion.text),
+        participant: participantIndex>=0&&source&&source.rows&&source.rows[responseIndex]
+          ? cleanText_(source.rows[responseIndex][participantIndex]) : ""
       });
     });
   });
@@ -194,9 +216,13 @@ function analyzeDynamicOpinionsWithAI_(analysis, settings, onStage) {
     return {
       validCount: 0,
       categories: [],
-      opinionAssignments: []
+      opinionAssignments: [],
+      _timing:{collectMs:Date.now()-collectStartedAt,classificationMs:0}
     };
   }
+
+  const prepared=prepareDynamicOpinionsForAI_(opinions);
+  const aiOpinions=prepared.aiOpinions;
 
   // 만족도 조사 이름을 가져옵니다. 값이 없으면 '만족도 조사'로 기본값을 지정합니다.
   const surveyName = getDynamicAISetting_(settings, "조사명", "surveyName") || "만족도 조사";
@@ -226,10 +252,10 @@ ${surveyName}
 - JSON 이외의 설명을 출력하지 않는다.
 
 의견 목록:
-${opinions
+${aiOpinions
   .map(function(item) {
     // 각 의견을 [ID] 문항: 내용 / 의견: 내용 형태로 가공하여 줄바꿈으로 연결합니다.
-    return "[" + item.id + "] " + "문항: " + item.question + " / 의견: " + item.text;
+    return "[" + item.id + "] " + "문항: " + item.question + " / 의견: " + item.text+" / 동일 의견 수: "+item.count;
   })
   .join("\n")}
 `.trim();
@@ -250,9 +276,10 @@ ${opinions
 
   // 공통 라이브러리 함수를 호출하여 AI로부터 규칙에 맞는 JSON 답변을 받아옵니다.
   updateStage("Gemini 주관식 분류 요청");
-  const result = callGeminiJson_(prompt, schemaText, function() {
+  const classificationStartedAt=Date.now();
+  const result = aiOpinions.length?callGeminiJson_(prompt, schemaText, function() {
     updateStage("Gemini 주관식 분류 응답 파싱");
-  });
+  },{operation:"dynamic-opinion-classification",maxAttempts:2,generationConfig:{maxOutputTokens:8192,thinkingConfig:{thinkingBudget:0}}}):{categories:[]};
 
   // 데이터 검증을 위해 원본 의견들의 고유 ID를 key로 가지는 맵(Map)을 생성합니다.
   const validOpinionMap = {};
@@ -261,7 +288,8 @@ ${opinions
   });
 
   const categoryNameSet = new Set(); // 중복 카테고리 발생 방지용 셋
-  const categories = [];             // 검증이 완료된 최종 카테고리들을 담을 배열
+  const categories = prepared.preclassifiedCategories.slice(); // 검증이 완료된 최종 카테고리들을 담을 배열
+  categories.forEach(function(item){categoryNameSet.add(item.category);});
 
   // AI가 준 응답에서 카테고리 배열을 추출합니다. (없으면 빈 배열)
   const rawCategories = result && Array.isArray(result.categories) ? result.categories : [];
@@ -284,6 +312,7 @@ ${opinions
       .map(function(value) {
         return String(value).trim();
       })
+      .reduce(function(ids,id){return ids.concat(prepared.memberIdsByRepresentative[id]||[id]);},[])
       .filter(function(id) {
         return Boolean(validOpinionMap[id]); // 실제 존재하는 ID만 남김 (검증 핵심)
       })
@@ -319,6 +348,7 @@ ${opinions
   });
 
   const assignedIds = {};
+  prepared.metadataOnlyIds.forEach(function(id){assignedIds[id]=true;});
   categories.forEach(function(category) {
     category.opinionIds.forEach(function(id) { assignedIds[id] = true; });
   });
@@ -347,16 +377,50 @@ ${opinions
       responseNumber: opinion.responseNumber,
       question: opinion.question,
       text: opinion.text,
-      categories: matchedCategories // 배정된 카테고리 리스트 (없으면 빈 배열)
+      categories: prepared.metadataOnlyIds.indexOf(opinion.id)>=0?["분석 제외(metadata-only)"]:matchedCategories
     };
   });
 
   // 최종 분석 완료 결과물을 묶어서 반환합니다.
   return {
-    validCount: opinions.length,           // 전체 유효 의견 건수
+    validCount: opinions.length-prepared.metadataOnlyIds.length,
+    rawRecordCount: opinions.length,
+    metadataOnlyCount: prepared.metadataOnlyIds.length,
+    noOpinionCount: prepared.noOpinionCount,
+    simplePositiveCount: prepared.simplePositiveCount,
+    geminiTargetCount: prepared.geminiTargetCount,
+    geminiPromptItemCount: aiOpinions.length,
     categories: categories,               // 카테고리별 통계 및 요약
-    opinionAssignments: opinionAssignments // 개별 의견별 카테고리 매핑 리스트
+    opinionAssignments: opinionAssignments, // 개별 의견별 카테고리 매핑 리스트
+    _timing:{collectMs:classificationStartedAt-collectStartedAt,classificationMs:Date.now()-classificationStartedAt}
   };
+}
+
+function normalizeDynamicOpinionForGrouping_(value){
+  return cleanText_(value).toLowerCase().replace(/[\s.,!?~ㆍ·…'"“”‘’()[\]{}:：;；-]/g,"");
+}
+
+function prepareDynamicOpinionsForAI_(opinions){
+  const noOpinion={"":true,"없음":true,"없습니다":true,"없어요":true,"없다":true,"특별히없음":true,"특별히없습니다":true,"의견없음":true,"의견이없습니다":true,"딱히없음":true,"딱히없다":true,"무":true};
+  const simplePositive={"좋음":true,"좋아요":true,"좋습니다":true,"매우좋다":true,"만족":true,"만족합니다":true,"감사합니다":true,"수고많으세요":true,"잘이용하고있습니다":true,"항상잘이용하고있습니다":true,"적당합니다":true,"굳":true};
+  const deterministic={NO_OPINION:[],SIMPLE_POSITIVE:[]},metadataOnlyIds=[],groups={},memberIdsByRepresentative={},responseById={};
+  (opinions||[]).forEach(function(item){
+    responseById[item.id]=item.responseNumber;
+    if(/^오프라인-/.test(cleanText_(item.participant))&&/^\([^()\r\n]{1,40}\)$/.test(cleanText_(item.text))){metadataOnlyIds.push(item.id);return;}
+    const normalized=normalizeDynamicOpinionForGrouping_(item.text);
+    if(noOpinion[normalized]){deterministic.NO_OPINION.push(item.id);return;}
+    if(simplePositive[normalized]){deterministic.SIMPLE_POSITIVE.push(item.id);return;}
+    const key=cleanText_(item.question)+"\u0000"+normalized;
+    if(!groups[key])groups[key]={id:item.id,responseNumber:item.responseNumber,question:item.question,text:maskDynamicPersonalInfo_(item.text),count:0,memberIds:[]};
+    groups[key].count++;groups[key].memberIds.push(item.id);
+  });
+  const aiOpinions=Object.keys(groups).map(function(key){const group=groups[key];memberIdsByRepresentative[group.id]=group.memberIds.slice();return group;});
+  const preclassifiedCategories=[];
+  if(deterministic.NO_OPINION.length)preclassifiedCategories.push({category:"의견 없음",sentiment:"OTHER",count:deterministic.NO_OPINION.length,opinionIds:deterministic.NO_OPINION,responseNumbers:deterministic.NO_OPINION.map(function(id){return responseById[id];}),representativeOpinions:[]});
+  if(deterministic.SIMPLE_POSITIVE.length)preclassifiedCategories.push({category:"긍정 의견 및 감사",sentiment:"POSITIVE",count:deterministic.SIMPLE_POSITIVE.length,opinionIds:deterministic.SIMPLE_POSITIVE,responseNumbers:deterministic.SIMPLE_POSITIVE.map(function(id){return responseById[id];}),representativeOpinions:[]});
+  return {aiOpinions:aiOpinions,memberIdsByRepresentative:memberIdsByRepresentative,preclassifiedCategories:preclassifiedCategories,
+    metadataOnlyIds:metadataOnlyIds,noOpinionCount:deterministic.NO_OPINION.length,simplePositiveCount:deterministic.SIMPLE_POSITIVE.length,
+    geminiTargetCount:aiOpinions.reduce(function(total,item){return total+item.count;},0)};
 }
 
 
@@ -382,6 +446,7 @@ function buildDynamicAIContext_(analysis, opinionAnalysis, settings, quality) {
     quality: quality || null,
     respondentCount: analysis.respondentCount, // 총 응답자 수
     satisfactionSummary: analysis.scaleSummary, // 척도(만족도) 문항 종합 요약 점수
+    scoreSummary: analysis.scoreSummary || null, // 서버가 계산한 범용 점수 평가 종합값
 
     // 2. 개별 만족도 척도 문항 통계 데이터 매핑
     satisfactionQuestions: (analysis.scale || []).map(function(item) {
@@ -395,6 +460,19 @@ function buildDynamicAIContext_(analysis, opinionAnalysis, settings, quality) {
         negativeRate: item.negativeRate, // 부정 응답률 (%)
         rank: item.rank,                 // 전체 만족도 문항 중 순위
         deviation: item.deviation        // 전체 가중평균 대비 차이
+      };
+    }),
+
+    scoreQuestions: (analysis.score || []).map(function(item) {
+      return {
+        question: item.question,
+        validCount: item.validCount,
+        missingCount: item.missingCount,
+        average: item.average,
+        min: item.min,
+        max: item.max,
+        distribution: item.distribution,
+        unmappedCount: item.unmappedCount
       };
     }),
 
@@ -420,7 +498,13 @@ function buildDynamicAIContext_(analysis, opinionAnalysis, settings, quality) {
         totalRespondentCount: question.totalRespondentCount, // 총 대상자 수
         validRespondentCount: question.validRespondentCount, // 실제 응답자 수
         totalSelectionCount: question.totalSelectionCount,   // 총 선택된 보기 개수
-        items: question.items                                 // 보기별 선택 건수 및 비율 배열
+        primaryRateDefinition:"selectionShare = selectionCount / totalSelectionCount",
+        items: (question.items||[]).map(function(item){return {
+          label:item.label,
+          selectionCount:Number(item.count||0),
+          selectionShare:Number(item.selectionRate||0),
+          respondentRate:Number(item.respondentRate||0)
+        };})
       };
     }),
 
@@ -430,6 +514,12 @@ function buildDynamicAIContext_(analysis, opinionAnalysis, settings, quality) {
     // 6. 앞에서 스크립트가 철저히 팩트 체크하여 검증을 완료한 주관식 요약 데이터 매핑
     opinionSummary: {
       validCount: opinionAnalysis.validCount,
+      rawRecordCount: opinionAnalysis.rawRecordCount,
+      metadataOnlyCount: opinionAnalysis.metadataOnlyCount,
+      noOpinionCount: opinionAnalysis.noOpinionCount,
+      simplePositiveCount: opinionAnalysis.simplePositiveCount,
+      geminiTargetCount: opinionAnalysis.geminiTargetCount,
+      geminiPromptItemCount: opinionAnalysis.geminiPromptItemCount,
       categories: opinionAnalysis.categories.map(function(category) {
         return {
           category: category.category,
@@ -449,19 +539,19 @@ function buildDynamicAIContext_(analysis, opinionAnalysis, settings, quality) {
  * @return {string} AI가 작성한 총평 텍스트 원문
  */
 function generateDynamicAISummaryText_(context) {
-  const prompt=buildDynamicAISummaryPrompt_(context);
-
-  // 팩트의 정확성을 높이기 위해 창의성(temperature)을 낮게(0.2) 설정하여 텍스트를 생성합니다.
-  return normalizeDynamicAIReportText_(callGeminiText_({
+  function payload(compact){return {
     contents: [
-      { parts: [{ text: prompt }] }
+      { parts: [{ text: buildDynamicAISummaryPrompt_(context,compact) }] }
     ],
     generationConfig: {
       temperature: 0.2,
       topP: 0.8,
-      maxOutputTokens: 4096
+      maxOutputTokens: 2048,
+      thinkingConfig:{thinkingBudget:0}
     }
-  }));
+  };}
+  return normalizeDynamicAIReportText_(callGeminiText_(payload(false),{operation:"dynamic-summary",maxAttempts:2,
+    compactPayload:function(){return payload(true);}}));
 }
 
 
@@ -473,19 +563,19 @@ function generateDynamicAISummaryText_(context) {
  * @return {string} AI가 작성한 향후계획 텍스트 원문
  */
 function generateDynamicFuturePlanText_(context, summaryText) {
-  const prompt=buildDynamicAIFuturePlanPrompt_(context,summaryText);
-
-  // 마찬가지로 팩트 왜곡 방지 및 신중한 문장 구성을 위해 뇌피셜(환각)을 극도로 제어(temperature: 0.2)합니다.
-  return normalizeDynamicAIReportText_(callGeminiText_({
+  function payload(compact){return {
     contents: [
-      { parts: [{ text: prompt }] }
+      { parts: [{ text: buildDynamicAIFuturePlanPrompt_(context,summaryText,compact) }] }
     ],
     generationConfig: {
       temperature: 0.2,
       topP: 0.8,
-      maxOutputTokens: 3072
+      maxOutputTokens: 1536,
+      thinkingConfig:{thinkingBudget:0}
     }
-  }));
+  };}
+  return normalizeDynamicAIReportText_(callGeminiText_(payload(false),{operation:"dynamic-future-plan",maxAttempts:2,
+    compactPayload:function(){return payload(true);}}));
 }
 
 function buildDynamicAIInterpretationRules_() {
@@ -503,7 +593,7 @@ function buildDynamicAIInterpretationRules_() {
   ].join("\n");
 }
 
-function buildDynamicAISummaryPrompt_(context){
+function buildDynamicAISummaryPrompt_(context,compact){
   return `
 너는 지방공공기관의 만족도 조사 결과보고서를 작성하는 행정 실무자이다.
 일반적인 AI 설명문이나 컨설팅 보고서가 아니라 부서 내부 검토·결재자료에 바로 활용할 객관적인 총평을 작성한다.
@@ -521,12 +611,12 @@ ${buildDynamicAIInterpretationRules_()}
 - 서로 관련된 통계는 하나의 ○ 문단에 묶고, "- "는 의미 범주를 구분해야 할 때만 제한적으로 사용한다.
 - 문장은 짧은 개조식으로 작성하고 '~나타남', '~확인됨', '~파악됨', '~차지함', '~검토할 필요가 있음' 등으로 종결한다.
 - '~입니다', '~했습니다', '추천합니다', '제안합니다', '기대됩니다', '~하는 것이 좋습니다' 문체를 사용하지 않는다.
-- 가용 데이터 범위에서 주요 ○ 문단 4~7개와 시사점 1~3개를 권장하되, 근거가 부족하면 개수를 줄인다.
+- 가용 데이터 범위에서 주요 ○ 문단은 최대 5개, 시사점은 최대 2개로 작성하고 전체는 1,500자 이내로 제한한다.
 
 내용 순서(데이터가 있는 항목만 작성):
 1. 조사 참여 및 응답자 특성
 2. 주요 이용 현황 또는 인지 경로
-3. 만족도 전체 평균·긍정률과 최고·상대적 최저 문항
+3. 만족도 전체 평균·긍정률 또는 점수 평가 종합점수와 최고·최저 문항
 4. 재이용·추천 또는 NPS
 5. 실제 개선 요구
 6. 실제 향후 수요
@@ -534,19 +624,23 @@ ${buildDynamicAIInterpretationRules_()}
 
 추가 제한:
 - 만족도 문항을 모두 나열하지 말고 전체 지표와 최고·상대적 최저 중심으로 작성한다.
-- 복수응답 비율은 컨텍스트의 selectionRate, respondentRate, validRespondentRate 의미를 바꾸지 않는다.
-- 복수응답 주요 결과에는 건수와 respondentRate를 함께 쓰며, 값이 없을 때 다른 비율을 응답자 선택률이라고 부르지 않는다.
+- 점수 평가가 있으면 scoreSummary와 scoreQuestions의 서버 계산값만 사용하고 점수를 다시 계산하지 않는다.
+- 복수응답의 기본 비율은 selectionShare이며 '선택 비율' 또는 '선택 구성비'라고 표현한다.
+- respondentRate를 일반적인 '비율' 또는 '이용률'로 표현하지 않는다.
+- respondentRate를 사용할 경우 반드시 '응답자 선택률'이라고 표기한다.
+- 복수응답 비율을 자체적으로 다시 계산하지 않고 서버가 제공한 selectionShare와 respondentRate만 사용한다.
 - 평균은 소수점 둘째 자리, 백분율과 NPS는 소수점 첫째 자리, 응답자와 건수는 정수로 표시하되 값을 재계산하지 않는다.
 - 주관식 의견이 없으면 주관식 결과를 언급하지 않는다.
 - 개선 요구를 분류할 때는 실제 자료에서 의미가 명확한 경우에만 범주화하고 고정 범주를 억지로 만들지 않는다.
 - 구체적인 예산, 일정, 담당 부서, 신규 사업명 또는 확정되지 않은 운영 약속을 작성하지 않는다.
+${compact?"- 재시도 축약 모드: 주요 결과 최대 4개, 시사점 최대 2개, 전체 1,000자 이내로 완결된 문장만 작성한다.":""}
 
 검증된 조사자료:
 ${JSON.stringify(context,null,2)}
 `.trim();
 }
 
-function buildDynamicAIFuturePlanPrompt_(context,summaryText){
+function buildDynamicAIFuturePlanPrompt_(context,summaryText,compact){
   return `
 너는 지방공공기관의 만족도 조사 결과를 업무계획에 반영하는 행정 실무자이다.
 향후계획은 총평을 반복하는 문서가 아니며 조사에서 확인된 요구를 향후 업무에 반영할 실행 방향을 작성한다.
@@ -569,6 +663,7 @@ ${buildDynamicAIInterpretationRules_()}
 - 시설·공간·장비처럼 예산이 수반될 수 있는 사항은 사업 필요성, 이용자 수요 및 여건을 검토한 단계적 추진사항으로 표현한다.
 - 사업명, 예산액, 일정, 대상 인원, 담당 부서를 새로 만들지 않는다.
 - 단순 감사·칭찬만 있는 경우 개선사업을 억지로 만들지 않는다.
+${compact?"- 재시도 축약 모드: 개선방향 최대 4개, 각 항목 2문장 이내, 전체 1,000자 이내로 완결한다.":""}
 
 검증된 조사자료:
 ${JSON.stringify(context,null,2)}
@@ -602,19 +697,15 @@ function createDynamicAIOpinionSheet_(analysis, opinionAnalysis) {
   // 시트 맨 상단에 제목(1~2행 병합)을 배치합니다.
   setDynamicAISheetTitle_(sheet, "Ⅵ. 주관식 분석", 7);
 
-  // 4행에 카테고리 요약 통계 테이블의 머리글(헤더)을 작성합니다.
-  sheet.getRange(4, 1, 1, 7).setValues([[
-    "순위",
-    "의미 범주",
-    "분류 건수",
-    "유효 의견 대비 비율(%)",
-    "응답 번호",
-    "대표 의견 1",
-    "대표 의견 2"
+  const counts="원문 기록 "+Number(opinionAnalysis.rawRecordCount||0)+"건 · metadata-only 제외 "+Number(opinionAnalysis.metadataOnlyCount||0)+
+    "건 · NO_OPINION "+Number(opinionAnalysis.noOpinionCount||0)+"건 · SIMPLE_POSITIVE "+Number(opinionAnalysis.simplePositiveCount||0)+
+    "건 · Gemini 분석 대상 "+Number(opinionAnalysis.geminiTargetCount||0)+"건 · 압축 전송 "+Number(opinionAnalysis.geminiPromptItemCount||0)+"건";
+  sheet.getRange(3,1,1,7).merge().setValue(counts).setBackground("#EEF3F8").setWrap(true);
+  sheet.getRange(4,1,1,7).merge().setValue("※ 하나의 의견이 복수 의미 범주에 포함될 수 있으므로 범주별 언급률 합계는 100%를 초과할 수 있습니다.").setFontColor("#64748B").setWrap(true);
+  sheet.getRange(6, 1, 1, 7).setValues([[
+    "순위","의미 범주","언급 건수","의견 대비 언급률(%)","응답 번호","대표 의견 1","대표 의견 2"
   ]]);
-
-  // 머리글 영역에 배경색, 정렬 등 공공기관 스타일 서식을 입힙니다.
-  styleDynamicAIHeader_(sheet.getRange(4, 1, 1, 7));
+  styleDynamicAIHeader_(sheet.getRange(6, 1, 1, 7));
 
   // 2차원 배열 형태로 시트에 입력할 카테고리별 요약 행 데이터를 가공합니다.
   const categoryRows = buildDynamicAIOpinionCategoryRows_(opinionAnalysis);
@@ -624,32 +715,32 @@ if (categoryRows.length > 0) {
 
     // 응답 번호가 숫자로 자동 변환되지 않도록 5열을 텍스트로 지정합니다.
     sheet
-      .getRange(5,5,categoryRows.length,1)
+      .getRange(7,5,categoryRows.length,1)
       .setNumberFormat("@");
 
     sheet
-      .getRange(5,1,categoryRows.length,7)
+      .getRange(7,1,categoryRows.length,7)
       .setValues(categoryRows);
 
     sheet
-      .getRange(5,4,categoryRows.length,1)
+      .getRange(7,4,categoryRows.length,1)
       .setNumberFormat("0.0");
-    sheet.getRange(5, 5, categoryRows.length, 1)
+    sheet.getRange(7, 5, categoryRows.length, 1)
   .setNumberFormat("@");
     
     // 테이블 전체 영역에 회색 테두리 등의 기본 격자 서식을 적용합니다.
-    styleDynamicAITable_(sheet.getRange(4, 1, categoryRows.length + 1, 7));
+    styleDynamicAITable_(sheet.getRange(6, 1, categoryRows.length + 1, 7));
 
   } else {
     // 데이터가 아예 없을 때 예외적으로 출력할 안내 문구 세팅입니다.
-    sheet.getRange(5, 1, 1, 7)
+    sheet.getRange(7, 1, 1, 7)
       .merge()
       .setValue("AI로 분류할 유효한 주관식 의견이 없습니다.")
       .setHorizontalAlignment("center");
   }
 
   // 상단 요약 표 아래에 개별 의견 상세 매핑 리스트 표를 그릴 시작 위치(행)를 동적으로 계산합니다.
-  let detailStartRow = Math.max(8, 7 + categoryRows.length);
+  let detailStartRow = Math.max(10, 9 + categoryRows.length);
 
   // 상세 표의 대제목 섹션 행을 생성하고 어두운 파란색 배경을 입힙니다.
   sheet.getRange(detailStartRow, 1, 1, 6)

@@ -22,7 +22,7 @@ context.request={responseSpreadsheetId:' sheet-id ',formId:' form-id ',title:'�
   {title:headers[1],type:'MULTIPLE'},{title:'성별',type:'RESPONDENT'},{title:'연령대',type:'RESPONDENT'},{title:'거주지역',type:'RESPONDENT'}
 ]};
 const inspect=JSON.parse(JSON.stringify(vm.runInContext('inspectGoogleFormResponsesForMappingFromWeb(request)',context)));
-assert.strictEqual(calls.openId,'sheet-id');assert.strictEqual(calls.best,1);assert.strictEqual(calls.read,1);
+assert.strictEqual(calls.openId,'sheet-id');assert.strictEqual(calls.best,0);assert.strictEqual(calls.read,1);
 assert.strictEqual(inspect.responseCount,1);assert.strictEqual(inspect.mappings[0].selectedType,'EXCLUDE');
 assert.strictEqual(inspect.mappings[1].selectedType,'MULTIPLE');
 assert.deepStrictEqual(inspect.mappings.slice(2).map(x=>x.selectedType),['RESPONDENT','RESPONDENT','RESPONDENT']);
@@ -30,6 +30,14 @@ assert(inspect.mappings.slice(1).every(x=>x.mappingSource==='GENERATED_FORM'));
 context.request.questionHints=[{title:'일치하지 않는 제목',type:'MULTIPLE'}];
 const mismatch=JSON.parse(JSON.stringify(vm.runInContext('inspectGoogleFormResponsesForMappingFromWeb(request)',context)));
 assert.strictEqual(mismatch.mappings[1].selectedType,'SINGLE');assert.strictEqual(mismatch.mappingSource,'RULE');
+const unrelatedSheet={getName:()=> '데이터',getLastRow:()=>50,getLastColumn:()=>2,getRange:()=>({getDisplayValues:()=>[['항목','값']]})};
+const emptyResponseSheet={getName:()=> '사용자 지정 이름',getLastRow:()=>1,getLastColumn:()=>headers.length,getRange:()=>({getDisplayValues:()=>[headers]})};
+spreadsheet.getSheets=()=>[unrelatedSheet,emptyResponseSheet];
+context.readSurveySheetStructureForMapping_=candidate=>candidate===unrelatedSheet?{headerRow:1,headers:['항목','값'],sampleRow:['a','b'],responseCount:49}:{headerRow:1,headers,sampleRow:headers.map(()=>''),responseCount:0};
+context.request.questionHints=[{title:headers[1],type:'MULTIPLE'},{title:'성별',type:'RESPONDENT'}];
+const emptySource=vm.runInContext('openGoogleFormResponseSource_(request)',context);assert.strictEqual(emptySource.sheet.getName(),'사용자 지정 이름');assert.strictEqual(emptySource.structure.responseCount,0);
+assert.throws(()=>vm.runInContext('inspectGoogleFormResponsesForMappingFromWeb(request)',context),error=>error.code==='GOOGLE_FORM_RESPONSE_EMPTY');
+spreadsheet.getSheets=()=>[sheet];context.readSurveySheetStructureForMapping_=()=>({headerRow:1,headers,sampleRow:rows[1],responseRows:[rows[1]],responseCount:1});
 context.request.questionHints=[];
 const imported=vm.runInContext('importGoogleFormResponsesToRawFromWeb(request)',context);
 assert.strictEqual(imported.success,true);assert.deepStrictEqual(calls.raw.values,rows);
@@ -43,7 +51,7 @@ const writerContext={console,Date,JSON,Object,cleanText_:v=>String(v||'').trim()
 vm.createContext(writerContext);vm.runInContext(writerMatch[0],writerContext);writerContext.values=[['타임스탬프','성별','만족도'],['2026-08-25 17:19','남','매우 만족']];writerContext.meta={sourceType:'GOOGLE_FORM',sourceSheetName:'응답'};
 const writeResult=vm.runInContext('writeDynamicSurveyRawValues_(values,meta)',writerContext);
 assert.strictEqual(written.revision,1);assert.deepStrictEqual(JSON.parse(JSON.stringify(written.values)),JSON.parse(JSON.stringify(writerContext.values)));assert.strictEqual(writeResult.rowCount,1);assert.strictEqual(JSON.parse(written.note).sourceType,'GOOGLE_FORM');
-const splitMatch=analysis.match(/function splitDynamicMultipleValue_\(value\) \{[\s\S]*?\n\}/);
+const splitMatch=analysis.match(/function splitDynamicMultipleValue_\(value[^)]*\) \{[\s\S]*?\n\}/);
 assert(splitMatch);vm.runInContext(splitMatch[0],context);
 context.multiple='독서·글쓰기, 인문학·교양';assert.deepStrictEqual(Array.from(vm.runInContext('splitDynamicMultipleValue_(multiple)',context)),['독서·글쓰기','인문학·교양']);
 context.multiple='인터넷(도서관 홈페이지, SNS, 배움숲), 홍보물';assert.deepStrictEqual(Array.from(vm.runInContext('splitDynamicMultipleValue_(multiple)',context)),['인터넷(도서관 홈페이지, SNS, 배움숲)','홍보물']);

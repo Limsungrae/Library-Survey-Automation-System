@@ -1,0 +1,18 @@
+const assert = require('assert');
+const fs = require('fs');
+const vm = require('vm');
+const app = fs.readFileSync('Web/survey-dashboard-v2-app.html', 'utf8');
+const html = fs.readFileSync('Web/survey-dashboard-v2.html', 'utf8');
+const match = app.match(/function parseSpreadsheetId_\(input\)\{[^\n]+\}/);
+assert(match, 'Spreadsheet parser exists');
+const context = {};
+vm.createContext(context);
+vm.runInContext(match[0], context);
+assert.strictEqual(context.parseSpreadsheetId_(' https://docs.google.com/spreadsheets/d/ABC_123-xyz/edit#gid=0 '), 'ABC_123-xyz');
+assert.strictEqual(context.parseSpreadsheetId_('ABC_123-xyz'), 'ABC_123-xyz');
+['', 'https://docs.google.com/forms/d/FORM/viewform', 'https://example.com/spreadsheets/d/ABC123', 'ABC/123', 'ABC123?gid=0'].forEach(value => assert.strictEqual(context.parseSpreadsheetId_(value), '', `rejects ${value}`));
+assert(html.includes('v2GoogleFormCard') && !html.match(/id="v2GoogleFormCard"[^>]*hidden/), 'Google Form card is always visible');
+assert(html.includes('accept=".xlsx,.xls"') && html.includes('v2GoogleFormConnectButton'), 'Excel and manual Google Form inputs coexist');
+assert(app.includes('secureInspectGoogleFormResponsesForMappingFromWeb') && app.includes('connectManualGoogleForm_') && app.includes('inspectGoogleFormSource_();'), 'manual input reuses secure inspection and mapping flow');
+assert(!app.includes('sessionStorage.setItem(GOOGLE_FORM_SOURCE_KEY'), 'dashboard does not store response content or manual source in sessionStorage');
+console.log('manual Google Form connection checks passed');

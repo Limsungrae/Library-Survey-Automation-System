@@ -20,7 +20,9 @@
  * @param {Object} payload Gemini generateContent 요청 객체
  * @return {string} Gemini가 반환한 텍스트
  */
-function callGeminiText_(payload) {
+function callGeminiText_(payload, requestOptions) {
+
+  requestOptions = requestOptions || {};
 
   const apiKey =
     getGeminiApiKey_();
@@ -36,6 +38,7 @@ function callGeminiText_(payload) {
     + encodeURIComponent(apiKey);
 
 
+  let requestPayload = payload;
   const options = {
     method:
       "post",
@@ -44,14 +47,14 @@ function callGeminiText_(payload) {
       "application/json",
 
     payload:
-      JSON.stringify(payload),
+      JSON.stringify(requestPayload),
 
     muteHttpExceptions:
       true
   };
 
 
-  const maxAttempts = 3;
+  const maxAttempts = Math.max(1, Number(requestOptions.maxAttempts || 3));
   const baseWaitTimeMs = 1200;
 
 
@@ -62,14 +65,17 @@ function callGeminiText_(payload) {
   ) {
 
     let response;
+    const requestStartedAt=Date.now();
 
 
     try {
 
       console.log("Gemini API 요청 시작", {
         model: model,
+        operation: requestOptions.operation || "generic",
         attempt: attempt,
-        maxAttempts: maxAttempts
+        maxAttempts: maxAttempts,
+        inputSize: options.payload.length
       });
 
       response =
@@ -111,11 +117,13 @@ function callGeminiText_(payload) {
     const body =
       response.getContentText();
 
-    console.log("Gemini API 응답 수신", {
-      model: model,
-      attempt: attempt,
-      status: status,
-      bodyLength: body ? body.length : 0
+      console.log("Gemini API 응답 수신", {
+        model: model,
+        operation: requestOptions.operation || "generic",
+        attempt: attempt,
+        status: status,
+        bodyLength: body ? body.length : 0,
+        elapsedMs: Date.now()-requestStartedAt
     });
 
 
@@ -238,6 +246,26 @@ function callGeminiText_(payload) {
 
       }
 
+      const completedReason = firstCandidate && firstCandidate.finishReason
+        ? String(firstCandidate.finishReason).toUpperCase() : "";
+
+      console.log("Gemini 요청 결과", {operation:requestOptions.operation||"generic",attempt:attempt,
+        finishReason:completedReason||"확인되지 않음",elapsedMs:Date.now()-requestStartedAt,
+        inputSize:options.payload.length,outputTextLength:text.length});
+
+      if (completedReason !== "STOP") {
+        console.warn("Gemini 응답 미완료", {model:model,attempt:attempt,finishReason:completedReason||"확인되지 않음"});
+        if (completedReason === "MAX_TOKENS" && attempt < maxAttempts) {
+          if(typeof requestOptions.compactPayload==="function"){
+            requestPayload=requestOptions.compactPayload(requestPayload,attempt);
+            options.payload=JSON.stringify(requestPayload);
+          }
+          Utilities.sleep(baseWaitTimeMs * Math.pow(2, attempt - 1));
+          continue;
+        }
+        throw new Error("Gemini 응답이 완전하게 생성되지 않았습니다. 종료 사유: "+(completedReason||"확인되지 않음"));
+      }
+
 
       return text;
     }
@@ -353,7 +381,8 @@ function extractGeminiCandidateText_(parts) {
 function callGeminiJson_(
   prompt,
   schemaText,
-  beforeParse
+  beforeParse,
+  requestOptions
 ) {
 
   const payload = {
@@ -394,10 +423,16 @@ function callGeminiJson_(
 
   };
 
+  requestOptions=requestOptions||{};
+  if(requestOptions.generationConfig){
+    Object.keys(requestOptions.generationConfig).forEach(function(key){payload.generationConfig[key]=requestOptions.generationConfig[key];});
+  }
+
 
   const text =
     callGeminiText_(
-      payload
+      payload,
+      requestOptions
     );
 
   if (typeof beforeParse === "function") {
