@@ -260,7 +260,7 @@ function renderDynamicDashboardTopRows_(sheet,items,startRow,startColumn,emptyTe
     sheet.getRange(startRow,startColumn).setValue(emptyText).setFontSize(10).setFontColor("#64748B").setWrap(true);
     sheet.setRowHeight(startRow,40);return;}
   sheet.getRange(startRow,1).setValue("순위");sheet.getRange(startRow,2,1,9).merge().setValue("항목");
-  sheet.getRange(startRow,11,1,3).merge().setValue("선택건수");sheet.getRange(startRow,14,1,3).merge().setValue("응답자 선택률");
+  sheet.getRange(startRow,11,1,3).merge().setValue("선택건수");sheet.getRange(startRow,14,1,3).merge().setValue("선택 비율");
   styleDynamicReportHeader_(sheet.getRange(startRow,1,1,16));sheet.setRowHeight(startRow,30);
   shown.forEach(function(item,index){
     const row=startRow+1+index;
@@ -609,7 +609,7 @@ function selectDynamicDashboardMultipleQuestion_(
 
 function buildDynamicDashboardItems_(source,fixedMaximum,limit,isScale){
   const items=(source||[]).map(function(item,index){
-    const rateCandidates=isScale?[item.positiveRate]:[item.respondentRate,item.selectionRate,item.validRespondentRate];
+    const rateCandidates=isScale?[item.positiveRate]:[item.selectionRate,item.respondentRate,item.validRespondentRate];
     const rateValue=rateCandidates.find(function(value){return value!==null&&value!==undefined&&Number.isFinite(Number(value));});
     return {label:cleanText_(item.question||item.label),value:Number(isScale?item.average:item.count||0),
       rate:rateValue===undefined?null:Number(rateValue),originalIndex:index};
